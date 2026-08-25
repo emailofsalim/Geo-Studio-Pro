@@ -20,7 +20,7 @@ import {
   FileCode,
   ShieldCheck
 } from 'lucide-react';
-import { parseCSV, stripBOM, toCSVtext, csvEnc, kmlBuild, dxfBuild, buildExcelZip } from '../lib/formats';
+import { parseCSV, stripBOM, toCSVtext, csvEnc, kmlBuild, dxfBuild, buildExcelZip, buildShapefileZip } from '../lib/formats';
 import { downloadBlob, makeZip } from '../lib/zip';
 import { BoreRow, GeoFeature, MineProfile, BoreholeHole } from '../types';
 import { BORE_PRESETS, boreClassifyInterval, boreSummary, boreCardHTML, boreOpSym } from '../lib/mineProfiles';
@@ -323,6 +323,31 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
     downloadBlob(new TextEncoder().encode(res.dxf), `${activeProfile.name}_Borehole_Collars.dxf`, 'application/dxf');
   };
 
+  // Export ESRI Shapefile Bundle (.zip)
+  const handleExportShapefile = () => {
+    const feats: GeoFeature[] = holes.map(h => {
+      const u = lonLatToUtm(h.lon, h.lat, zNum, isSouth);
+      const s = boreSummary(h, activeProfile);
+      return {
+        name: h.id,
+        geom: 'point',
+        kind: 'en',
+        pts: [{ a: u.E, b: u.N }],
+        props: {
+          Hole_ID: h.id,
+          Status: s.positive ? 'ORE' : 'WASTE',
+          EOH_Depth: Number(h.eoh.toFixed(2)),
+          Ore_Thk: Number(s.oreThk.toFixed(2)),
+          OB_m: Number(s.ob.toFixed(2)),
+          Strip_Ratio: s.strip != null ? Number(s.strip.toFixed(2)) : 0
+        }
+      };
+    });
+
+    const zipBytes = buildShapefileZip(feats, `${activeProfile.name}_Boreholes`, zNum, isSouth);
+    downloadBlob(zipBytes, `${activeProfile.name}_Boreholes_shp.zip`, 'application/zip');
+  };
+
   // Map Features
   const mapFeatures: GeoFeature[] = useMemo(() => {
     return holes.map(h => {
@@ -479,6 +504,13 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={handleExportShapefile}
+              className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-[#c9a063] hover:text-[#d6b074] rounded-xl text-xs font-semibold border border-[#c9a063]/30"
+              title="Export all borehole collar coordinates and ore classifications to ESRI Shapefile Bundle (.zip)"
+            >
+              Shapefile (.zip)
+            </button>
             <button
               onClick={handleExportKML}
               className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-white rounded-xl text-xs font-semibold border border-white/10"

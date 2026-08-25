@@ -31,7 +31,10 @@ import {
   wktBuild,
   buildExcelZip,
   toCSVtext,
-  csvEnc
+  csvEnc,
+  parseShapefile,
+  buildShapefileZip,
+  extractAllFeaturesFromZip
 } from '../lib/formats';
 import { validateFeatures } from '../lib/qa';
 import { downloadBlob, readZip } from '../lib/zip';
@@ -64,7 +67,7 @@ export const FormatConverterTab: React.FC<FormatConverterTabProps> = ({ workingZ
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
 
-  // Handle File Input (supports single files and .zip/.kmz archives)
+  // Handle File Input (supports single files, shapefiles, and .zip/.kmz archives)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -78,44 +81,37 @@ export const FormatConverterTab: React.FC<FormatConverterTabProps> = ({ workingZ
 
       if (ext === 'zip' || ext === 'kmz') {
         const buf = await file.arrayBuffer();
+        const extractedDatasets = await extractAllFeaturesFromZip(buf, zNum, isSouth);
         const filesMap = await readZip(buf);
         const extractedList: ExtractedArchiveFile[] = [];
-        const dec = new TextDecoder();
 
         for (const entryName of Object.keys(filesMap)) {
           const entryExt = entryName.split('.').pop()?.toLowerCase() || '';
           const bytes = filesMap[entryName];
           if (!bytes || !bytes.length) continue;
-          const text = stripBOM(dec.decode(bytes));
-          let fileFeats: GeoFeature[] = [];
-
-          if (entryExt === 'kml' || entryName.endsWith('.kml')) {
-            fileFeats = kmlParse(text);
-          } else if (entryExt === 'geojson' || entryExt === 'json') {
-            fileFeats = geoJsonParse(text);
-          } else if (entryExt === 'dxf') {
-            fileFeats = dxfParse(text);
-          } else if (entryExt === 'csv') {
-            fileFeats = csvToFeatures(parseCSV(text), zNum, isSouth);
-          } else if (entryExt === 'gpx') {
-            fileFeats = gpxParse(text);
-          } else if (entryExt === 'wkt') {
-            fileFeats = wktParse(text);
-          }
-
-          feats.push(...fileFeats);
+          
+          const matchingDataset = extractedDatasets.find(ds => ds.fileName === entryName || ds.fileName.endsWith(entryName));
           extractedList.push({
             name: entryName,
             size: bytes.length,
             ext: entryExt,
             bytes,
-            featureCount: fileFeats.length
+            featureCount: matchingDataset ? matchingDataset.features.length : 0
           });
         }
 
+        extractedDatasets.forEach(ds => {
+          feats.push(...ds.features);
+        });
+
         setArchiveFiles(extractedList);
         setSourceFormat(ext);
-        setStatusMsg(`Extracted ${extractedList.length} file(s) from ${file.name}, parsed ${feats.length} spatial features.`);
+        setStatusMsg(`Extracted ${extractedList.length} archive entries (${extractedDatasets.length} spatial datasets) from ${file.name}, parsed ${feats.length} features.`);
+      } else if (ext === 'shp') {
+        const buf = await file.arrayBuffer();
+        feats = parseShapefile(new Uint8Array(buf), undefined, undefined, zNum, isSouth);
+        setSourceFormat('shp');
+        setStatusMsg(`Successfully loaded ESRI Shapefile "${file.name}" with ${feats.length} features.`);
       } else {
         const text = stripBOM(await file.text());
 
@@ -163,6 +159,7 @@ export const FormatConverterTab: React.FC<FormatConverterTabProps> = ({ workingZ
     else if (f.ext === 'dxf') mime = 'application/dxf';
     else if (f.ext === 'geojson' || f.ext === 'json') mime = 'application/geo+json';
     else if (f.ext === 'gpx') mime = 'application/gpx+xml';
+    else if (f.ext === 'shp') mime = 'application/x-shapefile';
     downloadBlob(f.bytes, f.name.split('/').pop() || f.name, mime);
   };
 
@@ -180,7 +177,10 @@ export const FormatConverterTab: React.FC<FormatConverterTabProps> = ({ workingZ
     }
 
     try {
-      if (targetFormat === 'kmz') {
+      if (targetFormat === 'shp') {
+        const zipBytes = buildShapefileZip(loadedFeatures, fileName, zNum, isSouth);
+        downloadBlob(zipBytes, `${fileName}_shp.zip`, 'application/zip');
+      } else if (targetFormat === 'kmz') {
         const kmzList = featuresToKMZ(loadedFeatures, '#c9a063', { zone: zNum, south: isSouth });
         kmzList.forEach(kmz => {
           downloadBlob(kmz.bytes, `${fileName}.kmz`, 'application/vnd.google-earth.kmz');
@@ -264,6 +264,7 @@ export const FormatConverterTab: React.FC<FormatConverterTabProps> = ({ workingZ
               onChange={e => setTargetFormat(e.target.value)}
               className="w-full py-2.5 px-3 rounded-xl border border-white/10 bg-[#141414] text-white text-sm font-medium focus:outline-none focus:border-[#c9a063]"
             >
+              <option value="shp">ESRI Shapefile Bundle (.zip - shp/dbf/prj)</option>
               <option value="kml">Google Earth KML (.kml)</option>
               <option value="kmz">Google Earth KMZ Archive (.kmz)</option>
               <option value="dxf">AutoCAD DXF (.dxf)</option>

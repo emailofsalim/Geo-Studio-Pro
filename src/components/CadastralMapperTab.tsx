@@ -20,8 +20,23 @@ import {
   MapPin
 } from 'lucide-react';
 import { CadastralParcel, CadastralProfile, GeoFeature } from '../types';
-import { polygonAreaPerimeter, formatAreaAllUnits } from '../lib/geodesy';
-import { parseCSV, stripBOM, toCSVtext, csvEnc, kmlBuild, dxfBuild, buildExcelZip, geoJsonBuild } from '../lib/formats';
+import { polygonAreaPerimeter, formatAreaAllUnits, lonLatToUtm } from '../lib/geodesy';
+import {
+  parseCSV,
+  stripBOM,
+  toCSVtext,
+  csvEnc,
+  kmlBuild,
+  dxfBuild,
+  buildExcelZip,
+  geoJsonBuild,
+  geoJsonParse,
+  kmlParse,
+  dxfParse,
+  parseShapefile,
+  buildShapefileZip,
+  extractAllFeaturesFromZip
+} from '../lib/formats';
 import { downloadBlob } from '../lib/zip';
 import { VectorRadarMap } from './VectorRadarMap';
 
@@ -249,62 +264,123 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
   const totalHa = totalM2 / 10000;
   const totalAc = totalM2 / 4046.8564224;
 
-  // Handle Geometry CSV / KML / GeoJSON Upload
+  // Handle Geometry CSV / KML / GeoJSON / Shapefile / ZIP Upload
   const handleUploadGeometry = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const text = stripBOM(await file.text());
-      const rows = parseCSV(text);
-      if (rows.length < 2) return;
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      let feats: GeoFeature[] = [];
 
-      const hdr = rows[0].map(h => h.trim().toLowerCase());
-      const khIdx = hdr.findIndex(h => h.includes('khasra') || h.includes('plot') || h.includes('id') || h === 'name');
-      const vilIdx = hdr.findIndex(h => h.includes('vil') || h.includes('mouza'));
-      const ownIdx = hdr.findIndex(h => h.includes('own') || h.includes('name'));
-      const eIdx = hdr.findIndex(h => h.includes('east') || h === 'e' || h === 'x');
-      const nIdx = hdr.findIndex(h => h.includes('north') || h === 'n' || h === 'y');
+      if (ext === 'zip' || ext === 'kmz') {
+        const buf = await file.arrayBuffer();
+        const datasets = await extractAllFeaturesFromZip(buf, zNum, isSouth);
+        datasets.forEach(ds => {
+          feats.push(...ds.features);
+        });
+      } else if (ext === 'shp') {
+        const buf = await file.arrayBuffer();
+        feats = parseShapefile(new Uint8Array(buf), undefined, undefined, zNum, isSouth);
+      } else if (ext === 'geojson' || ext === 'json') {
+        const text = stripBOM(await file.text());
+        feats = geoJsonParse(text);
+      } else if (ext === 'kml') {
+        const text = stripBOM(await file.text());
+        feats = kmlParse(text);
+      } else if (ext === 'dxf') {
+        const text = stripBOM(await file.text());
+        feats = dxfParse(text);
+      } else {
+        const text = stripBOM(await file.text());
+        const rows = parseCSV(text);
+        if (rows.length >= 2) {
+          const hdr = rows[0].map(h => h.trim().toLowerCase());
+          const khIdx = hdr.findIndex(h => h.includes('khasra') || h.includes('plot') || h.includes('id') || h === 'name');
+          const vilIdx = hdr.findIndex(h => h.includes('vil') || h.includes('mouza'));
+          const ownIdx = hdr.findIndex(h => h.includes('own') || h.includes('name'));
+          const eIdx = hdr.findIndex(h => h.includes('east') || h === 'e' || h === 'x');
+          const nIdx = hdr.findIndex(h => h.includes('north') || h === 'n' || h === 'y');
 
-      const groups: Record<string, { khasra: string; village: string; owner: string; pts: { E: number; N: number }[] }> = {};
+          const groups: Record<string, { khasra: string; village: string; owner: string; pts: { E: number; N: number }[] }> = {};
 
-      rows.slice(1).forEach((r, idx) => {
-        const kh = khIdx >= 0 ? r[khIdx] : `Parcel-${idx + 1}`;
-        const vil = vilIdx >= 0 ? r[vilIdx] : 'Mouza Rampur';
-        const own = ownIdx >= 0 ? r[ownIdx] : 'Unknown';
-        const E = parseFloat(r[eIdx]);
-        const N = parseFloat(r[nIdx]);
+          rows.slice(1).forEach((r, idx) => {
+            const kh = khIdx >= 0 ? r[khIdx] : `Parcel-${idx + 1}`;
+            const vil = vilIdx >= 0 ? r[vilIdx] : 'Mouza Rampur';
+            const own = ownIdx >= 0 ? r[ownIdx] : 'Unknown';
+            const E = parseFloat(r[eIdx]);
+            const N = parseFloat(r[nIdx]);
 
-        if (!isNaN(E) && !isNaN(N)) {
-          if (!groups[kh]) groups[kh] = { khasra: kh, village: vil, owner: own, pts: [] };
-          groups[kh].pts.push({ E, N });
-        }
-      });
-
-      const parsed: CadastralParcel[] = [];
-      Object.keys(groups).forEach(kh => {
-        const g = groups[kh];
-        if (g.pts.length >= 3) {
-          const poly = polygonAreaPerimeter(g.pts);
-          const rec = landRecords[kh];
-          parsed.push({
-            khasra: g.khasra,
-            village: rec?.Village || g.village,
-            owner: rec?.Owner || g.owner,
-            mouza: rec?.ThanaNo ? `Thana ${rec.ThanaNo}` : 'Mouza',
-            sheet: 'Sheet 01',
-            status: rec?.Land_Class || 'Agricultural',
-            pts: g.pts,
-            areaM2: poly.areaM2,
-            areaHa: poly.areaHa,
-            areaAcres: poly.areaAcres
+            if (!isNaN(E) && !isNaN(N)) {
+              if (!groups[kh]) groups[kh] = { khasra: kh, village: vil, owner: own, pts: [] };
+              groups[kh].pts.push({ E, N });
+            }
           });
-        }
-      });
 
-      if (parsed.length > 0) {
-        setParcels(parsed);
-        setGeometryLoadedName(file.name);
-        setStatusMsg(`Successfully loaded ${parsed.length} cadastral polygon plots from ${file.name}`);
+          const parsed: CadastralParcel[] = [];
+          Object.keys(groups).forEach(kh => {
+            const g = groups[kh];
+            if (g.pts.length >= 3) {
+              const poly = polygonAreaPerimeter(g.pts);
+              const rec = landRecords[kh];
+              parsed.push({
+                khasra: g.khasra,
+                village: rec?.Village || g.village,
+                owner: rec?.Owner || g.owner,
+                mouza: rec?.ThanaNo ? `Thana ${rec.ThanaNo}` : 'Mouza',
+                sheet: 'Sheet 01',
+                status: rec?.Land_Class || 'Agricultural',
+                pts: g.pts,
+                areaM2: poly.areaM2,
+                areaHa: poly.areaHa,
+                areaAcres: poly.areaAcres
+              });
+            }
+          });
+
+          if (parsed.length > 0) {
+            setParcels(parsed);
+            setGeometryLoadedName(file.name);
+            setStatusMsg(`Successfully loaded ${parsed.length} cadastral polygon plots from ${file.name}`);
+            return;
+          }
+        }
+      }
+
+      if (feats.length > 0) {
+        const parsed: CadastralParcel[] = [];
+        feats.forEach((f, idx) => {
+          const ptsUtm = f.pts.map(p => {
+            if (f.kind === 'll') {
+              const u = lonLatToUtm(p.a, p.b, zNum, isSouth);
+              return { E: u.E, N: u.N };
+            }
+            return { E: p.a, N: p.b };
+          });
+
+          if (ptsUtm.length >= 3) {
+            const poly = polygonAreaPerimeter(ptsUtm);
+            const plotKey = String(f.props?.plot || f.props?.khasra || f.props?.Plot_No || f.name || `Parcel_${idx + 1}`);
+            const rec = landRecords[plotKey];
+            parsed.push({
+              khasra: plotKey,
+              village: String(rec?.Village || f.props?.village || f.props?.Village || 'Mouza Rampur'),
+              owner: String(rec?.Owner || f.props?.owner || f.props?.Owner || 'Government / Raiyat'),
+              mouza: rec?.ThanaNo ? `Thana ${rec.ThanaNo}` : 'Mouza',
+              sheet: 'Sheet 01',
+              status: String(rec?.Land_Class || f.props?.Land_Class || f.props?.class || 'Agricultural'),
+              pts: ptsUtm,
+              areaM2: poly.areaM2,
+              areaHa: poly.areaHa,
+              areaAcres: poly.areaAcres
+            });
+          }
+        });
+
+        if (parsed.length > 0) {
+          setParcels(parsed);
+          setGeometryLoadedName(file.name);
+          setStatusMsg(`Successfully extracted ${parsed.length} cadastral plots from ${file.name}`);
+        }
       }
     } catch (err: any) {
       setStatusMsg(`Error reading Geometry file: ${err.message}`);
@@ -458,6 +534,27 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
     downloadBlob(new TextEncoder().encode(jsonStr), 'Cadastral_Parcels.geojson', 'application/geo+json');
   };
 
+  // Export ESRI Shapefile Bundle (.zip)
+  const handleExportShapefile = () => {
+    const feats: GeoFeature[] = parcels.map(p => ({
+      name: `Plot_${p.khasra}`,
+      geom: 'polygon',
+      kind: 'en',
+      pts: p.pts.map(pt => ({ a: pt.E, b: pt.N })),
+      props: {
+        Plot_No: p.khasra,
+        Village: p.village,
+        Owner: p.owner,
+        Class: p.status,
+        Area_Ha: Number(p.areaHa.toFixed(4)),
+        Area_M2: Number(p.areaM2.toFixed(2))
+      }
+    }));
+    const zipBytes = buildShapefileZip(feats, 'Cadastral_Parcels', zNum, isSouth);
+    downloadBlob(zipBytes, 'Cadastral_Parcels_shp.zip', 'application/zip');
+    setStatusMsg(`Exported ESRI Shapefile bundle with ${parcels.length} parcel polygons!`);
+  };
+
   // Convert parcels to GeoFeatures for VectorRadarMap
   const mapFeatures: GeoFeature[] = useMemo(() => {
     return parcels.map(p => ({
@@ -586,6 +683,13 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={handleExportShapefile}
+              className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-[#c9a063] hover:text-[#d6b074] rounded-xl text-xs font-semibold border border-[#c9a063]/30"
+              title="Export all cadastral parcels to ESRI Shapefile Bundle (.zip)"
+            >
+              Shapefile (.zip)
+            </button>
             <button
               onClick={handleExportKML}
               className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-white rounded-xl text-xs font-semibold border border-white/10"

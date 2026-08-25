@@ -22,10 +22,15 @@ import {
   dxfBuild,
   geoJsonParse,
   geoJsonBuild,
+  gpxParse,
+  wktParse,
   toCSVtext,
-  csvEnc
+  csvEnc,
+  parseShapefile,
+  buildShapefileZip,
+  extractAllFeaturesFromZip
 } from '../lib/formats';
-import { zipFiles, downloadBlob, readZip } from '../lib/zip';
+import { zipFiles, downloadBlob, readZip, makeZip } from '../lib/zip';
 import { GeoFeature } from '../types';
 
 interface MergeSplitTabProps {
@@ -48,7 +53,7 @@ export const MergeSplitTab: React.FC<MergeSplitTabProps> = ({ workingZone }) => 
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
 
-  // Handle Multi-file Upload for Merge (including .zip & .kmz)
+  // Handle Multi-file Upload for Merge (including .zip & .kmz & .shp)
   const handleMergeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || !files.length) return;
@@ -61,29 +66,17 @@ export const MergeSplitTab: React.FC<MergeSplitTabProps> = ({ workingZone }) => 
 
       if (ext === 'zip' || ext === 'kmz') {
         const buf = await file.arrayBuffer();
-        const filesMap = await readZip(buf);
-        const dec = new TextDecoder();
-
-        for (const entryName of Object.keys(filesMap)) {
-          const entryExt = entryName.split('.').pop()?.toLowerCase();
-          const bytes = filesMap[entryName];
-          if (!bytes || !bytes.length) continue;
-          const text = stripBOM(dec.decode(bytes));
-          let innerFeats: GeoFeature[] = [];
-
-          if (entryExt === 'kml' || entryName.endsWith('.kml')) {
-            innerFeats = kmlParse(text);
-          } else if (entryExt === 'geojson' || entryExt === 'json') {
-            innerFeats = geoJsonParse(text);
-          } else if (entryExt === 'dxf') {
-            innerFeats = dxfParse(text);
-          } else if (entryExt === 'csv') {
-            innerFeats = csvToFeatures(parseCSV(text), zNum, isSouth);
+        const datasets = await extractAllFeaturesFromZip(buf, zNum, isSouth);
+        datasets.forEach(ds => {
+          if (ds.features.length > 0) {
+            newFiles.push({ name: `${file.name} ➔ ${ds.layerName}`, features: ds.features });
           }
-
-          if (innerFeats.length > 0) {
-            newFiles.push({ name: `${file.name}/${entryName}`, features: innerFeats });
-          }
+        });
+      } else if (ext === 'shp') {
+        const buf = await file.arrayBuffer();
+        const feats = parseShapefile(new Uint8Array(buf), undefined, undefined, zNum, isSouth);
+        if (feats.length > 0) {
+          newFiles.push({ name: file.name, features: feats });
         }
       } else {
         const text = stripBOM(await file.text());
@@ -97,6 +90,10 @@ export const MergeSplitTab: React.FC<MergeSplitTabProps> = ({ workingZone }) => 
           feats = dxfParse(text);
         } else if (ext === 'geojson' || ext === 'json') {
           feats = geoJsonParse(text);
+        } else if (ext === 'gpx') {
+          feats = gpxParse(text);
+        } else if (ext === 'wkt') {
+          feats = wktParse(text);
         }
 
         if (feats.length > 0) {
@@ -116,7 +113,10 @@ export const MergeSplitTab: React.FC<MergeSplitTabProps> = ({ workingZone }) => 
       combinedFeats.push(...f.features);
     });
 
-    if (mergeOutputFormat === 'kmz') {
+    if (mergeOutputFormat === 'shp') {
+      const zipBytes = buildShapefileZip(combinedFeats, 'Merged_Dataset', zNum, isSouth);
+      downloadBlob(zipBytes, 'Merged_Dataset_shp.zip', 'application/zip');
+    } else if (mergeOutputFormat === 'kmz') {
       const kmzList = featuresToKMZ(combinedFeats, '#c9a063', { zone: zNum, south: isSouth });
       kmzList.forEach(kmz => {
         downloadBlob(kmz.bytes, 'Merged_Dataset.kmz', 'application/vnd.google-earth.kmz');
@@ -142,7 +142,7 @@ export const MergeSplitTab: React.FC<MergeSplitTabProps> = ({ workingZone }) => 
     }
   };
 
-  // Handle Split Upload (including .zip & .kmz)
+  // Handle Split Upload (including .zip, .kmz & .shp)
   const handleSplitUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -151,23 +151,13 @@ export const MergeSplitTab: React.FC<MergeSplitTabProps> = ({ workingZone }) => 
 
     if (ext === 'zip' || ext === 'kmz') {
       const buf = await file.arrayBuffer();
-      const filesMap = await readZip(buf);
-      const dec = new TextDecoder();
-      for (const entryName of Object.keys(filesMap)) {
-        const entryExt = entryName.split('.').pop()?.toLowerCase();
-        const bytes = filesMap[entryName];
-        if (!bytes || !bytes.length) continue;
-        const text = stripBOM(dec.decode(bytes));
-        if (entryExt === 'kml' || entryName.endsWith('.kml')) {
-          feats.push(...kmlParse(text));
-        } else if (entryExt === 'geojson' || entryExt === 'json') {
-          feats.push(...geoJsonParse(text));
-        } else if (entryExt === 'dxf') {
-          feats.push(...dxfParse(text));
-        } else if (entryExt === 'csv') {
-          feats.push(...csvToFeatures(parseCSV(text), zNum, isSouth));
-        }
-      }
+      const datasets = await extractAllFeaturesFromZip(buf, zNum, isSouth);
+      datasets.forEach(ds => {
+        feats.push(...ds.features);
+      });
+    } else if (ext === 'shp') {
+      const buf = await file.arrayBuffer();
+      feats = parseShapefile(new Uint8Array(buf), undefined, undefined, zNum, isSouth);
     } else {
       const text = stripBOM(await file.text());
       if (ext === 'csv') {
@@ -178,6 +168,10 @@ export const MergeSplitTab: React.FC<MergeSplitTabProps> = ({ workingZone }) => 
         feats = dxfParse(text);
       } else if (ext === 'geojson' || ext === 'json') {
         feats = geoJsonParse(text);
+      } else if (ext === 'gpx') {
+        feats = gpxParse(text);
+      } else if (ext === 'wkt') {
+        feats = wktParse(text);
       }
     }
 
@@ -214,7 +208,10 @@ export const MergeSplitTab: React.FC<MergeSplitTabProps> = ({ workingZone }) => 
 
     Object.keys(groups).forEach(groupName => {
       const gFeats = groups[groupName];
-      if (splitFormat === 'kml') {
+      if (splitFormat === 'shp') {
+        const shpZip = buildShapefileZip(gFeats, groupName, zNum, isSouth);
+        zipFilesList.push({ name: `${groupName}_shp.zip`, data: shpZip });
+      } else if (splitFormat === 'kml') {
         const kml = kmlBuild(gFeats, groupName, true, zNum, isSouth);
         zipFilesList.push({ name: `${groupName}.kml`, data: new TextEncoder().encode(kml) });
       } else if (splitFormat === 'dxf') {
@@ -313,6 +310,7 @@ export const MergeSplitTab: React.FC<MergeSplitTabProps> = ({ workingZone }) => 
                   onChange={e => setMergeOutputFormat(e.target.value)}
                   className="py-2.5 px-3 rounded-xl border border-white/10 bg-[#141414] text-white text-xs font-medium focus:outline-none focus:border-[#c9a063]"
                 >
+                  <option value="shp">Output as ESRI Shapefile Bundle (.zip)</option>
                   <option value="kml">Output as KML (.kml)</option>
                   <option value="kmz">Output as KMZ Archive (.kmz)</option>
                   <option value="dxf">Output as AutoCAD DXF (.dxf)</option>
@@ -390,6 +388,7 @@ export const MergeSplitTab: React.FC<MergeSplitTabProps> = ({ workingZone }) => 
                     onChange={e => setSplitFormat(e.target.value)}
                     className="w-full py-2.5 px-3 rounded-xl border border-white/10 bg-[#0f0f0f] text-white text-xs font-medium focus:outline-none focus:border-[#c9a063]"
                   >
+                    <option value="shp">Multiple ESRI Shapefile Bundles (.zip)</option>
                     <option value="kml">Multiple KML Files (.zip)</option>
                     <option value="dxf">Multiple AutoCAD DXF Files (.zip)</option>
                     <option value="geojson">Multiple GeoJSON Files (.zip)</option>

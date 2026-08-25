@@ -190,6 +190,25 @@ export function App() {
     window.location.reload();
   };
 
+  const handleAddFeaturesToGis = (features: any[], layerName: string) => {
+    const newLayer = {
+      id: `layer_${Date.now()}`,
+      name: layerName,
+      visible: true,
+      color: '#c9a063',
+      fillColor: '#c9a063',
+      fillOpacity: 0.35,
+      strokeWidth: 2,
+      geomType: 'point',
+      features
+    };
+    try {
+      const existing = JSON.parse(localStorage.getItem('gis_studio_layers') || '[]');
+      localStorage.setItem('gis_studio_layers', JSON.stringify([newLayer, ...existing]));
+    } catch (err) {}
+    setActiveTab('gis');
+  };
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-[#d4d4d4] flex flex-col font-sans transition-colors duration-150 selection:bg-[#c9a063]/30 selection:text-[#f5f5f5]">
       {/* Top Header */}
@@ -257,6 +276,7 @@ export function App() {
               localLandUnitPreset={localLandUnitPreset}
               customBighaM2={customBighaM2}
               customKathaPerBigha={customKathaPerBigha}
+              onSendToGisLayers={handleAddFeaturesToGis}
             />
           )}
 

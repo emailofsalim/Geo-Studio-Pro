@@ -13,7 +13,9 @@ import {
   Mountain,
   Box,
   Crosshair,
-  ListOrdered
+  ListOrdered,
+  Camera,
+  Ruler
 } from 'lucide-react';
 import {
   vincentyCore,
@@ -30,21 +32,27 @@ import {
 } from '../lib/geodesy';
 import { downloadBlob } from '../lib/zip';
 import { toCSVtext, csvEnc } from '../lib/formats';
+import { CameraLandmarkStudio } from './CameraLandmarkStudio';
+import { GeoFeature } from '../types';
 
 interface SurveyCalculatorTabProps {
+  workingZone?: string;
   localLandUnitPreset: string;
   customBighaM2: number;
   customKathaPerBigha: number;
+  onSendToGisLayers?: (features: GeoFeature[], layerName: string) => void;
 }
 
 export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
+  workingZone = '45N',
   localLandUnitPreset,
   customBighaM2,
-  customKathaPerBigha
+  customKathaPerBigha,
+  onSendToGisLayers
 }) => {
   const [activeSubTool, setActiveSubTool] = useState<
-    'vincenty' | 'traverse' | 'area' | 'curve' | 'intersect' | 'leveling' | 'dipstrike' | 'volume' | 'resection' | 'calc'
-  >('vincenty');
+    'camera' | 'vincenty' | 'traverse' | 'area' | 'curve' | 'intersect' | 'leveling' | 'dipstrike' | 'volume' | 'resection' | 'calc'
+  >('camera');
 
   // Vincenty State
   const [vLon1, setVLon1] = useState('84.601550');
@@ -303,6 +311,7 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
 
         <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5 text-xs font-semibold">
           {[
+            { id: 'camera', label: 'GPS Cam & Rangefinder', icon: Camera },
             { id: 'vincenty', label: 'Vincenty Geodesic', icon: Compass },
             { id: 'traverse', label: 'Traverse Balancing', icon: TrendingUp },
             { id: 'leveling', label: 'Differential Leveling', icon: ListOrdered },
@@ -333,6 +342,14 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
           })}
         </div>
       </div>
+
+      {/* 0. GPS Camera & Visual Landmark Rangefinder Studio */}
+      {activeSubTool === 'camera' && (
+        <CameraLandmarkStudio
+          workingZone={workingZone}
+          onSendToGisLayers={onSendToGisLayers}
+        />
+      )}
 
       {/* 2. Vincenty Geodesic Sub-tool */}
       {activeSubTool === 'vincenty' && (

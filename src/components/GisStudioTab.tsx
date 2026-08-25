@@ -37,8 +37,24 @@ import {
 } from 'lucide-react';
 import { GeoFeature, GeoPoint, GisLayer, TopologyIssue } from '../types';
 import { lonLatToUtm, utmToLonLat, polygonAreaPerimeter, pointInPoly, vincentyCore, toDMSstr, formatAreaAllUnits } from '../lib/geodesy';
-import { parseCSV, stripBOM, toCSVtext, csvEnc, kmlBuild, dxfBuild, geoJsonBuild, buildExcelZip, csvToFeatures, kmlParse, geoJsonParse, dxfParse } from '../lib/formats';
-import { downloadBlob } from '../lib/zip';
+import {
+  parseCSV,
+  stripBOM,
+  toCSVtext,
+  csvEnc,
+  kmlBuild,
+  dxfBuild,
+  geoJsonBuild,
+  buildExcelZip,
+  csvToFeatures,
+  kmlParse,
+  geoJsonParse,
+  dxfParse,
+  parseShapefile,
+  buildShapefileZip,
+  extractAllFeaturesFromZip
+} from '../lib/formats';
+import { downloadBlob, makeZip } from '../lib/zip';
 import {
   Point2D,
   computeConvexHull,
@@ -916,14 +932,73 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
     setStatusBanner(`Topology QA Audit complete: Found ${issues.length} item(s) to review.`);
   };
 
-  // Layer File Upload (GeoJSON, KML, DXF, CSV)
+  // Layer File Upload (GeoJSON, KML, KMZ, Shapefile, DXF, CSV, ZIP)
   const handleImportLayerFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
-      const text = stripBOM(await file.text());
       const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      const colorPalette = ['#38bdf8', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316', '#e11d48'];
+
+      if (ext === 'zip' || ext === 'kmz') {
+        const buf = await file.arrayBuffer();
+        const extractedDatasets = await extractAllFeaturesFromZip(buf, zNum, isSouth);
+
+        if (extractedDatasets.length === 0) {
+          setStatusBanner(`No parseable geospatial features found in archive ${file.name}`);
+          return;
+        }
+
+        const newLayers: GisLayer[] = extractedDatasets.map((ds, idx) => {
+          const color = colorPalette[idx % colorPalette.length];
+          return {
+            id: `imp_${Date.now()}_${idx}`,
+            name: ds.layerName,
+            visible: true,
+            color,
+            fillColor: color,
+            fillOpacity: ds.geomType === 'polygon' ? 0.25 : 0.4,
+            strokeWidth: 2,
+            geomType: ds.geomType,
+            features: ds.features
+          };
+        });
+
+        setLayers(prev => [...newLayers, ...prev]);
+        setActiveLayerId(newLayers[0].id);
+
+        const totalFeats = newLayers.reduce((s, l) => s + l.features.length, 0);
+        setStatusBanner(`Extracted ${newLayers.length} layer(s) and ${totalFeats} feature(s) from "${file.name}"`);
+        fitView();
+        return;
+      }
+
+      if (ext === 'shp') {
+        const buf = await file.arrayBuffer();
+        const feats = parseShapefile(new Uint8Array(buf), undefined, undefined, zNum, isSouth);
+        if (feats.length > 0) {
+          const firstGeom = feats[0].geom;
+          const newLayer: GisLayer = {
+            id: `imp_${Date.now()}`,
+            name: file.name.replace(/\.[^/.]+$/, ''),
+            visible: true,
+            color: firstGeom === 'polygon' ? '#38bdf8' : firstGeom === 'line' ? '#a855f7' : '#10b981',
+            fillColor: firstGeom === 'polygon' ? '#38bdf8' : '#10b981',
+            fillOpacity: 0.25,
+            strokeWidth: 2,
+            geomType: firstGeom,
+            features: feats
+          };
+          setLayers(prev => [newLayer, ...prev]);
+          setActiveLayerId(newLayer.id);
+          setStatusBanner(`Imported Shapefile "${newLayer.name}" with ${feats.length} features.`);
+          fitView();
+        }
+        return;
+      }
+
+      const text = stripBOM(await file.text());
       let feats: GeoFeature[] = [];
 
       if (ext === 'geojson' || ext === 'json') {
@@ -949,13 +1024,65 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
           geomType: firstGeom,
           features: feats
         };
-        setLayers([newLayer, ...layers]);
+        setLayers(prev => [newLayer, ...prev]);
         setActiveLayerId(newLayer.id);
         setStatusBanner(`Imported layer "${newLayer.name}" with ${feats.length} features.`);
+        fitView();
       }
     } catch (err: any) {
       setStatusBanner(`Error importing layer: ${err.message}`);
     }
+  };
+
+  // Export Active Layer to ESRI Shapefile Bundle (.zip)
+  const handleExportShapefile = () => {
+    if (!activeLayer.features.length) return;
+    const zipBytes = buildShapefileZip(activeLayer.features, activeLayer.name, zNum, isSouth);
+    downloadBlob(zipBytes, `${activeLayer.name.toLowerCase().replace(/\s+/g, '_')}_shp.zip`, 'application/zip');
+    setStatusBanner(`Exported ESRI Shapefile bundle for "${activeLayer.name}"`);
+  };
+
+  // Export All Layers as Complete Multi-Layer Zip Archive
+  const handleExportAllLayersZip = () => {
+    const enc = new TextEncoder();
+    const filesToZip: { name: string; data: Uint8Array }[] = [];
+
+    layers.forEach(l => {
+      const sName = l.name.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+      // 1. GeoJSON
+      const geojsonStr = geoJsonBuild(l.features, zNum, isSouth);
+      filesToZip.push({ name: `geojson/${sName}.geojson`, data: enc.encode(geojsonStr) });
+      // 2. KML
+      const kmlStr = kmlBuild(l.features, l.name, true, zNum, isSouth);
+      filesToZip.push({ name: `kml/${sName}.kml`, data: enc.encode(kmlStr) });
+      // 3. DXF
+      const dxfRes = dxfBuild(l.features, 'utm', zNum, isSouth, true);
+      filesToZip.push({ name: `dxf/${sName}.dxf`, data: enc.encode(dxfRes.dxf) });
+      // 4. CSV Table
+      const headers = ['ID', 'Name', 'Geometry', 'Coords_Count', 'Easting', 'Northing', 'Longitude', 'Latitude'];
+      const rows: string[][] = [];
+      l.features.forEach((f, idx) => {
+        const p = f.pts[0] || { a: 0, b: 0 };
+        const isLL = f.kind === 'll';
+        const utm = isLL ? lonLatToUtm(p.a, p.b, zNum, isSouth) : { E: p.a, N: p.b };
+        const ll = isLL ? { lon: p.a, lat: p.b } : utmToLonLat(p.a, p.b, zNum, isSouth);
+        rows.push([
+          String(idx + 1),
+          f.name || `Feat_${idx + 1}`,
+          f.geom,
+          String(f.pts.length),
+          utm.E.toFixed(3),
+          utm.N.toFixed(3),
+          ll.lon.toFixed(7),
+          ll.lat.toFixed(7)
+        ]);
+      });
+      filesToZip.push({ name: `csv/${sName}.csv`, data: enc.encode(toCSVtext(headers, rows)) });
+    });
+
+    const fullZip = makeZip(filesToZip);
+    downloadBlob(fullZip, `GIS_Studio_All_Layers_${new Date().toISOString().slice(0, 10)}.zip`, 'application/zip');
+    setStatusBanner(`Exported multi-layer package with all ${layers.length} layers in Shapefile, GeoJSON, KML, DXF, and CSV!`);
   };
 
   // Export Active Layer to GeoJSON
@@ -1401,6 +1528,20 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={handleExportShapefile}
+              className="px-2.5 py-1 bg-[#141414] hover:bg-[#1a1a1a] text-[#c9a063] hover:text-[#d6b074] rounded-lg text-xs border border-[#c9a063]/30 font-semibold flex items-center gap-1"
+              title="Export active layer as ESRI Shapefile Bundle (.zip)"
+            >
+              <FolderArchive className="w-3.5 h-3.5 text-[#c9a063]" /> Shapefile (.zip)
+            </button>
+            <button
+              onClick={handleExportAllLayersZip}
+              className="px-2.5 py-1 bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold rounded-lg text-xs flex items-center gap-1 shadow-sm"
+              title="Export all layers in all GIS formats packaged into a single ZIP archive"
+            >
+              <Download className="w-3.5 h-3.5" /> All Layers (.zip)
+            </button>
             <button
               onClick={handleExportGeoJSON}
               className="px-2.5 py-1 bg-[#141414] hover:bg-[#1a1a1a] text-white rounded-lg text-xs border border-white/10 font-mono"

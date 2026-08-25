@@ -207,3 +207,83 @@ export interface TopologyIssue {
   location?: { E: number; N: number };
 }
 
+export interface LandmarkMeasurement {
+  id: string;
+  type: 'distance' | 'height' | 'angle' | 'offset';
+  p1: { x: number; y: number }; // normalized [0..1]
+  p2: { x: number; y: number };
+  valueLabel: string;
+  realWorldValue?: number;
+  unit: string;
+  color?: string;
+}
+
+export interface PhotoLandmark {
+  id: string;
+  name: string;
+  timestamp: number;
+  dataUrl: string;
+  lon: number;
+  lat: number;
+  altitude?: number;
+  accuracy?: number;
+  azimuth?: number;
+  cardinal?: string;
+  pitch?: number;
+  roll?: number;
+  slopePercent?: number;
+  targetDistanceMeters?: number;
+  targetHeightMeters?: number;
+  deviceHeightMeters?: number;
+  notes?: string;
+  measurements: LandmarkMeasurement[];
+  zone?: number;
+  south?: boolean;
+  utmE?: number;
+  utmN?: number;
+  project?: string;
+  surveyor?: string;
+}
+
+export type GeofenceType = 'polygon' | 'circle' | 'corridor';
+export type GeofenceRule = 'keep_in' | 'keep_out' | 'speed_limit' | 'dwell_limit' | 'corridor_tracking';
+export type GeofenceSeverity = 'critical' | 'high' | 'warning' | 'info';
+
+export interface GeofenceZone {
+  id: string;
+  name: string;
+  type: GeofenceType;
+  rule: GeofenceRule;
+  severity: GeofenceSeverity;
+  enabled: boolean;
+  color: string;
+  fillOpacity: number;
+  coordinates: GeoPoint[]; // polygon vertices or circle center (1 pt) or corridor polyline
+  radiusMeters?: number; // for circular geofence
+  corridorWidthMeters?: number; // for corridor buffer width
+  bufferWarningMeters?: number; // pre-breach warning buffer in meters
+  speedLimitKmh?: number; // max allowable speed in km/h
+  maxDwellSeconds?: number; // max dwell time allowed in seconds
+  description?: string;
+  category?: string;
+  kind: 'll' | 'en';
+}
+
+export interface GeofenceBreachEvent {
+  id: string;
+  timestamp: number;
+  fenceId: string;
+  fenceName: string;
+  eventType: 'ENTER' | 'EXIT' | 'SPEED_BREACH' | 'DWELL_BREACH' | 'CORRIDOR_DEVIATION' | 'BUFFER_WARNING';
+  severity: GeofenceSeverity;
+  lat: number;
+  lon: number;
+  utmE?: number;
+  utmN?: number;
+  speedKmh: number;
+  heading?: number;
+  distanceToBoundaryMeters: number;
+  message: string;
+}
+
+
