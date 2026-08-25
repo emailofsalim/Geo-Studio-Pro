@@ -1,0 +1,159 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Globe, Calculator, MapPin, Layers, FileSpreadsheet, Compass, FileCode, Layers2, Spline, BookOpen, HelpCircle, Moon, Sun, Settings, Trash2, ArrowRight } from 'lucide-react';
+import { AppTabId, APPS_CONFIG } from './Navigation';
+
+interface CommandPaletteProps {
+  isOpen: boolean;
+  onClose: () => void;
+  setActiveTab: (tab: AppTabId) => void;
+  isDark: boolean;
+  setIsDark: (d: boolean) => void;
+  openSettings: () => void;
+}
+
+export const CommandPalette: React.FC<CommandPaletteProps> = ({
+  isOpen,
+  onClose,
+  setActiveTab,
+  isDark,
+  setIsDark,
+  openSettings
+}) => {
+  const [query, setQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setQuery('');
+      setSelectedIndex(0);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [isOpen]);
+
+  const actions = [
+    ...APPS_CONFIG.map(app => ({
+      id: `app-${app.id}`,
+      title: `Open ${app.name}`,
+      category: 'Tools & Apps',
+      icon: app.icon,
+      run: () => {
+        setActiveTab(app.id);
+        onClose();
+      }
+    })),
+    {
+      id: 'act-theme',
+      title: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
+      category: 'Appearance',
+      icon: isDark ? Sun : Moon,
+      run: () => {
+        setIsDark(!isDark);
+        onClose();
+      }
+    },
+    {
+      id: 'act-settings',
+      title: 'Open Settings & Preferences',
+      category: 'Settings',
+      icon: Settings,
+      run: () => {
+        openSettings();
+        onClose();
+      }
+    }
+  ];
+
+  const filtered = actions.filter(a =>
+    a.title.toLowerCase().includes(query.toLowerCase().trim()) ||
+    a.category.toLowerCase().includes(query.toLowerCase().trim())
+  );
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex(prev => (prev + 1) % (filtered.length || 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex(prev => (prev - 1 + (filtered.length || 1)) % (filtered.length || 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filtered[selectedIndex]) {
+        filtered[selectedIndex].run();
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-start justify-center pt-24 px-4">
+      <div
+        className="w-full max-w-xl bg-[#0f0f0f] rounded-2xl shadow-2xl border border-white/10 overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center px-5 border-b border-white/5">
+          <Search className="w-4 h-4 text-[#c9a063] shrink-0" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={e => {
+              setQuery(e.target.value);
+              setSelectedIndex(0);
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="Type a command or jump to an application..."
+            className="w-full py-4 px-3.5 bg-transparent text-white placeholder-white/30 text-sm focus:outline-none font-sans"
+          />
+          <kbd className="px-2 py-0.5 text-[10px] font-mono bg-white/5 text-white/40 rounded border border-white/10">
+            ESC
+          </kbd>
+        </div>
+
+        <div className="max-h-80 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+          {filtered.length === 0 ? (
+            <div className="p-8 text-center text-xs text-white/40 font-light">
+              No matching commands or tools found.
+            </div>
+          ) : (
+            filtered.map((item, idx) => {
+              const Icon = item.icon;
+              const isSelected = idx === selectedIndex;
+              return (
+                <button
+                  key={item.id}
+                  onClick={item.run}
+                  onMouseEnter={() => setSelectedIndex(idx)}
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all ${
+                    isSelected
+                      ? 'bg-white/5 border border-white/10 text-white font-medium shadow-xs'
+                      : 'text-white/60 hover:bg-white/5 hover:text-white border border-transparent'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    {isSelected ? (
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#c9a063]"></div>
+                    ) : (
+                      <Icon className="w-4 h-4 text-white/40" />
+                    )}
+                    <span>{item.title}</span>
+                  </div>
+                  <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono">{item.category}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        <div className="px-5 py-2.5 bg-[#0a0a0a] border-t border-white/5 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-white/30">
+          <span>Navigate with <kbd className="font-mono text-white/60">↑</kbd> <kbd className="font-mono text-white/60">↓</kbd></span>
+          <span>Select with <kbd className="font-mono text-white/60">Enter</kbd></span>
+        </div>
+      </div>
+    </div>
+  );
+};
