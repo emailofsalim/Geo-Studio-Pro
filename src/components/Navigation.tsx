@@ -20,6 +20,7 @@ import {
 
 export type AppTabId =
   | 'templates'
+  | 'gis'
   | 'convert'
   | 'gps'
   | 'calc'
@@ -52,11 +53,12 @@ interface NavigationProps {
 
 export const APPS_CONFIG: { id: AppTabId; name: string; category: string; icon: any }[] = [
   { id: 'templates', name: 'Home & Templates', category: 'Overview', icon: FileSpreadsheet },
+  { id: 'gis', name: 'GIS Map Studio', category: 'Conversion & GIS', icon: Layers },
   { id: 'gps', name: 'GPS Field Surveyor', category: 'Field & Coordinates', icon: CompassIcon },
   { id: 'convert', name: 'Coordinate Converter', category: 'Field & Coordinates', icon: Globe },
   { id: 'calc', name: 'Survey Calculator', category: 'Field & Coordinates', icon: Calculator },
-  { id: 'studio', name: 'Format Converter', category: 'Conversion & GIS', icon: Layers },
-  { id: 'combine', name: 'Merge & Split', category: 'Conversion & GIS', icon: FileCode },
+  { id: 'studio', name: 'Format Converter', category: 'Conversion & GIS', icon: FileCode },
+  { id: 'combine', name: 'Merge & Split', category: 'Conversion & GIS', icon: Layers2 },
   { id: 'bhunaksha', name: 'BhuNaksha Digitizer', category: 'Exploration & Cadastre', icon: Scan },
   { id: 'bore', name: 'Borehole Mapper', category: 'Exploration & Cadastre', icon: MapPin },
   { id: 'cad', name: 'Cadastral Mapper', category: 'Exploration & Cadastre', icon: Layers2 },

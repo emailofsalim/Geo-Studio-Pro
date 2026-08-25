@@ -10,6 +10,7 @@ import { downloadBlob } from './lib/zip';
 
 // Tabs
 import { HomeTemplatesTab } from './components/HomeTemplatesTab';
+import { GisStudioTab } from './components/GisStudioTab';
 import { CoordinateConverterTab } from './components/CoordinateConverterTab';
 import { GpsSurveyorTab } from './components/GpsSurveyorTab';
 import { SurveyCalculatorTab } from './components/SurveyCalculatorTab';
@@ -220,6 +221,15 @@ export function App() {
           {activeTab === 'templates' && (
             <HomeTemplatesTab
               setActiveTab={setActiveTab}
+              workingZone={workingZone}
+              localLandUnitPreset={localLandUnitPreset}
+              customBighaM2={customBighaM2}
+              customKathaPerBigha={customKathaPerBigha}
+            />
+          )}
+
+          {activeTab === 'gis' && (
+            <GisStudioTab
               workingZone={workingZone}
               localLandUnitPreset={localLandUnitPreset}
               customBighaM2={customBighaM2}

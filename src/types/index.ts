@@ -177,3 +177,33 @@ export interface LandUnitPreset {
   also: LocalLandUnit[];
 }
 
+export interface GisLayer {
+  id: string;
+  name: string;
+  visible: boolean;
+  color: string;
+  fillColor: string;
+  fillOpacity: number;
+  strokeWidth: number;
+  geomType: 'point' | 'line' | 'polygon' | 'mixed';
+  features: GeoFeature[];
+  attributesSchema?: { key: string; label: string; type: 'string' | 'number' | 'date' }[];
+}
+
+export interface SpatialAnalysisResult {
+  title: string;
+  type: string;
+  timestamp: string;
+  summary: string;
+  metrics: Record<string, string | number>;
+  generatedFeatures?: GeoFeature[];
+}
+
+export interface TopologyIssue {
+  type: 'self_intersection' | 'duplicate_vertex' | 'sliver_polygon' | 'non_closed' | 'overlap';
+  severity: 'error' | 'warning' | 'info';
+  featureName: string;
+  description: string;
+  location?: { E: number; N: number };
+}
+

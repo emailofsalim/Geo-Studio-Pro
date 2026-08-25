@@ -137,11 +137,19 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({ setActiveTab
             Engineered for high-order geodesy, bidirectional Bursa-Wolf transformations, IBM/JORC borehole compositing, Bowditch traverse balancing, revenue cadastral partition mapping, and offline GIS conversions.
           </p>
           <div className="flex items-center gap-4 pt-4 flex-wrap">
+            {setActiveTab && (
+              <button
+                onClick={() => setActiveTab('gis')}
+                className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-[#c9a063]/10"
+              >
+                <Layers className="w-4 h-4" /> Open GIS Map Studio
+              </button>
+            )}
             <button
               onClick={handleDownloadAllZip}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-[#c9a063]/10"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-white font-semibold text-xs uppercase tracking-wider transition-all border border-white/10"
             >
-              <FolderArchive className="w-4 h-4" /> Download All Templates (.zip)
+              <FolderArchive className="w-4 h-4 text-[#c9a063]" /> Download All Templates (.zip)
             </button>
             <button
               onClick={handleDownloadDataDictionary}
