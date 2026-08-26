@@ -1156,4 +1156,147 @@ export function solveTienstraResection(
   };
 }
 
+// ---------------- Open Location Code (Plus Code) Generator ----------------
+const OLC_ALPHABET = '23456789CFGHJMPQRVWX';
+
+export function encodePlusCode(latitude: number, longitude: number, codeLength: number = 10): string {
+  // Normalize lat & lon
+  let lat = Math.min(90, Math.max(-90, latitude));
+  let lon = longitude;
+  while (lon < -180) lon += 360;
+  while (lon >= 180) lon -= 360;
+
+  if (lat === 90) {
+    lat = lat - 1e-10;
+  }
+
+  // Shift to positive values
+  let latVal = lat + 90;
+  let lonVal = lon + 180;
+
+  let code = '';
+  // First pair (resolution: 20 deg)
+  let latDigit = Math.floor(latVal / 20);
+  let lonDigit = Math.floor(lonVal / 20);
+  latVal -= latDigit * 20;
+  lonVal -= lonDigit * 20;
+  code += OLC_ALPHABET[latDigit] + OLC_ALPHABET[lonDigit];
+
+  // Subsequent pairs (1 deg, 0.05 deg, 0.0025 deg, 0.000125 deg)
+  const steps = [1, 0.05, 0.0025, 0.000125];
+  for (let i = 0; i < steps.length && code.length < codeLength; i++) {
+    const step = steps[i];
+    latDigit = Math.floor(latVal / step);
+    lonDigit = Math.floor(lonVal / step);
+    latVal -= latDigit * step;
+    lonVal -= lonDigit * step;
+    code += OLC_ALPHABET[Math.min(19, Math.max(0, latDigit))] + OLC_ALPHABET[Math.min(19, Math.max(0, lonDigit))];
+  }
+
+  // Insert plus sign at index 8
+  if (code.length >= 8) {
+    code = code.substring(0, 8) + '+' + code.substring(8);
+  } else {
+    code = code + '+';
+  }
+
+  return code;
+}
+
+// ---------------- GPS Multi-Sample Averaging Statistics (Handy GPS style) ----------------
+export interface GpsSample {
+  E: number;
+  N: number;
+  Z: number;
+  lat: number;
+  lon: number;
+  acc: number;
+  timestamp?: number;
+}
+
+export interface GpsAveragingStats {
+  sampleCount: number;
+  avgE: number;
+  avgN: number;
+  avgZ: number;
+  avgLat: number;
+  avgLon: number;
+  stdDevE: number;
+  stdDevN: number;
+  stdDevZ: number;
+  cep50: number;    // Circular Error Probable (50% confidence radius in metres)
+  cep95: number;    // 95% confidence radius (approx 2.44 * sigma)
+  drms2: number;    // 2DRMS (approx 2 * sqrt(sigmaE^2 + sigmaN^2))
+  plusCode: string;
+  dmsLat: string;
+  dmsLon: string;
+  qualityGrade: 'Survey-Grade' | 'Mapping-Grade' | 'Sub-Meter' | 'Recreational' | 'Coarse';
+}
+
+export function computeGpsAveragingStats(samples: GpsSample[]): GpsAveragingStats | null {
+  if (!samples || samples.length === 0) return null;
+  const n = samples.length;
+
+  // Compute arithmetic means
+  let sumE = 0, sumN = 0, sumZ = 0, sumLat = 0, sumLon = 0;
+  for (const s of samples) {
+    sumE += s.E;
+    sumN += s.N;
+    sumZ += (s.Z || 0);
+    sumLat += s.lat;
+    sumLon += s.lon;
+  }
+  const avgE = sumE / n;
+  const avgN = sumN / n;
+  const avgZ = sumZ / n;
+  const avgLat = sumLat / n;
+  const avgLon = sumLon / n;
+
+  // Compute standard deviations
+  let varE = 0, varN = 0, varZ = 0;
+  for (const s of samples) {
+    varE += Math.pow(s.E - avgE, 2);
+    varN += Math.pow(s.N - avgN, 2);
+    varZ += Math.pow((s.Z || 0) - avgZ, 2);
+  }
+  const stdDevE = Math.sqrt(varE / Math.max(1, n - 1));
+  const stdDevN = Math.sqrt(varN / Math.max(1, n - 1));
+  const stdDevZ = Math.sqrt(varZ / Math.max(1, n - 1));
+
+  // Circular Error Probable (CEP) calculations:
+  // Approximate CEP 50% = 0.5887 * (stdDevE + stdDevN) or 0.562 * sigmaMax + 0.614 * sigmaMin
+  const sigmaMin = Math.min(stdDevE, stdDevN);
+  const sigmaMax = Math.max(stdDevE, stdDevN);
+  const cep50 = n > 1 ? 0.562 * sigmaMax + 0.614 * sigmaMin : samples[0].acc * 0.68;
+  const drms2 = n > 1 ? 2 * Math.sqrt(stdDevE * stdDevE + stdDevN * stdDevN) : samples[0].acc * 2.0;
+  const cep95 = n > 1 ? 2.08 * cep50 : samples[0].acc * 1.96;
+
+  // Quality rating
+  let qualityGrade: GpsAveragingStats['qualityGrade'] = 'Recreational';
+  if (cep95 < 0.05) qualityGrade = 'Survey-Grade';
+  else if (cep95 < 0.3) qualityGrade = 'Sub-Meter';
+  else if (cep95 < 1.5) qualityGrade = 'Mapping-Grade';
+  else if (cep95 < 5.0) qualityGrade = 'Recreational';
+  else qualityGrade = 'Coarse';
+
+  return {
+    sampleCount: n,
+    avgE: parseFloat(avgE.toFixed(4)),
+    avgN: parseFloat(avgN.toFixed(4)),
+    avgZ: parseFloat(avgZ.toFixed(3)),
+    avgLat: parseFloat(avgLat.toFixed(8)),
+    avgLon: parseFloat(avgLon.toFixed(8)),
+    stdDevE: parseFloat(stdDevE.toFixed(4)),
+    stdDevN: parseFloat(stdDevN.toFixed(4)),
+    stdDevZ: parseFloat(stdDevZ.toFixed(4)),
+    cep50: parseFloat(cep50.toFixed(4)),
+    cep95: parseFloat(cep95.toFixed(4)),
+    drms2: parseFloat(drms2.toFixed(4)),
+    plusCode: encodePlusCode(avgLat, avgLon),
+    dmsLat: toDMSstr(avgLat, true),
+    dmsLon: toDMSstr(avgLon, false),
+    qualityGrade
+  };
+}
+
 

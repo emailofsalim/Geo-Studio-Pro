@@ -15,14 +15,21 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  ShieldAlert,
+  Camera
 } from 'lucide-react';
 
 export type AppTabId =
   | 'templates'
   | 'gis'
-  | 'convert'
+  | 'geofence'
+  | 'gf'
+  | 'camera'
+  | 'cam'
+  | 'photo'
   | 'gps'
+  | 'convert'
   | 'calc'
   | 'studio'
   | 'combine'
@@ -54,7 +61,9 @@ interface NavigationProps {
 export const APPS_CONFIG: { id: AppTabId; name: string; category: string; icon: any }[] = [
   { id: 'templates', name: 'Home & Templates', category: 'Overview', icon: FileSpreadsheet },
   { id: 'gis', name: 'GIS Map Studio', category: 'Conversion & GIS', icon: Layers },
+  { id: 'camera', name: 'GPS Map Camera', category: 'Field & Coordinates', icon: Camera },
   { id: 'gps', name: 'GPS Field Surveyor', category: 'Field & Coordinates', icon: CompassIcon },
+  { id: 'geofence', name: 'Geofence Sentinel', category: 'Field & Coordinates', icon: ShieldAlert },
   { id: 'convert', name: 'Coordinate Converter', category: 'Field & Coordinates', icon: Globe },
   { id: 'calc', name: 'Survey Calculator', category: 'Field & Coordinates', icon: Calculator },
   { id: 'studio', name: 'Format Converter', category: 'Conversion & GIS', icon: FileCode },

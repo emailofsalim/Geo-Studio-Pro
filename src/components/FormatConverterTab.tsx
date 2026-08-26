@@ -34,7 +34,15 @@ import {
   csvEnc,
   parseShapefile,
   buildShapefileZip,
-  extractAllFeaturesFromZip
+  extractAllFeaturesFromZip,
+  mapinfoMifMidParse,
+  topoJsonParse,
+  gmlXmlParse,
+  landXmlParse,
+  surpacMiningStringParse,
+  asciiGridDemParse,
+  worldFileRasterParse,
+  osmXmlParse
 } from '../lib/formats';
 import { validateFeatures } from '../lib/qa';
 import { downloadBlob, readZip } from '../lib/zip';
@@ -115,7 +123,7 @@ export const FormatConverterTab: React.FC<FormatConverterTabProps> = ({ workingZ
       } else {
         const text = stripBOM(await file.text());
 
-        if (ext === 'csv') {
+        if (ext === 'csv' || ext === 'tsv' || ext === 'xyz' || ext === 'txt') {
           const rows = parseCSV(text);
           feats = csvToFeatures(rows, zNum, isSouth);
           setSourceFormat('csv');
@@ -125,15 +133,46 @@ export const FormatConverterTab: React.FC<FormatConverterTabProps> = ({ workingZ
         } else if (ext === 'dxf') {
           feats = dxfParse(text);
           setSourceFormat('dxf');
-        } else if (ext === 'geojson' || ext === 'json') {
-          feats = geoJsonParse(text);
-          setSourceFormat('geojson');
+        } else if (ext === 'geojson' || ext === 'json' || ext === 'topojson') {
+          if (text.includes('"Topology"') || ext === 'topojson') {
+            feats = topoJsonParse(text);
+            setSourceFormat('topojson');
+          } else {
+            feats = geoJsonParse(text);
+            setSourceFormat('geojson');
+          }
         } else if (ext === 'gpx') {
           feats = gpxParse(text);
           setSourceFormat('gpx');
         } else if (ext === 'wkt') {
           feats = wktParse(text);
           setSourceFormat('wkt');
+        } else if (ext === 'mif') {
+          feats = mapinfoMifMidParse(text, undefined, zNum, isSouth);
+          setSourceFormat('mif');
+        } else if (ext === 'xml' || ext === 'landxml') {
+          if (text.includes('<LandXML') || text.includes('<CgPoint') || text.includes('<Parcel')) {
+            feats = landXmlParse(text, zNum, isSouth);
+            setSourceFormat('landxml');
+          } else if (text.includes('<gml:') || text.includes('xmlns:gml')) {
+            feats = gmlXmlParse(text, zNum, isSouth);
+            setSourceFormat('gml');
+          } else {
+            feats = gmlXmlParse(text, zNum, isSouth);
+            setSourceFormat('xml');
+          }
+        } else if (ext === 'osm') {
+          feats = osmXmlParse(text);
+          setSourceFormat('osm');
+        } else if (ext === 'str' || ext === 'dat') {
+          feats = surpacMiningStringParse(text, zNum, isSouth);
+          setSourceFormat('str');
+        } else if (ext === 'asc' || ext === 'grd' || ext === 'dem') {
+          feats = asciiGridDemParse(file.name, text, zNum, isSouth);
+          setSourceFormat('dem');
+        } else if (ext === 'tfw' || ext === 'jgw' || ext === 'pgw' || ext === 'wld') {
+          feats = worldFileRasterParse(file.name, text, zNum, isSouth);
+          setSourceFormat('wld');
         } else {
           setStatusMsg(`Unsupported file type .${ext}`);
           return;

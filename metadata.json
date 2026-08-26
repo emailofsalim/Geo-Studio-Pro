@@ -1,6 +1,6 @@
 {
   "name": "GeoStudio Geomatics Suite",
-  "description": "Professional offline geomatics, GIS & cadastral toolkit with coordinate transformations, GNSS surveyor, borehole mapping, survey calculator, cadastral land management, format conversion, and interactive offline maps.",
+  "description": "Professional offline geomatics, GIS & cadastral toolkit with coordinate transformations, GNSS surveyor, real-time geofence sentinel & boundary monitoring, borehole mapping, survey calculator, cadastral land management, universal archive extractor, and interactive offline maps.",
   "requestFramePermissions": [
     "geolocation",
     "camera"

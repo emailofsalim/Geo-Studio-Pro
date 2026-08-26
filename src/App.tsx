@@ -17,6 +17,8 @@ import { SurveyCalculatorTab } from './components/SurveyCalculatorTab';
 import { FormatConverterTab } from './components/FormatConverterTab';
 import { MergeSplitTab } from './components/MergeSplitTab';
 import { BoreholeMapperTab } from './components/BoreholeMapperTab';
+import { GeofenceStudioTab } from './components/GeofenceStudioTab';
+import { CameraLandmarkStudio } from './components/CameraLandmarkStudio';
 import { CadastralMapperTab } from './components/CadastralMapperTab';
 import { BhunakshaDigitizerTab } from './components/BhunakshaDigitizerTab';
 import { BoundaryOffsetTab } from './components/BoundaryOffsetTab';
@@ -253,6 +255,20 @@ export function App() {
               localLandUnitPreset={localLandUnitPreset}
               customBighaM2={customBighaM2}
               customKathaPerBigha={customKathaPerBigha}
+            />
+          )}
+
+          {(activeTab === 'geofence' || activeTab === 'gf') && (
+            <GeofenceStudioTab
+              workingZone={workingZone}
+              onSendToGis={(features) => handleAddFeaturesToGis(features, 'Geofence Boundaries')}
+            />
+          )}
+
+          {(activeTab === 'camera' || activeTab === 'cam' || activeTab === 'photo') && (
+            <CameraLandmarkStudio
+              workingZone={workingZone}
+              onSendToGisLayers={handleAddFeaturesToGis}
             />
           )}
 

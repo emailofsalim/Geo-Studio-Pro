@@ -14,9 +14,10 @@ import {
 } from 'lucide-react';
 import { TEMPLATES, DATA_DICTIONARY, buildAllTemplatesZip } from '../lib/templates';
 import { downloadBlob, readZip } from '../lib/zip';
-import { toCSVtext, csvEnc, stripBOM, parseCSV, csvToFeatures, kmlParse, geoJsonParse, dxfParse } from '../lib/formats';
+import { toCSVtext, csvEnc, stripBOM, parseCSV, csvToFeatures, kmlParse, geoJsonParse, dxfParse, extractAllFeaturesFromZip } from '../lib/formats';
 import { AppTabId } from './Navigation';
 import { GeoFeature } from '../types';
+import { ShieldAlert, Radio } from 'lucide-react';
 
 interface HomeTemplatesTabProps {
   setActiveTab?: (tab: AppTabId) => void;
@@ -88,34 +89,25 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({ setActiveTab
     if (!file) return;
     try {
       const buf = await file.arrayBuffer();
+      const extractedDs = await extractAllFeaturesFromZip(buf, zNum, isSouth);
       const filesMap = await readZip(buf);
-      const dec = new TextDecoder();
       const list: { name: string; size: number; bytes: Uint8Array; featCount: number }[] = [];
 
       for (const name of Object.keys(filesMap)) {
         const bytes = filesMap[name];
         if (!bytes || !bytes.length) continue;
-        const ext = name.split('.').pop()?.toLowerCase() || '';
-        let feats: GeoFeature[] = [];
-
-        try {
-          const text = stripBOM(dec.decode(bytes));
-          if (ext === 'kml' || name.endsWith('.kml')) feats = kmlParse(text);
-          else if (ext === 'geojson' || ext === 'json') feats = geoJsonParse(text);
-          else if (ext === 'dxf') feats = dxfParse(text);
-          else if (ext === 'csv') feats = csvToFeatures(parseCSV(text), zNum, isSouth);
-        } catch {}
-
+        const matchingDs = extractedDs.find(d => d.fileName === name || d.fileName.endsWith(name));
         list.push({
           name,
           size: bytes.length,
           bytes,
-          featCount: feats.length
+          featCount: matchingDs ? matchingDs.features.length : 0
         });
       }
 
       setZipFilesList(list);
-      setZipStatus(`Successfully extracted ${list.length} files from ${file.name}`);
+      const totalFeats = extractedDs.reduce((acc, d) => acc + d.features.length, 0);
+      setZipStatus(`Successfully extracted ${list.length} archive items (${extractedDs.length} geospatial datasets, ${totalFeats} features) from ${file.name}`);
     } catch (err: any) {
       setZipStatus(`Failed to extract archive: ${err.message}`);
     }
@@ -138,12 +130,20 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({ setActiveTab
           </p>
           <div className="flex items-center gap-4 pt-4 flex-wrap">
             {setActiveTab && (
-              <button
-                onClick={() => setActiveTab('gis')}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-[#c9a063]/10"
-              >
-                <Layers className="w-4 h-4" /> Open GIS Map Studio
-              </button>
+              <>
+                <button
+                  onClick={() => setActiveTab('gis')}
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-[#c9a063]/10"
+                >
+                  <Layers className="w-4 h-4" /> Open GIS Map Studio
+                </button>
+                <button
+                  onClick={() => setActiveTab('geofence')}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-red-600/90 hover:bg-red-500 text-white font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-red-500/20"
+                >
+                  <ShieldAlert className="w-4 h-4" /> Geofence Sentinel
+                </button>
+              </>
             )}
             <button
               onClick={handleDownloadAllZip}

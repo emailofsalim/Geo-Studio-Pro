@@ -243,6 +243,19 @@ export interface PhotoLandmark {
   utmN?: number;
   project?: string;
   surveyor?: string;
+  client?: string;
+  inspectionId?: string;
+  hashtags?: string;
+  plusCode?: string;
+  mgrs?: string;
+  weatherCondition?: string;
+  temperatureC?: number;
+  humidityPct?: number;
+  windKmh?: number;
+  pressureHpa?: number;
+  magneticDeclination?: number;
+  integrityHash?: string;
+  brandLogoUrl?: string;
 }
 
 export type GeofenceType = 'polygon' | 'circle' | 'corridor';
