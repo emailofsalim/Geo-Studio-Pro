@@ -37,6 +37,28 @@ export interface SurveyWaypoint {
   zone: string;
   time: number;
   remarks?: string;
+  proximityRadius?: number; // Optional per-waypoint alarm radius in meters
+  alarmDisabled?: boolean;   // Optional per-waypoint alarm mute toggle
+}
+
+export interface ProximityAlarmEvent {
+  id: string;
+  waypointId: string;
+  waypointCode: string;
+  distance: number;
+  radius: number;
+  timestamp: number;
+  type: 'entered' | 'exited' | 'inside';
+}
+
+export interface ProximityAlarmSettings {
+  enabled: boolean;
+  globalRadius: number; // in meters
+  soundProfile: 'subtle-ping' | 'surveyor-beep' | 'major-triad' | 'sonar-pulse' | 'geiger-click';
+  volume: number; // 0.1 to 1.0
+  vibrate: boolean;
+  repeatMode: 'entry-only' | 'continuous-5s' | 'continuous-15s' | 'continuous-30s';
+  bannerAlerts: boolean;
 }
 
 export interface TrackPoint {

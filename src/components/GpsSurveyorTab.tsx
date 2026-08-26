@@ -19,15 +19,26 @@ import {
   Gauge,
   Volume2,
   VolumeX,
+  Volume1,
   Satellite,
   BarChart3,
   TrendingUp,
   Activity,
   FileSpreadsheet,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Bell,
+  BellOff,
+  BellRing,
+  Sliders,
+  Eye,
+  History,
+  Sparkles,
+  X,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
-import { SurveyWaypoint, SurveyTrack, TrackPoint } from '../types';
+import { GeoFeature, SurveyWaypoint, SurveyTrack, TrackPoint, ProximityAlarmSettings, ProximityAlarmEvent } from '../types';
 import {
   lonLatToUtm,
   utmToLonLat,
@@ -41,12 +52,60 @@ import {
 } from '../lib/geodesy';
 import { downloadBlob } from '../lib/zip';
 import { toCSVtext, csvEnc, dxfBuild } from '../lib/formats';
+import { proximityAudio, ProximitySoundProfile } from '../lib/audioAlerts';
 
 interface GpsSurveyorTabProps {
   workingZone: string;
+  distanceUnit?: 'm' | 'ft';
+  onSendToGis?: (features: GeoFeature[]) => void;
   onSendToCalculator?: (csv: string) => void;
   onSendToOffset?: (pts: { lon: number; lat: number }[]) => void;
 }
+
+const DEFAULT_INITIAL_WAYPOINTS: SurveyWaypoint[] = [
+  {
+    id: 'CP-01',
+    code: 'Boundary Pillar',
+    E: 254820.0,
+    N: 2605240.0,
+    Z: 542.5,
+    lat: 23.5415,
+    lon: 84.6018,
+    acc: 0.8,
+    zone: '45N',
+    time: Date.now() - 3600000,
+    remarks: 'Concrete benchmark monument with brass center pin',
+    proximityRadius: 10
+  },
+  {
+    id: 'CP-02',
+    code: 'Triangulation Station',
+    E: 255150.0,
+    N: 2605380.0,
+    Z: 554.2,
+    lat: 23.5428,
+    lon: 84.6050,
+    acc: 0.5,
+    zone: '45N',
+    time: Date.now() - 1800000,
+    remarks: 'Survey of India secondary pillar',
+    proximityRadius: 15
+  },
+  {
+    id: 'BH-01',
+    code: 'Exploration Collar',
+    E: 254920.0,
+    N: 2605150.0,
+    Z: 540.0,
+    lat: 23.5407,
+    lon: 84.6028,
+    acc: 1.2,
+    zone: '45N',
+    time: Date.now() - 900000,
+    remarks: 'Diamond core drillhole collar casing',
+    proximityRadius: 8
+  }
+];
 
 // Generate GPX 1.1 XML string
 function exportToGPX(waypoints: SurveyWaypoint[], trackName: string, trackPoints: TrackPoint[]): string {
@@ -108,6 +167,8 @@ const DEFAULT_SATELLITES: SatelliteInfo[] = [
 
 export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   workingZone,
+  distanceUnit = 'm',
+  onSendToGis,
   onSendToCalculator,
   onSendToOffset
 }) => {
@@ -137,9 +198,13 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   const [waypoints, setWaypoints] = useState<SurveyWaypoint[]>(() => {
     try {
       const s = localStorage.getItem('gs_waypoints_v2');
-      return s ? JSON.parse(s) : [];
+      if (s) {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      return DEFAULT_INITIAL_WAYPOINTS;
     } catch {
-      return [];
+      return DEFAULT_INITIAL_WAYPOINTS;
     }
   });
   const [wpId, setWpId] = useState('WP-001');
@@ -147,6 +212,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   const [wpElev, setWpElev] = useState('');
   const [wpRemarks, setWpRemarks] = useState('');
   const [wpSearch, setWpSearch] = useState('');
+  const [wpCustomRadius, setWpCustomRadius] = useState<string>('10');
 
   // Track Logger State
   const [isTracking, setIsTracking] = useState(false);
@@ -164,7 +230,50 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   const [totalAscent, setTotalAscent] = useState(0);
   const [totalDescent, setTotalDescent] = useState(0);
 
-  // Go-To Waypoint Navigation & Proximity Guidance State (Handy GPS Style)
+  // Proximity Alarm System State (Surveyor GNSS Radius Sentinel)
+  const [proximitySettings, setProximitySettings] = useState<ProximityAlarmSettings>(() => {
+    try {
+      const s = localStorage.getItem('gs_proximity_settings_v1');
+      if (s) return JSON.parse(s);
+    } catch {}
+    return {
+      enabled: true,
+      globalRadius: 10,
+      soundProfile: 'subtle-ping',
+      volume: 0.6,
+      vibrate: true,
+      repeatMode: 'entry-only',
+      bannerAlerts: true
+    };
+  });
+
+  const [activeInProximity, setActiveInProximity] = useState<{
+    waypoint: SurveyWaypoint;
+    distance: number;
+    bearing: number;
+    turn: number;
+    radius: number;
+    enteredTime: number;
+  }[]>([]);
+
+  const [snoozedWpIds, setSnoozedWpIds] = useState<string[]>([]);
+  const [dismissedBannerIds, setDismissedBannerIds] = useState<string[]>([]);
+  const [alarmEvents, setAlarmEvents] = useState<ProximityAlarmEvent[]>(() => {
+    try {
+      const s = localStorage.getItem('gs_proximity_events_v1');
+      return s ? JSON.parse(s) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [testSoundPlaying, setTestSoundPlaying] = useState(false);
+  const [editingRadiusWpId, setEditingRadiusWpId] = useState<string | null>(null);
+  const [editingRadiusValue, setEditingRadiusValue] = useState<string>('10');
+
+  const insideWpIdsRef = useRef<Set<string>>(new Set());
+  const lastAlarmTimeMapRef = useRef<Record<string, number>>({});
+
+  // Go-To Waypoint Navigation & Guidance State (Handy GPS Style)
   const [navTargetId, setNavTargetId] = useState<string>('manual');
   const [navTargetE, setNavTargetE] = useState('254820');
   const [navTargetN, setNavTargetN] = useState('2605240');
@@ -191,12 +300,73 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
 
-  // Save waypoints to localStorage
+  // Save state to localStorage
   useEffect(() => {
     try {
       localStorage.setItem('gs_waypoints_v2', JSON.stringify(waypoints));
     } catch {}
   }, [waypoints]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('gs_proximity_settings_v1', JSON.stringify(proximitySettings));
+    } catch {}
+  }, [proximitySettings]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('gs_proximity_events_v1', JSON.stringify(alarmEvents));
+    } catch {}
+  }, [alarmEvents]);
+
+  // Play test audio alert helper
+  const handlePlayTestSound = () => {
+    setTestSoundPlaying(true);
+    proximityAudio.playProximityChime(proximitySettings.soundProfile, proximitySettings.volume);
+    if (proximitySettings.vibrate) {
+      proximityAudio.triggerHaptic([120, 50, 120]);
+    }
+    setTimeout(() => setTestSoundPlaying(false), 700);
+  };
+
+  // Toggle individual waypoint alarm mute
+  const toggleWaypointAlarm = (wpIdToToggle: string) => {
+    setWaypoints(prev =>
+      prev.map(w => (w.id === wpIdToToggle ? { ...w, alarmDisabled: !w.alarmDisabled } : w))
+    );
+  };
+
+  // Update individual waypoint alarm radius
+  const updateWaypointRadius = (wpIdToUpdate: string, radiusMeters: number) => {
+    setWaypoints(prev =>
+      prev.map(w => (w.id === wpIdToUpdate ? { ...w, proximityRadius: Math.max(1, radiusMeters) } : w))
+    );
+    setEditingRadiusWpId(null);
+  };
+
+  // Snooze waypoint proximity alarm
+  const handleSnoozeWaypoint = (wpIdToSnooze: string) => {
+    setSnoozedWpIds(prev => [...prev.filter(id => id !== wpIdToSnooze), wpIdToSnooze]);
+    setDismissedBannerIds(prev => [...prev, wpIdToSnooze]);
+  };
+
+  // Clear proximity breach log
+  const handleClearAlarmHistory = () => {
+    setAlarmEvents([]);
+    try {
+      localStorage.removeItem('gs_proximity_events_v1');
+    } catch {}
+  };
+
+  // Export proximity alarm audit log to CSV
+  const handleExportAlarmLogCSV = () => {
+    if (alarmEvents.length === 0) return;
+    let csv = 'Timestamp_ISO,Timestamp_Local,Waypoint_ID,Feature_Code,Event_Type,Distance_m,Threshold_Radius_m\n';
+    alarmEvents.forEach(evt => {
+      csv += `${new Date(evt.timestamp).toISOString()},"${new Date(evt.timestamp).toLocaleString()}",${csvEnc(evt.waypointId)},${csvEnc(evt.waypointCode)},${evt.type},${evt.distance.toFixed(2)},${evt.radius.toFixed(1)}\n`;
+    });
+    downloadBlob(csv, `GeoStudio_Proximity_Alerts_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
+  };
 
   // Compass listener
   useEffect(() => {
@@ -291,6 +461,94 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       });
     }
 
+    // Process Proximity Alarm System for ALL saved waypoints
+    const inRangeList: {
+      waypoint: SurveyWaypoint;
+      distance: number;
+      bearing: number;
+      turn: number;
+      radius: number;
+      enteredTime: number;
+    }[] = [];
+    const currentInsideIds = new Set<string>();
+    const now = Date.now();
+
+    if (proximitySettings.enabled && waypoints.length > 0) {
+      waypoints.forEach(wp => {
+        const dE = wp.E - u.E;
+        const dN = wp.N - u.N;
+        const dist = Math.hypot(dE, dN);
+        const radius = wp.proximityRadius ?? proximitySettings.globalRadius;
+        const bearing = (Math.atan2(dE, dN) * 180 / Math.PI + 360) % 360;
+        const hdg = (heading != null && !isNaN(heading)) ? heading : (deviceHeading || 0);
+        const turn = ((bearing - hdg + 540) % 360) - 180;
+
+        if (dist <= radius) {
+          currentInsideIds.add(wp.id);
+          const isSnoozed = snoozedWpIds.includes(wp.id);
+          const isMuted = wp.alarmDisabled || isSnoozed;
+
+          inRangeList.push({
+            waypoint: wp,
+            distance: dist,
+            bearing,
+            turn,
+            radius,
+            enteredTime: lastAlarmTimeMapRef.current[wp.id] || now
+          });
+
+          if (!isMuted) {
+            const wasInside = insideWpIdsRef.current.has(wp.id);
+            const lastChime = lastAlarmTimeMapRef.current[wp.id] || 0;
+            let shouldChime = false;
+
+            if (!wasInside) {
+              // New entry event!
+              shouldChime = true;
+              const newEvt: ProximityAlarmEvent = {
+                id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                waypointId: wp.id,
+                waypointCode: wp.code,
+                distance: dist,
+                radius,
+                timestamp: now,
+                type: 'entered'
+              };
+              setAlarmEvents(prev => [newEvt, ...prev.slice(0, 49)]);
+            } else {
+              // Continuous repeat interval check
+              if (proximitySettings.repeatMode === 'continuous-5s' && (now - lastChime >= 5000)) shouldChime = true;
+              else if (proximitySettings.repeatMode === 'continuous-15s' && (now - lastChime >= 15000)) shouldChime = true;
+              else if (proximitySettings.repeatMode === 'continuous-30s' && (now - lastChime >= 30000)) shouldChime = true;
+            }
+
+            if (shouldChime) {
+              lastAlarmTimeMapRef.current[wp.id] = now;
+              proximityAudio.playProximityChime(proximitySettings.soundProfile, proximitySettings.volume);
+              if (proximitySettings.vibrate) {
+                proximityAudio.triggerHaptic([150, 60, 150]);
+              }
+            }
+          }
+        } else if (insideWpIdsRef.current.has(wp.id)) {
+          // Exit event!
+          const exitEvt: ProximityAlarmEvent = {
+            id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            waypointId: wp.id,
+            waypointCode: wp.code,
+            distance: dist,
+            radius,
+            timestamp: now,
+            type: 'exited'
+          };
+          setAlarmEvents(prev => [exitEvt, ...prev.slice(0, 49)]);
+        }
+      });
+    }
+
+    insideWpIdsRef.current = currentInsideIds;
+    setActiveInProximity(inRangeList);
+
     // Process Go-To Navigation Guidance
     let targetE = parseFloat(navTargetE) || 0;
     let targetN = parseFloat(navTargetN) || 0;
@@ -330,8 +588,14 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
         isArrived
       });
 
-      if (isArrived && audioAlerts && navigator.vibrate) {
-        try { navigator.vibrate([200, 100, 200]); } catch {}
+      if (isArrived && audioAlerts) {
+        // Trigger subtle chime on arrival at dedicated navigation target if not already chimed in this fix
+        if (!insideWpIdsRef.current.has(navTargetId)) {
+          proximityAudio.playProximityChime(proximitySettings.soundProfile, proximitySettings.volume);
+          if (proximitySettings.vibrate) {
+            proximityAudio.triggerHaptic([200, 100, 200]);
+          }
+        }
       }
     }
   };
@@ -464,21 +728,47 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       ctx.stroke();
     }
 
-    // Waypoints
+    // Waypoints & Proximity Zones
     waypoints.forEach(w => {
       const p = toScreen(w.E, w.N);
+      const radM = w.proximityRadius ?? proximitySettings.globalRadius ?? 10;
+      const screenRad = radM * scale;
+      const isInside = insideWpIdsRef.current.has(w.id);
+      const isMuted = w.alarmDisabled || snoozedWpIds.includes(w.id);
+
+      // Draw Proximity Alarm Radius Ring
+      if (screenRad > 2 && screenRad < 1000) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, screenRad, 0, Math.PI * 2);
+        if (isInside) {
+          ctx.fillStyle = isMuted ? 'rgba(234, 179, 8, 0.12)' : 'rgba(34, 197, 94, 0.18)';
+          ctx.fill();
+          ctx.strokeStyle = isMuted ? 'rgba(234, 179, 8, 0.8)' : 'rgba(34, 197, 94, 0.9)';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        } else {
+          ctx.save();
+          ctx.setLineDash([3, 3]);
+          ctx.strokeStyle = isMuted ? 'rgba(255, 255, 255, 0.15)' : 'rgba(201, 160, 99, 0.25)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      // Waypoint Monument Marker
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
-      ctx.fillStyle = '#c9a063';
+      ctx.arc(p.x, p.y, isInside ? 6 : 5, 0, Math.PI * 2);
+      ctx.fillStyle = isInside ? '#22c55e' : '#c9a063';
       ctx.fill();
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = isInside ? '#4ade80' : '#ffffff';
       ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(w.id, p.x, p.y - 8);
+      ctx.fillText(w.id, p.x, p.y - (isInside ? 10 : 8));
     });
 
     // Navigation Target & Guidance Vector
@@ -726,6 +1016,68 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     downloadBlob(new TextEncoder().encode(res.dxf), 'gps_survey_points.dxf', 'application/dxf');
   };
 
+  const handleSendToGisAction = () => {
+    if (!waypoints.length) return;
+    const features: GeoFeature[] = waypoints.map(wp => ({
+      name: wp.id,
+      geom: 'point',
+      kind: 'en',
+      pts: [{ a: wp.E, b: wp.N }],
+      props: {
+        Point_ID: wp.id,
+        Feature_Code: wp.code,
+        Elevation_m: wp.Z,
+        Accuracy_m: wp.acc,
+        Remarks: wp.remarks || '',
+        Latitude: wp.lat,
+        Longitude: wp.lon
+      }
+    }));
+    if (onSendToGis) {
+      onSendToGis(features);
+    } else {
+      try {
+        const newLayer = {
+          id: `layer_${Date.now()}`,
+          name: `GNSS Waypoints (${waypoints.length})`,
+          visible: true,
+          color: '#10b981',
+          fillColor: '#10b981',
+          fillOpacity: 0.8,
+          strokeWidth: 2,
+          geomType: 'point' as const,
+          features
+        };
+        const existing = JSON.parse(localStorage.getItem('gis_studio_layers') || '[]');
+        localStorage.setItem('gis_studio_layers', JSON.stringify([newLayer, ...existing]));
+      } catch {}
+    }
+  };
+
+  const handleSendToCalcAction = () => {
+    if (!waypoints.length) return;
+    const csv = waypoints.map(w => `${w.id}, ${w.E.toFixed(3)}, ${w.N.toFixed(3)}, ${w.Z.toFixed(2)}`).join('\n');
+    if (onSendToCalculator) {
+      onSendToCalculator(csv);
+    } else {
+      try {
+        localStorage.setItem('calc_import_csv', csv);
+      } catch {}
+    }
+  };
+
+  const handleSendToOffsetAction = () => {
+    if (waypoints.length < 3) return;
+    const pts = waypoints.map(w => ({ lon: w.lon, lat: w.lat }));
+    if (onSendToOffset) {
+      onSendToOffset(pts);
+    } else {
+      try {
+        localStorage.setItem('offset_import_pts', JSON.stringify(pts));
+      } catch {}
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* 1. Header & Navigation Sub-Tabs */}
@@ -798,6 +1150,82 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* Floating Proximity Alarm Sentinel Banner HUD */}
+      {proximitySettings.bannerAlerts && activeInProximity.some(p => !dismissedBannerIds.includes(p.waypoint.id)) && (
+        <div className="p-4 bg-gradient-to-r from-[#0d2014] via-[#141714] to-[#1c150c] border border-emerald-500/50 shadow-xl rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3.5 text-xs transition-all">
+          <div className="flex items-center gap-3.5">
+            <div className="p-2.5 bg-emerald-950/90 border border-emerald-400/60 rounded-xl text-emerald-400 shadow-lg shadow-emerald-950/60 relative">
+              <BellRing className="w-5 h-5 animate-pulse text-emerald-400" />
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full animate-ping" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/40">
+                  🎯 Proximity Alarm Zone Active
+                </span>
+                <span className="text-white/60 font-mono text-[11px]">
+                  {activeInProximity.length} {activeInProximity.length === 1 ? 'waypoint' : 'waypoints'} in range
+                </span>
+              </div>
+              <div className="text-sm font-bold text-white mt-0.5 flex items-center gap-2 flex-wrap">
+                <span className="text-[#c9a063] font-mono">{activeInProximity[0].waypoint.id}</span>
+                <span className="text-white/70 font-normal">({activeInProximity[0].waypoint.code})</span>
+                <span className="font-mono text-emerald-300 font-bold bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                  {distanceUnit === 'ft'
+                    ? `${(activeInProximity[0].distance * 3.28084).toFixed(1)} ft`
+                    : `${activeInProximity[0].distance.toFixed(1)} m`}
+                </span>
+                <span className="text-white/50 text-xs font-mono">
+                  • Target Radius: {activeInProximity[0].radius}m • Bearing: {activeInProximity[0].bearing.toFixed(0)}°
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 w-full md:w-auto justify-end flex-wrap">
+            <button
+              onClick={() => {
+                const targetWp = activeInProximity[0].waypoint;
+                const idx = waypoints.findIndex(w => w.id === targetWp.id);
+                setNavTargetId(`wp_${idx}`);
+                setNavTargetE(targetWp.E.toString());
+                setNavTargetN(targetWp.N.toString());
+                setNavTargetName(`${targetWp.id} (${targetWp.code})`);
+                setSubTab('navigation');
+              }}
+              className="px-3.5 py-1.5 bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold rounded-xl flex items-center gap-1.5 text-xs shadow-md transition-all"
+            >
+              <Navigation className="w-3.5 h-3.5" />
+              Go-To Guidance
+            </button>
+            <button
+              onClick={() => handleSnoozeWaypoint(activeInProximity[0].waypoint.id)}
+              className="px-3 py-1.5 bg-black/40 hover:bg-black/60 text-amber-300 font-semibold rounded-xl border border-amber-500/30 flex items-center gap-1.5 text-xs"
+              title="Snooze alerts for this waypoint"
+            >
+              <BellOff className="w-3.5 h-3.5" />
+              Snooze
+            </button>
+            <button
+              onClick={handlePlayTestSound}
+              disabled={testSoundPlaying}
+              className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white font-medium rounded-xl border border-white/10 flex items-center gap-1.5 text-xs"
+              title="Preview alarm sound chime"
+            >
+              <Volume2 className={`w-3.5 h-3.5 ${testSoundPlaying ? 'text-emerald-400 animate-bounce' : 'text-[#c9a063]'}`} />
+              <span>Chime</span>
+            </button>
+            <button
+              onClick={() => setDismissedBannerIds(prev => [...prev, ...activeInProximity.map(p => p.waypoint.id)])}
+              className="p-1.5 text-white/50 hover:text-white rounded-lg hover:bg-white/10"
+              title="Dismiss notification banner"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 2. Cockpit View: Dual Coordinates & Vector Radar */}
       {subTab === 'cockpit' && (
@@ -907,15 +1335,29 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                   />
                 </div>
 
-                <div>
-                  <label className="block text-white/50 text-[11px] mb-1">Remarks</label>
-                  <textarea
-                    rows={2}
-                    value={wpRemarks}
-                    onChange={e => setWpRemarks(e.target.value)}
-                    className="w-full py-2 px-3 rounded-xl border border-white/10 bg-[#141414] text-white resize-none"
-                    placeholder="Condition, monument type..."
-                  />
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-white/50 text-[11px] mb-1">Alarm Radius (m)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="500"
+                      value={wpCustomRadius}
+                      onChange={e => setWpCustomRadius(e.target.value)}
+                      className="w-full py-2 px-3 rounded-xl border border-white/10 bg-[#141414] text-white font-mono"
+                      placeholder="10"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-white/50 text-[11px] mb-1">Remarks</label>
+                    <input
+                      type="text"
+                      value={wpRemarks}
+                      onChange={e => setWpRemarks(e.target.value)}
+                      className="w-full py-2 px-3 rounded-xl border border-white/10 bg-[#141414] text-white"
+                      placeholder="Condition..."
+                    />
+                  </div>
                 </div>
 
                 <button
@@ -935,7 +1377,9 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                       acc: currentPos.acc,
                       zone: workingZone,
                       time: Date.now(),
-                      remarks: wpRemarks.trim()
+                      remarks: wpRemarks.trim(),
+                      proximityRadius: parseFloat(wpCustomRadius) || proximitySettings.globalRadius || 10,
+                      alarmDisabled: false
                     };
                     setWaypoints(prev => [...prev, newWp]);
                     const m = wpId.match(/^(.*?)(\d+)$/);
@@ -1118,159 +1562,565 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
 
       {/* 4. Go-To Waypoint Guidance & Proximity Alarms (Handy GPS Style) */}
       {subTab === 'navigation' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            <div className="bg-[#0f0f0f] p-6 rounded-2xl border border-white/5 space-y-4">
-              <h4 className="text-base font-serif italic text-white flex items-center gap-2">
-                <Navigation className="w-5 h-5 text-[#c9a063]" />
-                Go-To Waypoint Guidance & Steering Director
-              </h4>
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-6">
+              {/* Go-To Guidance Director */}
+              <div className="bg-[#0f0f0f] p-6 rounded-2xl border border-white/5 space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <h4 className="text-base font-serif italic text-white flex items-center gap-2">
+                    <Navigation className="w-5 h-5 text-[#c9a063]" />
+                    Go-To Waypoint Guidance & Steering Director
+                  </h4>
+                  {navMetrics && (
+                    <span className="text-[11px] font-mono text-[#c9a063] bg-[#141414] px-2.5 py-1 rounded-lg border border-white/5">
+                      Target: {navTargetName}
+                    </span>
+                  )}
+                </div>
 
-              {navMetrics ? (
-                <div className="space-y-6">
-                  {/* Dynamic Big Turn Compass Header */}
-                  <div className="p-6 bg-gradient-to-b from-[#141414] to-[#0a0e17] rounded-2xl border border-white/10 text-center space-y-3">
-                    <div className="text-[11px] uppercase tracking-wider text-[#c9a063]">
-                      Navigating to: {navTargetName}
-                    </div>
-
-                    <div className="text-4xl sm:text-5xl font-mono font-bold text-white">
-                      {navMetrics.dist > 1000 ? `${(navMetrics.dist / 1000).toFixed(2)} km` : `${navMetrics.dist.toFixed(1)} m`}
-                    </div>
-
-                    <div className="flex items-center justify-center gap-3">
-                      <span className={`px-3 py-1 rounded-full text-sm font-bold font-mono ${
-                        Math.abs(navMetrics.turn) < 10
-                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/40'
-                          : 'bg-amber-950 text-amber-300 border border-amber-500/40'
-                      }`}>
-                        {Math.abs(navMetrics.turn) < 5
-                          ? 'ON TARGET 🎯'
-                          : navMetrics.turn > 0
-                          ? `TURN ${navMetrics.turn.toFixed(0)}° RIGHT ➔`
-                          : `TURN ${Math.abs(navMetrics.turn).toFixed(0)}° LEFT ⬅`}
-                      </span>
-                    </div>
-
-                    {navMetrics.isArrived && (
-                      <div className="p-2.5 bg-emerald-900/60 border border-emerald-400 text-emerald-200 text-xs font-bold rounded-xl animate-pulse">
-                        🎯 PROXIMITY ALERT: Arrived within {proximityRadiusMeters}m of waypoint!
+                {navMetrics ? (
+                  <div className="space-y-6">
+                    {/* Dynamic Big Turn Compass Header */}
+                    <div className="p-6 bg-gradient-to-b from-[#141414] to-[#0a0e17] rounded-2xl border border-white/10 text-center space-y-3 shadow-inner">
+                      <div className="text-[11px] uppercase tracking-wider text-[#c9a063] font-bold">
+                        Target Bearing: {navMetrics.bearing.toFixed(1)}° • Heading: {((currentPos?.heading || deviceHeading || 0)).toFixed(0)}°
                       </div>
-                    )}
+
+                      <div className="text-4xl sm:text-5xl font-mono font-bold text-white tracking-tight">
+                        {distanceUnit === 'ft'
+                          ? `${(navMetrics.dist * 3.28084).toFixed(1)} ft`
+                          : navMetrics.dist > 1000
+                          ? `${(navMetrics.dist / 1000).toFixed(3)} km`
+                          : `${navMetrics.dist.toFixed(1)} m`}
+                      </div>
+
+                      <div className="flex items-center justify-center gap-3">
+                        <span className={`px-4 py-1.5 rounded-full text-sm font-bold font-mono transition-all ${
+                          Math.abs(navMetrics.turn) < 10
+                            ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/50 shadow-lg shadow-emerald-950/50'
+                            : 'bg-amber-950 text-amber-300 border border-amber-500/50 shadow-lg shadow-amber-950/50'
+                        }`}>
+                          {Math.abs(navMetrics.turn) < 5
+                            ? '🎯 DIRECT ON TARGET'
+                            : navMetrics.turn > 0
+                            ? `TURN ${navMetrics.turn.toFixed(0)}° RIGHT ➔`
+                            : `TURN ${Math.abs(navMetrics.turn).toFixed(0)}° LEFT ⬅`}
+                        </span>
+                      </div>
+
+                      {navMetrics.isArrived && (
+                        <div className="p-3 bg-emerald-950/80 border border-emerald-400 text-emerald-200 text-xs font-bold rounded-xl animate-pulse flex items-center justify-center gap-2">
+                          <BellRing className="w-4 h-4 text-emerald-400" />
+                          <span>🎯 PROXIMITY ARRIVAL: Reached target threshold within {proximityRadiusMeters}m!</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Navigation Metrics Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                      <div className="p-3.5 bg-[#141414] rounded-xl border border-white/5 space-y-0.5">
+                        <span className="text-[10px] text-white/40 block uppercase">Azimuth Bearing</span>
+                        <span className="text-base font-bold text-[#c9a063]">{navMetrics.bearing.toFixed(1)}°</span>
+                        <span className="text-[10px] text-white/40 block">Turn: {navMetrics.turn.toFixed(1)}°</span>
+                      </div>
+                      <div className="p-3.5 bg-[#141414] rounded-xl border border-white/5 space-y-0.5">
+                        <span className="text-[10px] text-white/40 block uppercase">Cross-Track (XTE)</span>
+                        <span className="text-base font-bold text-white">{navMetrics.xte.toFixed(1)} m</span>
+                        <span className="text-[10px] text-white/40 block">{navMetrics.xte < 2 ? 'On Track' : 'Off Path'}</span>
+                      </div>
+                      <div className="p-3.5 bg-[#141414] rounded-xl border border-white/5 space-y-0.5">
+                        <span className="text-[10px] text-white/40 block uppercase">Est. Time (ETA)</span>
+                        <span className="text-base font-bold text-white">{navMetrics.etaSec ? `${Math.floor(navMetrics.etaSec / 60)}m ${navMetrics.etaSec % 60}s` : '--'}</span>
+                        <span className="text-[10px] text-white/40 block">{((currentPos?.speed || 0) * 3.6).toFixed(1)} km/h</span>
+                      </div>
+                      <div className="p-3.5 bg-[#141414] rounded-xl border border-white/5 space-y-0.5">
+                        <span className="text-[10px] text-white/40 block uppercase">ΔE / ΔN Delta</span>
+                        <span className="text-xs font-bold text-white block">{navMetrics.dE >= 0 ? `+${navMetrics.dE.toFixed(1)}` : navMetrics.dE.toFixed(1)}m E</span>
+                        <span className="text-xs font-bold text-white block">{navMetrics.dN >= 0 ? `+${navMetrics.dN.toFixed(1)}` : navMetrics.dN.toFixed(1)}m N</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-8 bg-[#141414] rounded-xl border border-white/5 text-center text-xs text-white/50 space-y-2">
+                    <Navigation className="w-8 h-8 text-[#c9a063]/40 mx-auto" />
+                    <p>Select a target waypoint from the right panel or the Live Proximity Radar below to initiate steering guidance.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Live Waypoint Proximity Radar Table */}
+              <div className="bg-[#0f0f0f] p-6 rounded-2xl border border-white/5 space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <h4 className="text-base font-serif italic text-white flex items-center gap-2">
+                      <Radio className="w-4 h-4 text-[#c9a063]" />
+                      Real-Time Waypoint Proximity Radar ({waypoints.length})
+                    </h4>
+                    <p className="text-xs text-white/50">Live distances and arrival sentinel states relative to your current GNSS position.</p>
                   </div>
 
-                  {/* Navigation Metrics Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
-                    <div className="p-3 bg-[#141414] rounded-xl border border-white/5">
-                      <span className="text-[10px] text-white/50 block">BEARING</span>
-                      <span className="text-base font-bold text-[#c9a063]">{navMetrics.bearing.toFixed(1)}°</span>
-                    </div>
-                    <div className="p-3 bg-[#141414] rounded-xl border border-white/5">
-                      <span className="text-[10px] text-white/50 block">CROSS-TRACK ERR</span>
-                      <span className="text-base font-bold text-white">{navMetrics.xte.toFixed(1)} m</span>
-                    </div>
-                    <div className="p-3 bg-[#141414] rounded-xl border border-white/5">
-                      <span className="text-[10px] text-white/50 block">EST. TIME (ETA)</span>
-                      <span className="text-base font-bold text-white">{navMetrics.etaSec ? `${Math.floor(navMetrics.etaSec / 60)}m ${navMetrics.etaSec % 60}s` : '--'}</span>
-                    </div>
-                    <div className="p-3 bg-[#141414] rounded-xl border border-white/5">
-                      <span className="text-[10px] text-white/50 block">Δ EAST / Δ NORTH</span>
-                      <span className="text-xs font-bold text-white">{navMetrics.dE >= 0 ? `+${navMetrics.dE.toFixed(1)}` : navMetrics.dE.toFixed(1)}m E</span>
-                      <span className="text-xs font-bold text-white block">{navMetrics.dN >= 0 ? `+${navMetrics.dN.toFixed(1)}` : navMetrics.dN.toFixed(1)}m N</span>
-                    </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-emerald-400 bg-emerald-950/60 px-2.5 py-1 rounded-full border border-emerald-500/30 font-mono">
+                      {activeInProximity.length} In Range
+                    </span>
                   </div>
                 </div>
-              ) : (
-                <div className="p-6 bg-[#141414] rounded-xl border border-white/5 text-center text-xs text-white/50">
-                  Select a target waypoint from the right panel to begin Go-To guidance.
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left text-white/80">
+                    <thead className="text-[10px] uppercase text-[#c9a063] border-b border-white/10 bg-[#141414]">
+                      <tr>
+                        <th className="py-2.5 px-3">Waypoint</th>
+                        <th className="py-2.5 px-3 font-mono">Coordinates</th>
+                        <th className="py-2.5 px-3 font-mono">Distance</th>
+                        <th className="py-2.5 px-3 font-mono">Bearing</th>
+                        <th className="py-2.5 px-3 font-mono">Alarm Radius</th>
+                        <th className="py-2.5 px-3">Sentinel Status</th>
+                        <th className="py-2.5 px-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {waypoints.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-6 text-center text-white/40">
+                            No waypoints registered yet. Add waypoints in the Waypoints tab.
+                          </td>
+                        </tr>
+                      ) : (
+                        [...waypoints]
+                          .map((wp, originalIdx) => {
+                            const dE = currentPos ? wp.E - currentPos.utm.E : 0;
+                            const dN = currentPos ? wp.N - currentPos.utm.N : 0;
+                            const dist = currentPos ? Math.hypot(dE, dN) : 999999;
+                            const bearing = (Math.atan2(dE, dN) * 180 / Math.PI + 360) % 360;
+                            const radius = wp.proximityRadius ?? proximitySettings.globalRadius;
+                            const isInside = dist <= radius;
+                            const isNear = dist <= radius * 2.5;
+                            const isMuted = wp.alarmDisabled || snoozedWpIds.includes(wp.id);
+                            return { wp, originalIdx, dist, bearing, radius, isInside, isNear, isMuted };
+                          })
+                          .sort((a, b) => a.dist - b.dist)
+                          .map(({ wp, originalIdx, dist, bearing, radius, isInside, isNear, isMuted }) => (
+                            <tr
+                              key={`prox_wp_${wp.id}_${wp.time || originalIdx}_${originalIdx}`}
+                              className={`transition-colors ${
+                                isInside
+                                  ? 'bg-emerald-950/30 hover:bg-emerald-950/50'
+                                  : isNear
+                                  ? 'bg-amber-950/15 hover:bg-amber-950/30'
+                                  : 'hover:bg-white/5'
+                              }`}
+                            >
+                              <td className="py-2.5 px-3 font-mono">
+                                <span className="font-bold text-white block">{wp.id}</span>
+                                <span className="text-[10px] text-white/50">{wp.code}</span>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-[11px]">
+                                <div>{wp.E.toFixed(1)} E</div>
+                                <div className="text-white/50">{wp.N.toFixed(1)} N</div>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono font-bold">
+                                {currentPos ? (
+                                  <span className={isInside ? 'text-emerald-300' : isNear ? 'text-amber-300' : 'text-white'}>
+                                    {distanceUnit === 'ft'
+                                      ? `${(dist * 3.28084).toFixed(1)} ft`
+                                      : dist > 1000
+                                      ? `${(dist / 1000).toFixed(2)} km`
+                                      : `${dist.toFixed(1)} m`}
+                                  </span>
+                                ) : (
+                                  <span className="text-white/40">--</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono">
+                                {currentPos ? (
+                                  <span className="flex items-center gap-1">
+                                    <ArrowUpRight
+                                      className="w-3.5 h-3.5 text-[#c9a063]"
+                                      style={{ transform: `rotate(${bearing}deg)` }}
+                                    />
+                                    {bearing.toFixed(0)}°
+                                  </span>
+                                ) : (
+                                  '--'
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono">
+                                {editingRadiusWpId === wp.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max="500"
+                                      value={editingRadiusValue}
+                                      onChange={e => setEditingRadiusValue(e.target.value)}
+                                      className="w-14 px-1.5 py-0.5 bg-[#141414] border border-[#c9a063] rounded text-white text-xs font-mono"
+                                      autoFocus
+                                    />
+                                    <button
+                                      onClick={() => updateWaypointRadius(wp.id, parseFloat(editingRadiusValue) || 10)}
+                                      className="px-1.5 py-0.5 bg-[#c9a063] text-black rounded text-[10px] font-bold"
+                                    >
+                                      ✓
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setEditingRadiusWpId(wp.id);
+                                      setEditingRadiusValue(radius.toString());
+                                    }}
+                                    className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 border border-white/10 text-white font-mono text-[11px] flex items-center gap-1"
+                                    title="Click to edit alarm radius"
+                                  >
+                                    <span>{radius}m</span>
+                                    <Sliders className="w-2.5 h-2.5 text-white/40" />
+                                  </button>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                {isInside ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 w-fit animate-pulse">
+                                    <BellRing className="w-3 h-3" />
+                                    IN ZONE
+                                  </span>
+                                ) : isNear ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-500/40 w-fit">
+                                    APPROACHING
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-white/40">
+                                    CLEAR
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => toggleWaypointAlarm(wp.id)}
+                                    className={`p-1.5 rounded-lg border transition-colors ${
+                                      isMuted
+                                        ? 'bg-red-950/40 border-red-800/40 text-red-400'
+                                        : 'bg-white/5 hover:bg-white/10 border-white/10 text-[#c9a063]'
+                                    }`}
+                                    title={isMuted ? 'Alarm Muted (Click to Unmute)' : 'Alarm Active (Click to Mute)'}
+                                  >
+                                    {isMuted ? <BellOff className="w-3.5 h-3.5" /> : <Bell className="w-3.5 h-3.5" />}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setNavTargetId(`wp_${originalIdx}`);
+                                      setNavTargetE(wp.E.toString());
+                                      setNavTargetN(wp.N.toString());
+                                      setNavTargetName(`${wp.id} (${wp.code})`);
+                                    }}
+                                    className="px-2 py-1 bg-[#141414] hover:bg-[#c9a063] hover:text-black text-white text-xs font-semibold rounded-lg border border-white/10 flex items-center gap-1 transition-all"
+                                    title="Set as Go-To Target"
+                                  >
+                                    <Target className="w-3 h-3" />
+                                    <span>Target</span>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                      )}
+                    </tbody>
+                  </table>
                 </div>
-              )}
+              </div>
+            </div>
+
+            {/* Right: Proximity Alarm Sentinel Engine Controls & Target Selector */}
+            <div className="space-y-6">
+              {/* Target Selector */}
+              <div className="bg-[#0f0f0f] p-5 rounded-2xl border border-white/5 space-y-4 text-xs">
+                <h4 className="font-serif italic text-white flex items-center gap-1.5">
+                  <Target className="w-4 h-4 text-[#c9a063]" />
+                  Select Target Waypoint
+                </h4>
+
+                <div>
+                  <label className="block text-white/50 text-[11px] mb-1">Target Source</label>
+                  <select
+                    value={navTargetId}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setNavTargetId(val);
+                      if (val.startsWith('wp_')) {
+                        const idx = parseInt(val.replace('wp_', ''), 10);
+                        const wp = waypoints[idx];
+                        if (wp) {
+                          setNavTargetE(wp.E.toString());
+                          setNavTargetN(wp.N.toString());
+                          setNavTargetName(`${wp.id} (${wp.code})`);
+                        }
+                      } else {
+                        setNavTargetName('Custom Coordinates');
+                      }
+                    }}
+                    className="w-full py-2 px-3 rounded-xl border border-white/10 bg-[#141414] text-white"
+                  >
+                    <option value="manual">Manual UTM Coordinates</option>
+                    {waypoints.map((wp, idx) => (
+                      <option key={`target_opt_${wp.id}_${wp.time || idx}_${idx}`} value={`wp_${idx}`}>
+                        {wp.id} - {wp.code} ({wp.E.toFixed(1)}, {wp.N.toFixed(1)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {navTargetId === 'manual' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-white/50 text-[11px] mb-1">Target Easting (m)</label>
+                      <input
+                        type="number"
+                        value={navTargetE}
+                        onChange={e => setNavTargetE(e.target.value)}
+                        className="w-full py-1.5 px-2.5 rounded-lg border border-white/10 bg-[#141414] text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-white/50 text-[11px] mb-1">Target Northing (m)</label>
+                      <input
+                        type="number"
+                        value={navTargetN}
+                        onChange={e => setNavTargetN(e.target.value)}
+                        className="w-full py-1.5 px-2.5 rounded-lg border border-white/10 bg-[#141414] text-white font-mono"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Comprehensive Proximity Alarm Sentinel Engine Control Card */}
+              <div className="bg-[#0f0f0f] p-5 rounded-2xl border border-white/5 space-y-4 text-xs">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-serif italic text-white flex items-center gap-1.5">
+                    <Bell className="w-4 h-4 text-[#c9a063]" />
+                    Proximity Alarm Sentinel
+                  </h4>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-white/50">
+                      {proximitySettings.enabled ? 'ACTIVE' : 'MUTED'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={proximitySettings.enabled}
+                      onChange={e => setProximitySettings(prev => ({ ...prev, enabled: e.target.checked }))}
+                      className="accent-[#c9a063] rounded cursor-pointer w-4 h-4"
+                    />
+                  </div>
+                </div>
+
+                {/* Global Detection Radius */}
+                <div className="space-y-2 pt-1 border-t border-white/5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-white/70 text-[11px] font-medium">Default Alarm Radius</label>
+                    <span className="font-mono text-[#c9a063] font-bold">
+                      {proximitySettings.globalRadius} m ({Math.round(proximitySettings.globalRadius * 3.28084)} ft)
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="100"
+                    step="1"
+                    value={proximitySettings.globalRadius}
+                    onChange={e => setProximitySettings(prev => ({ ...prev, globalRadius: parseInt(e.target.value, 10) || 10 }))}
+                    className="w-full accent-[#c9a063]"
+                  />
+                  <div className="flex items-center gap-1 justify-between text-[10px]">
+                    {[2, 5, 10, 20, 50, 100].map(r => (
+                      <button
+                        key={r}
+                        onClick={() => setProximitySettings(prev => ({ ...prev, globalRadius: r }))}
+                        className={`px-1.5 py-0.5 rounded border ${
+                          proximitySettings.globalRadius === r
+                            ? 'bg-[#c9a063] text-black font-bold border-[#c9a063]'
+                            : 'bg-[#141414] text-white/60 border-white/10 hover:text-white'
+                        }`}
+                      >
+                        {r}m
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Sound Engine Profile Selector & Live Preview Button */}
+                <div className="space-y-2 pt-2 border-t border-white/5">
+                  <label className="text-white/70 text-[11px] font-medium block">Audio Alert Tone Profile</label>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={proximitySettings.soundProfile}
+                      onChange={e => setProximitySettings(prev => ({ ...prev, soundProfile: e.target.value as any }))}
+                      className="flex-1 py-1.5 px-2.5 rounded-xl border border-white/10 bg-[#141414] text-white text-xs font-mono"
+                    >
+                      <option value="subtle-ping">Subtle Radar Chime (A5/E6 Harmonic Sine)</option>
+                      <option value="surveyor-beep">Surveyor Station Beep (Double Pip)</option>
+                      <option value="major-triad">Melodic Major Triad (C-E-G-C)</option>
+                      <option value="sonar-pulse">Resonant Sonar Pulse (Sweep)</option>
+                      <option value="geiger-click">Field Geiger Ticks (Fast Click)</option>
+                    </select>
+
+                    <button
+                      onClick={handlePlayTestSound}
+                      disabled={testSoundPlaying}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        testSoundPlaying
+                          ? 'bg-emerald-500 text-black animate-pulse'
+                          : 'bg-[#c9a063] hover:bg-[#d6b074] text-black shadow-md shadow-[#c9a063]/20'
+                      }`}
+                      title="Test synthesized Web Audio chime"
+                    >
+                      <Volume2 className="w-3.5 h-3.5" />
+                      <span>Test</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Volume & Alerts Configuration */}
+                <div className="space-y-3 pt-2 border-t border-white/5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-white/70 text-[11px]">Audio Master Volume</label>
+                    <span className="font-mono text-[#c9a063]">{Math.round(proximitySettings.volume * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1.0"
+                    step="0.05"
+                    value={proximitySettings.volume}
+                    onChange={e => setProximitySettings(prev => ({ ...prev, volume: parseFloat(e.target.value) }))}
+                    className="w-full accent-[#c9a063]"
+                  />
+
+                  <div className="space-y-2 pt-1">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <span className="text-white/70 text-[11px]">Haptic Vibration Pulse</span>
+                      <input
+                        type="checkbox"
+                        checked={proximitySettings.vibrate}
+                        onChange={e => setProximitySettings(prev => ({ ...prev, vibrate: e.target.checked }))}
+                        className="accent-[#c9a063] rounded"
+                      />
+                    </label>
+
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <span className="text-white/70 text-[11px]">Floating Banner HUD</span>
+                      <input
+                        type="checkbox"
+                        checked={proximitySettings.bannerAlerts}
+                        onChange={e => setProximitySettings(prev => ({ ...prev, bannerAlerts: e.target.checked }))}
+                        className="accent-[#c9a063] rounded"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Alarm Repeat Mode */}
+                <div className="space-y-2 pt-2 border-t border-white/5">
+                  <label className="text-white/70 text-[11px] font-medium block">Alarm Trigger Cadence</label>
+                  <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                    {[
+                      { id: 'entry-only', label: 'On Entry Only' },
+                      { id: 'continuous-5s', label: 'Repeat 5s' },
+                      { id: 'continuous-15s', label: 'Repeat 15s' },
+                      { id: 'continuous-30s', label: 'Repeat 30s' }
+                    ].map(mode => (
+                      <button
+                        key={mode.id}
+                        onClick={() => setProximitySettings(prev => ({ ...prev, repeatMode: mode.id as any }))}
+                        className={`py-1 px-2 rounded-lg border text-center transition-all ${
+                          proximitySettings.repeatMode === mode.id
+                            ? 'bg-[#c9a063]/20 border-[#c9a063] text-[#c9a063] font-bold'
+                            : 'bg-[#141414] border-white/10 text-white/60 hover:text-white'
+                        }`}
+                      >
+                        {mode.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Right: Target Selector */}
-          <div className="bg-[#0f0f0f] p-5 rounded-2xl border border-white/5 space-y-4 text-xs">
-            <h4 className="font-serif italic text-white flex items-center gap-1.5">
-              <Target className="w-4 h-4 text-[#c9a063]" />
-              Select Target Waypoint
-            </h4>
+          {/* Proximity Alarm Event Audit Log */}
+          <div className="bg-[#0f0f0f] p-6 rounded-2xl border border-white/5 space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h4 className="text-base font-serif italic text-white flex items-center gap-2">
+                  <History className="w-4 h-4 text-[#c9a063]" />
+                  Proximity Alarm Event Audit Log ({alarmEvents.length})
+                </h4>
+                <p className="text-xs text-white/50">Chronological history of waypoint radius entry and exit triggers during survey operations.</p>
+              </div>
 
-            <div>
-              <label className="block text-white/50 text-[11px] mb-1">Target Source</label>
-              <select
-                value={navTargetId}
-                onChange={e => {
-                  const val = e.target.value;
-                  setNavTargetId(val);
-                  if (val.startsWith('wp_')) {
-                    const idx = parseInt(val.replace('wp_', ''), 10);
-                    const wp = waypoints[idx];
-                    if (wp) {
-                      setNavTargetE(wp.E.toString());
-                      setNavTargetN(wp.N.toString());
-                      setNavTargetName(`${wp.id} (${wp.code})`);
-                    }
-                  } else {
-                    setNavTargetName('Custom Coordinates');
-                  }
-                }}
-                className="w-full py-2 px-3 rounded-xl border border-white/10 bg-[#141414] text-white"
-              >
-                <option value="manual">Manual UTM Coordinates</option>
-                {waypoints.map((wp, idx) => (
-                  <option key={wp.id} value={`wp_${idx}`}>
-                    {wp.id} - {wp.code} ({wp.E.toFixed(1)}, {wp.N.toFixed(1)})
-                  </option>
-                ))}
-              </select>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExportAlarmLogCSV}
+                  disabled={alarmEvents.length === 0}
+                  className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-white text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-1.5 disabled:opacity-40"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#c9a063]" />
+                  Export Log (CSV)
+                </button>
+                <button
+                  onClick={handleClearAlarmHistory}
+                  disabled={alarmEvents.length === 0}
+                  className="px-3 py-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-300 text-xs font-semibold rounded-xl border border-red-800/40 flex items-center gap-1.5 disabled:opacity-40"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Clear Log
+                </button>
+              </div>
             </div>
 
-            {navTargetId === 'manual' && (
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-white/50 text-[11px] mb-1">Target Easting (m)</label>
-                  <input
-                    type="number"
-                    value={navTargetE}
-                    onChange={e => setNavTargetE(e.target.value)}
-                    className="w-full py-1.5 px-2.5 rounded-lg border border-white/10 bg-[#141414] text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-white/50 text-[11px] mb-1">Target Northing (m)</label>
-                  <input
-                    type="number"
-                    value={navTargetN}
-                    onChange={e => setNavTargetN(e.target.value)}
-                    className="w-full py-1.5 px-2.5 rounded-lg border border-white/10 bg-[#141414] text-white font-mono"
-                  />
-                </div>
+            {alarmEvents.length === 0 ? (
+              <div className="p-6 bg-[#141414] rounded-xl border border-white/5 text-center text-xs text-white/40">
+                No proximity breach events recorded yet. Alarm logs will appear here when you enter a waypoint's radius.
+              </div>
+            ) : (
+              <div className="overflow-x-auto max-h-60 overflow-y-auto">
+                <table className="w-full text-xs text-left text-white/80 font-mono">
+                  <thead className="text-[10px] uppercase text-[#c9a063] border-b border-white/10 bg-[#141414] sticky top-0">
+                    <tr>
+                      <th className="py-2 px-3">Time</th>
+                      <th className="py-2 px-3">Waypoint ID</th>
+                      <th className="py-2 px-3">Event Type</th>
+                      <th className="py-2 px-3">Distance</th>
+                      <th className="py-2 px-3">Threshold</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {alarmEvents.slice(0, 30).map(evt => (
+                      <tr key={evt.id} className="hover:bg-white/5">
+                        <td className="py-2 px-3 text-white/60">{new Date(evt.timestamp).toLocaleTimeString()}</td>
+                        <td className="py-2 px-3 font-bold text-white">
+                          {evt.waypointId} <span className="text-white/40 font-normal">({evt.waypointCode})</span>
+                        </td>
+                        <td className="py-2 px-3">
+                          {evt.type === 'entered' ? (
+                            <span className="px-2 py-0.5 bg-emerald-950 text-emerald-300 rounded border border-emerald-500/40 text-[10px] font-bold">
+                              ENTERED ZONE
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-zinc-800 text-white/70 rounded text-[10px]">
+                              EXITED ZONE
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 font-bold text-emerald-400">{evt.distance.toFixed(2)} m</td>
+                        <td className="py-2 px-3 text-white/50">{evt.radius.toFixed(1)} m</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
-
-            {/* Proximity Alarm Settings */}
-            <div className="pt-3 border-t border-white/5 space-y-2">
-              <label className="block text-white/50 text-[11px]">Proximity Arrival Radius: {proximityRadiusMeters}m</label>
-              <input
-                type="range"
-                min="1"
-                max="25"
-                step="1"
-                value={proximityRadiusMeters}
-                onChange={e => setProximityRadiusMeters(parseFloat(e.target.value))}
-                className="w-full accent-[#c9a063]"
-              />
-
-              <div className="flex items-center justify-between pt-1">
-                <span className="text-white/70">Acoustic & Vibration Alert</span>
-                <input
-                  type="checkbox"
-                  checked={audioAlerts}
-                  onChange={e => setAudioAlerts(e.target.checked)}
-                  className="rounded bg-[#141414] border-white/20 text-[#c9a063]"
-                />
-              </div>
-            </div>
           </div>
         </div>
       )}
@@ -1403,6 +2253,24 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
 
             <div className="flex items-center gap-2 flex-wrap">
               <button
+                onClick={handleSendToGisAction}
+                disabled={waypoints.length === 0}
+                className="px-3 py-1.5 bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 text-xs font-semibold rounded-xl border border-emerald-500/30 flex items-center gap-1.5 disabled:opacity-40"
+                title="Send waypoints as a new layer to GIS Map Studio"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                Send to GIS
+              </button>
+              <button
+                onClick={handleSendToCalcAction}
+                disabled={waypoints.length === 0}
+                className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-white text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-1.5 disabled:opacity-40"
+                title="Send coordinates to Survey Calculator"
+              >
+                <ArrowUpRight className="w-3.5 h-3.5 text-[#c9a063]" />
+                Send to Calc
+              </button>
+              <button
                 onClick={handleExportGPX}
                 disabled={waypoints.length === 0}
                 className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-white text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-1.5 disabled:opacity-40"
@@ -1438,31 +2306,114 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                   <th className="py-2.5 px-3 font-mono">Easting (m)</th>
                   <th className="py-2.5 px-3 font-mono">Northing (m)</th>
                   <th className="py-2.5 px-3 font-mono">Elev (m)</th>
-                  <th className="py-2.5 px-3 font-mono">Accuracy</th>
+                  <th className="py-2.5 px-3 font-mono">Proximity Alarm</th>
                   <th className="py-2.5 px-3">Remarks</th>
                   <th className="py-2.5 px-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {waypoints.map((wp, idx) => (
-                  <tr key={wp.id} className="hover:bg-white/5">
-                    <td className="py-2 px-3 font-mono font-bold text-white">{wp.id}</td>
-                    <td className="py-2 px-3">{wp.code}</td>
-                    <td className="py-2 px-3 font-mono">{wp.E.toFixed(3)}</td>
-                    <td className="py-2 px-3 font-mono">{wp.N.toFixed(3)}</td>
-                    <td className="py-2 px-3 font-mono">{wp.Z.toFixed(2)}</td>
-                    <td className="py-2 px-3 font-mono text-emerald-400">±{(wp.acc || 0).toFixed(2)}m</td>
-                    <td className="py-2 px-3 text-white/50 truncate max-w-xs">{wp.remarks || '-'}</td>
-                    <td className="py-2 px-3 text-right">
-                      <button
-                        onClick={() => setWaypoints(prev => prev.filter((_, i) => i !== idx))}
-                        className="text-red-400/60 hover:text-red-400 p-1"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {waypoints.map((wp, idx) => {
+                  const dE = currentPos ? wp.E - currentPos.utm.E : 0;
+                  const dN = currentPos ? wp.N - currentPos.utm.N : 0;
+                  const dist = currentPos ? Math.hypot(dE, dN) : null;
+                  const radius = wp.proximityRadius ?? proximitySettings.globalRadius;
+                  const isInside = dist !== null && dist <= radius;
+                  const isMuted = wp.alarmDisabled || snoozedWpIds.includes(wp.id);
+
+                  return (
+                    <tr key={`reg_wp_${wp.id}_${wp.time || idx}_${idx}`} className={`hover:bg-white/5 ${isInside ? 'bg-emerald-950/20' : ''}`}>
+                      <td className="py-2 px-3 font-mono font-bold text-white">
+                        <div className="flex items-center gap-1.5">
+                          {isInside && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />}
+                          <span>{wp.id}</span>
+                        </div>
+                      </td>
+                      <td className="py-2 px-3">{wp.code}</td>
+                      <td className="py-2 px-3 font-mono">{wp.E.toFixed(3)}</td>
+                      <td className="py-2 px-3 font-mono">{wp.N.toFixed(3)}</td>
+                      <td className="py-2 px-3 font-mono">{wp.Z.toFixed(2)}</td>
+                      <td className="py-2 px-3 font-mono">
+                        <div className="flex items-center gap-1.5">
+                          {editingRadiusWpId === wp.id ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min="1"
+                                max="500"
+                                value={editingRadiusValue}
+                                onChange={e => setEditingRadiusValue(e.target.value)}
+                                className="w-12 px-1 py-0.5 bg-[#141414] border border-[#c9a063] rounded text-white text-xs font-mono"
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => updateWaypointRadius(wp.id, parseFloat(editingRadiusValue) || 10)}
+                                className="px-1.5 py-0.5 bg-[#c9a063] text-black rounded text-[10px] font-bold"
+                              >
+                                ✓
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setEditingRadiusWpId(wp.id);
+                                setEditingRadiusValue(radius.toString());
+                              }}
+                              className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 border border-white/10 text-white font-mono text-[11px] flex items-center gap-1"
+                              title="Click to edit alarm radius"
+                            >
+                              <span>{radius}m</span>
+                              <Sliders className="w-2.5 h-2.5 text-white/40" />
+                            </button>
+                          )}
+
+                          {dist !== null && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                              isInside ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40' : 'text-white/40'
+                            }`}>
+                              {isInside ? '🎯 In Zone' : `${dist.toFixed(1)}m`}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2 px-3 text-white/50 truncate max-w-xs">{wp.remarks || '-'}</td>
+                      <td className="py-2 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => toggleWaypointAlarm(wp.id)}
+                            className={`p-1.5 rounded-lg border transition-colors ${
+                              isMuted
+                                ? 'bg-red-950/40 border-red-800/40 text-red-400'
+                                : 'bg-white/5 hover:bg-white/10 border-white/10 text-[#c9a063]'
+                            }`}
+                            title={isMuted ? 'Alarm Muted (Click to Unmute)' : 'Alarm Active (Click to Mute)'}
+                          >
+                            {isMuted ? <BellOff className="w-3 h-3" /> : <Bell className="w-3 h-3" />}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setNavTargetId(`wp_${idx}`);
+                              setNavTargetE(wp.E.toString());
+                              setNavTargetN(wp.N.toString());
+                              setNavTargetName(`${wp.id} (${wp.code})`);
+                              setSubTab('navigation');
+                            }}
+                            className="p-1.5 bg-white/5 hover:bg-[#c9a063] hover:text-black text-white rounded-lg border border-white/10"
+                            title="Navigate to Waypoint"
+                          >
+                            <Navigation className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => setWaypoints(prev => prev.filter((_, i) => i !== idx))}
+                            className="text-red-400/60 hover:text-red-400 p-1.5 rounded-lg hover:bg-red-950/30"
+                            title="Delete Waypoint"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

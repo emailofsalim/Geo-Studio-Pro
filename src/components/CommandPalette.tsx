@@ -1,14 +1,42 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Globe, Calculator, MapPin, Layers, FileSpreadsheet, Compass, FileCode, Layers2, Spline, BookOpen, HelpCircle, Moon, Sun, Settings, Trash2, ArrowRight } from 'lucide-react';
+import {
+  Search,
+  Globe,
+  Calculator,
+  MapPin,
+  Layers,
+  FileSpreadsheet,
+  Compass,
+  FileCode,
+  Layers2,
+  Spline,
+  BookOpen,
+  HelpCircle,
+  Moon,
+  Sun,
+  Settings,
+  Trash2,
+  ArrowRight,
+  Sparkles,
+  Play,
+  Keyboard,
+  ShieldCheck,
+  Camera,
+  ShieldAlert
+} from 'lucide-react';
 import { AppTabId, APPS_CONFIG } from './Navigation';
 
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
   setActiveTab: (tab: AppTabId) => void;
-  isDark: boolean;
-  setIsDark: (d: boolean) => void;
-  openSettings: () => void;
+  isDark?: boolean;
+  setIsDark?: (d: boolean) => void;
+  openSettings?: () => void;
+  onOpenSettings?: () => void;
+  onOpenShortcuts?: () => void;
+  onOpenTour?: () => void;
+  onOpenAi?: () => void;
 }
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({
@@ -17,7 +45,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   setActiveTab,
   isDark,
   setIsDark,
-  openSettings
+  openSettings,
+  onOpenSettings,
+  onOpenShortcuts,
+  onOpenTour,
+  onOpenAi
 }) => {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -31,18 +63,50 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     }
   }, [isOpen]);
 
+  const handleSettings = onOpenSettings || openSettings;
+
   const actions = [
     ...APPS_CONFIG.map(app => ({
       id: `app-${app.id}`,
       title: `Open ${app.name}`,
-      category: 'Tools & Apps',
+      category: 'Applications & Tools',
       icon: app.icon,
       run: () => {
         setActiveTab(app.id);
         onClose();
       }
     })),
-    {
+    ...(onOpenAi ? [{
+      id: 'act-ai',
+      title: 'Open AI Geomatics Consultant (Gemini / Assistant)',
+      category: 'AI Assistant',
+      icon: Sparkles,
+      run: () => {
+        onOpenAi();
+        onClose();
+      }
+    }] : []),
+    ...(onOpenTour ? [{
+      id: 'act-tour',
+      title: 'Start Interactive Feature Tour & Workflow Guide',
+      category: 'Help & Tutorials',
+      icon: Play,
+      run: () => {
+        onOpenTour();
+        onClose();
+      }
+    }] : []),
+    ...(onOpenShortcuts ? [{
+      id: 'act-shortcuts',
+      title: 'View Keyboard Shortcuts Matrix',
+      category: 'Help & Navigation',
+      icon: Keyboard,
+      run: () => {
+        onOpenShortcuts();
+        onClose();
+      }
+    }] : []),
+    ...(setIsDark ? [{
       id: 'act-theme',
       title: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
       category: 'Appearance',
@@ -51,17 +115,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         setIsDark(!isDark);
         onClose();
       }
-    },
-    {
+    }] : []),
+    ...(handleSettings ? [{
       id: 'act-settings',
-      title: 'Open Settings & Preferences',
+      title: 'Open Settings, CRS Zones & Land Units',
       category: 'Settings',
       icon: Settings,
       run: () => {
-        openSettings();
+        handleSettings();
         onClose();
       }
-    }
+    }] : [])
   ];
 
   const filtered = actions.filter(a =>

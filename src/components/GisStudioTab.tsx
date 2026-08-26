@@ -110,169 +110,184 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
   const [selectedFeature, setSelectedFeature] = useState<{ layerId: string; featureIdx: number; feature: GeoFeature } | null>(null);
 
   // Layer State
-  const [layers, setLayers] = useState<GisLayer[]>([
-    {
-      id: 'layer_lease',
-      name: 'Mining Lease Boundary (ML-04)',
-      visible: true,
-      color: '#f59e0b',
-      fillColor: '#f59e0b',
-      fillOpacity: 0.15,
-      strokeWidth: 2.5,
-      geomType: 'polygon',
-      features: [
-        {
-          name: 'ML Boundary Pillar Block',
-          geom: 'polygon',
-          kind: 'en',
-          pts: [
-            { a: 254500, b: 2604800 },
-            { a: 255400, b: 2604850 },
-            { a: 255500, b: 2605500 },
-            { a: 254900, b: 2605650 },
-            { a: 254400, b: 2605200 }
-          ],
-          props: {
-            Lease_ID: 'ML/2024/089',
-            Mineral: 'Bauxite Ore',
-            Grantee: 'Apex Mining Corporation Ltd.',
-            Status: 'Active Mining Grant',
-            Area_Ha: 68.42
+  const [layers, setLayers] = useState<GisLayer[]>(() => {
+    try {
+      const stored = localStorage.getItem('gis_studio_layers');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [
+      {
+        id: 'layer_lease',
+        name: 'Mining Lease Boundary (ML-04)',
+        visible: true,
+        color: '#f59e0b',
+        fillColor: '#f59e0b',
+        fillOpacity: 0.15,
+        strokeWidth: 2.5,
+        geomType: 'polygon',
+        features: [
+          {
+            name: 'ML Boundary Pillar Block',
+            geom: 'polygon',
+            kind: 'en',
+            pts: [
+              { a: 254500, b: 2604800 },
+              { a: 255400, b: 2604850 },
+              { a: 255500, b: 2605500 },
+              { a: 254900, b: 2605650 },
+              { a: 254400, b: 2605200 }
+            ],
+            props: {
+              Lease_ID: 'ML/2024/089',
+              Mineral: 'Bauxite Ore',
+              Grantee: 'Apex Mining Corporation Ltd.',
+              Status: 'Active Mining Grant',
+              Area_Ha: 68.42
+            }
           }
-        }
-      ]
-    },
-    {
-      id: 'layer_khasra',
-      name: 'Cadastral Khasra Parcels',
-      visible: true,
-      color: '#38bdf8',
-      fillColor: '#38bdf8',
-      fillOpacity: 0.2,
-      strokeWidth: 1.5,
-      geomType: 'polygon',
-      features: [
-        {
-          name: 'Plot 104/1',
-          geom: 'polygon',
-          kind: 'en',
-          pts: [
-            { a: 254800, b: 2605200 },
-            { a: 255000, b: 2605250 },
-            { a: 255050, b: 2605050 },
-            { a: 254850, b: 2605000 }
-          ],
-          props: {
-            Khasra_No: '104/1',
-            Raiyat_Owner: 'Rameshwar Mahato',
-            Land_Class: 'Dhani 1 (Agricultural)',
-            Area_M2: 44375,
-            Area_Ha: 4.4375
+        ]
+      },
+      {
+        id: 'layer_khasra',
+        name: 'Cadastral Khasra Parcels',
+        visible: true,
+        color: '#38bdf8',
+        fillColor: '#38bdf8',
+        fillOpacity: 0.2,
+        strokeWidth: 1.5,
+        geomType: 'polygon',
+        features: [
+          {
+            name: 'Plot 104/1',
+            geom: 'polygon',
+            kind: 'en',
+            pts: [
+              { a: 254800, b: 2605200 },
+              { a: 255000, b: 2605250 },
+              { a: 255050, b: 2605050 },
+              { a: 254850, b: 2605000 }
+            ],
+            props: {
+              Khasra_No: '104/1',
+              Raiyat_Owner: 'Rameshwar Mahato',
+              Land_Class: 'Dhani 1 (Agricultural)',
+              Area_M2: 44375,
+              Area_Ha: 4.4375
+            }
+          },
+          {
+            name: 'Plot 104/2',
+            geom: 'polygon',
+            kind: 'en',
+            pts: [
+              { a: 255000, b: 2605250 },
+              { a: 255250, b: 2605300 },
+              { a: 255300, b: 2605100 },
+              { a: 255050, b: 2605050 }
+            ],
+            props: {
+              Khasra_No: '104/2',
+              Raiyat_Owner: 'Sukhram Oraon',
+              Land_Class: 'Tar / Tanr (Upland)',
+              Area_M2: 50625,
+              Area_Ha: 5.0625
+            }
+          },
+          {
+            name: 'Plot 105 (Pond)',
+            geom: 'polygon',
+            kind: 'en',
+            pts: [
+              { a: 254850, b: 2605000 },
+              { a: 255050, b: 2605050 },
+              { a: 255020, b: 2604850 },
+              { a: 254820, b: 2604820 }
+            ],
+            props: {
+              Khasra_No: '105',
+              Raiyat_Owner: 'Gram Panchayat Gair Mazarua Aam',
+              Land_Class: 'Waterbody Reservoir',
+              Area_M2: 43200,
+              Area_Ha: 4.32
+            }
           }
-        },
-        {
-          name: 'Plot 104/2',
-          geom: 'polygon',
-          kind: 'en',
-          pts: [
-            { a: 255000, b: 2605250 },
-            { a: 255250, b: 2605300 },
-            { a: 255300, b: 2605100 },
-            { a: 255050, b: 2605050 }
-          ],
-          props: {
-            Khasra_No: '104/2',
-            Raiyat_Owner: 'Sukhram Oraon',
-            Land_Class: 'Tar / Tanr (Upland)',
-            Area_M2: 50625,
-            Area_Ha: 5.0625
+        ]
+      },
+      {
+        id: 'layer_boreholes',
+        name: 'Exploration Drillholes (Collars)',
+        visible: true,
+        color: '#10b981',
+        fillColor: '#10b981',
+        fillOpacity: 0.9,
+        strokeWidth: 2,
+        geomType: 'point',
+        features: [
+          {
+            name: 'BH-01',
+            geom: 'point',
+            kind: 'en',
+            pts: [{ a: 254920, b: 2605150 }],
+            props: { BH_ID: 'BH-01', Collar_RL: 542.5, Max_Depth: 18.5, Ore_Thickness: 8.2, Al2O3_Avg: 48.2, Status: 'Positive Ore' }
+          },
+          {
+            name: 'BH-02',
+            geom: 'point',
+            kind: 'en',
+            pts: [{ a: 255150, b: 2605200 }],
+            props: { BH_ID: 'BH-02', Collar_RL: 548.0, Max_Depth: 22.0, Ore_Thickness: 6.4, Al2O3_Avg: 45.1, Status: 'Positive Ore' }
+          },
+          {
+            name: 'BH-03',
+            geom: 'point',
+            kind: 'en',
+            pts: [{ a: 255280, b: 2604950 }],
+            props: { BH_ID: 'BH-03', Collar_RL: 535.0, Max_Depth: 15.0, Ore_Thickness: 9.1, Al2O3_Avg: 50.4, Status: 'Positive Ore' }
+          },
+          {
+            name: 'BH-04',
+            geom: 'point',
+            kind: 'en',
+            pts: [{ a: 254700, b: 2605400 }],
+            props: { BH_ID: 'BH-04', Collar_RL: 550.2, Max_Depth: 25.0, Ore_Thickness: 0.0, Al2O3_Avg: 18.0, Status: 'Barren Waste' }
           }
-        },
-        {
-          name: 'Plot 105 (Pond)',
-          geom: 'polygon',
-          kind: 'en',
-          pts: [
-            { a: 254850, b: 2605000 },
-            { a: 255050, b: 2605050 },
-            { a: 255020, b: 2604850 },
-            { a: 254820, b: 2604820 }
-          ],
-          props: {
-            Khasra_No: '105',
-            Raiyat_Owner: 'Gram Panchayat Gair Mazarua Aam',
-            Land_Class: 'Waterbody Reservoir',
-            Area_M2: 43200,
-            Area_Ha: 4.32
+        ]
+      },
+      {
+        id: 'layer_roads',
+        name: 'Haulage & Access Roads',
+        visible: true,
+        color: '#c084fc',
+        fillColor: '#c084fc',
+        fillOpacity: 0.5,
+        strokeWidth: 3,
+        geomType: 'line',
+        features: [
+          {
+            name: 'Main Haul Road North',
+            geom: 'line',
+            kind: 'en',
+            pts: [
+              { a: 254450, b: 2604900 },
+              { a: 254750, b: 2605150 },
+              { a: 255100, b: 2605350 },
+              { a: 255450, b: 2605550 }
+            ],
+            props: { Route_Name: 'North-East Corridor', Width_M: 12.0, Surface: 'Heavy Bitumen Haul' }
           }
-        }
-      ]
-    },
-    {
-      id: 'layer_boreholes',
-      name: 'Exploration Drillholes (Collars)',
-      visible: true,
-      color: '#10b981',
-      fillColor: '#10b981',
-      fillOpacity: 0.9,
-      strokeWidth: 2,
-      geomType: 'point',
-      features: [
-        {
-          name: 'BH-01',
-          geom: 'point',
-          kind: 'en',
-          pts: [{ a: 254920, b: 2605150 }],
-          props: { BH_ID: 'BH-01', Collar_RL: 542.5, Max_Depth: 18.5, Ore_Thickness: 8.2, Al2O3_Avg: 48.2, Status: 'Positive Ore' }
-        },
-        {
-          name: 'BH-02',
-          geom: 'point',
-          kind: 'en',
-          pts: [{ a: 255150, b: 2605200 }],
-          props: { BH_ID: 'BH-02', Collar_RL: 548.0, Max_Depth: 22.0, Ore_Thickness: 6.4, Al2O3_Avg: 45.1, Status: 'Positive Ore' }
-        },
-        {
-          name: 'BH-03',
-          geom: 'point',
-          kind: 'en',
-          pts: [{ a: 255280, b: 2604950 }],
-          props: { BH_ID: 'BH-03', Collar_RL: 535.0, Max_Depth: 15.0, Ore_Thickness: 9.1, Al2O3_Avg: 50.4, Status: 'Positive Ore' }
-        },
-        {
-          name: 'BH-04',
-          geom: 'point',
-          kind: 'en',
-          pts: [{ a: 254700, b: 2605400 }],
-          props: { BH_ID: 'BH-04', Collar_RL: 550.2, Max_Depth: 25.0, Ore_Thickness: 0.0, Al2O3_Avg: 18.0, Status: 'Barren Waste' }
-        }
-      ]
-    },
-    {
-      id: 'layer_roads',
-      name: 'Haulage & Access Roads',
-      visible: true,
-      color: '#c084fc',
-      fillColor: '#c084fc',
-      fillOpacity: 0.5,
-      strokeWidth: 3,
-      geomType: 'line',
-      features: [
-        {
-          name: 'Main Haul Road North',
-          geom: 'line',
-          kind: 'en',
-          pts: [
-            { a: 254450, b: 2604900 },
-            { a: 254750, b: 2605150 },
-            { a: 255100, b: 2605350 },
-            { a: 255450, b: 2605550 }
-          ],
-          props: { Route_Name: 'North-East Corridor', Width_M: 12.0, Surface: 'Heavy Bitumen Haul' }
-        }
-      ]
-    }
-  ]);
+        ]
+      }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('gis_studio_layers', JSON.stringify(layers));
+    } catch {}
+  }, [layers]);
 
   const [activeLayerId, setActiveLayerId] = useState<string>('layer_lease');
   const activeLayer = useMemo(() => layers.find(l => l.id === activeLayerId) || layers[0], [layers, activeLayerId]);
