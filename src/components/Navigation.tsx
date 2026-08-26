@@ -111,8 +111,8 @@ export const Navigation: React.FC<NavigationProps> = ({
 
       {/* Sidebar Navigation */}
       <aside
-        className={`fixed md:sticky top-0 left-0 h-screen z-50 flex flex-col bg-[#0f0f0f] border-r border-white/5 text-[#d4d4d4] transition-all duration-300 shadow-2xl ${
-          isRail ? 'w-20' : 'w-64'
+        className={`fixed md:relative top-0 left-0 h-full z-30 flex flex-col bg-[#0c0c0c] border-r border-white/10 text-[#d4d4d4] transition-all duration-200 shadow-2xl ${
+          isRail ? 'w-16' : 'w-64'
         } ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
         {/* Brand Header */}

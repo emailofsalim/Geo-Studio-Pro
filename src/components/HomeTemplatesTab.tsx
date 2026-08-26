@@ -10,14 +10,25 @@ import {
   ArrowRight,
   Upload,
   FileText,
-  Eye
+  Eye,
+  Compass,
+  Calculator,
+  Camera,
+  Globe,
+  Scan,
+  MapPin,
+  Spline,
+  FileCode,
+  Layers2,
+  Crosshair,
+  ShieldAlert,
+  Radio
 } from 'lucide-react';
 import { TEMPLATES, DATA_DICTIONARY, buildAllTemplatesZip } from '../lib/templates';
 import { downloadBlob, readZip } from '../lib/zip';
 import { toCSVtext, csvEnc, stripBOM, parseCSV, csvToFeatures, kmlParse, geoJsonParse, dxfParse, extractAllFeaturesFromZip } from '../lib/formats';
 import { AppTabId } from './Navigation';
 import { GeoFeature } from '../types';
-import { ShieldAlert, Radio } from 'lucide-react';
 
 interface HomeTemplatesTabProps {
   setActiveTab?: (tab: AppTabId) => void;
@@ -39,6 +50,73 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({ setActiveTab
 
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
+
+  const surveyStations: { id: AppTabId; title: string; subtitle: string; icon: any; color: string; badge: string }[] = [
+    {
+      id: 'gps',
+      title: 'GNSS RTK Rover',
+      subtitle: 'Epoch Stacking, Vector Radar & Proximity Sentinel',
+      icon: Compass,
+      color: 'text-[#c9a063] bg-[#c9a063]/10 border-[#c9a063]/30',
+      badge: 'Field Station'
+    },
+    {
+      id: 'gis',
+      title: 'GIS Map Studio',
+      subtitle: 'Multi-layer CAD/GIS Vector Analysis & Drawing',
+      icon: Layers,
+      color: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+      badge: 'CAD / GIS'
+    },
+    {
+      id: 'camera',
+      title: 'GPS Field Camera',
+      subtitle: 'Live Inclinometer, Bearing & Geostamp HUD',
+      icon: Camera,
+      color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+      badge: 'Photogrammetry'
+    },
+    {
+      id: 'calc',
+      title: 'Survey Calculator',
+      subtitle: 'Leveling Sheet, Bowditch Traverse & Curve COGO',
+      icon: Calculator,
+      color: 'text-sky-400 bg-sky-500/10 border-sky-500/30',
+      badge: 'COGO / Geodesy'
+    },
+    {
+      id: 'convert',
+      title: 'Coordinate Converter',
+      subtitle: 'UTM, WGS84, Cassini & Scale Factor k₀',
+      icon: Globe,
+      color: 'text-purple-400 bg-purple-500/10 border-purple-500/30',
+      badge: 'Transform'
+    },
+    {
+      id: 'bhunaksha',
+      title: 'BhuNaksha Digitizer',
+      subtitle: 'Village Map 4-Point Affine Georeferencing',
+      icon: Scan,
+      color: 'text-teal-400 bg-teal-500/10 border-teal-500/30',
+      badge: 'Cadastre'
+    },
+    {
+      id: 'bore',
+      title: 'Borehole & Mine',
+      subtitle: 'IBM/JORC Assay Compositing & 2D Profiles',
+      icon: MapPin,
+      color: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
+      badge: 'Mining Log'
+    },
+    {
+      id: 'studio',
+      title: 'Universal Converter',
+      subtitle: 'DXF, SHP, KML, CSV, GeoJSON & GPX Engine',
+      icon: FileCode,
+      color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/30',
+      badge: 'Interop'
+    }
+  ];
 
   const handleDownloadSingle = (key: string) => {
     const t = TEMPLATES[key];
@@ -132,32 +210,76 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({ setActiveTab
             {setActiveTab && (
               <>
                 <button
-                  onClick={() => setActiveTab('gis')}
+                  onClick={() => setActiveTab('gps')}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-[#c9a063]/10"
                 >
-                  <Layers className="w-4 h-4" /> Open GIS Map Studio
+                  <Compass className="w-4 h-4" /> Open GNSS Field Rover
                 </button>
                 <button
-                  onClick={() => setActiveTab('geofence')}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-red-600/90 hover:bg-red-500 text-white font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-red-500/20"
+                  onClick={() => setActiveTab('gis')}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-white font-bold text-xs uppercase tracking-widest transition-all border border-white/10"
                 >
-                  <ShieldAlert className="w-4 h-4" /> Geofence Sentinel
+                  <Layers className="w-4 h-4 text-[#c9a063]" /> GIS Map Studio
                 </button>
               </>
             )}
             <button
               onClick={handleDownloadAllZip}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-white font-semibold text-xs uppercase tracking-wider transition-all border border-white/10"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/5 hover:bg-white/10 text-white font-semibold text-xs uppercase tracking-wider transition-all border border-white/10"
             >
               <FolderArchive className="w-4 h-4 text-[#c9a063]" /> Download All Templates (.zip)
             </button>
-            <button
-              onClick={handleDownloadDataDictionary}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/5 hover:bg-white/10 text-white/80 hover:text-white text-xs font-medium border border-white/10 transition-all uppercase tracking-wider"
-            >
-              <BookOpen className="w-4 h-4 text-[#c9a063]" /> Data Dictionary (.csv)
-            </button>
           </div>
+        </div>
+      </div>
+
+      {/* Survey Technology Stations & Instrument Quick-Launch Grid */}
+      <div className="bg-[#0f0f0f] rounded-2xl p-6 sm:p-8 border border-white/5 space-y-5">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[#c9a063] mb-1 font-medium font-mono">
+              Field & Lab Instrumentation
+            </p>
+            <h2 className="text-xl font-serif italic text-white flex items-center gap-2">
+              <Crosshair className="w-5 h-5 text-[#c9a063]" />
+              Geomatics Survey Workstations
+            </h2>
+          </div>
+          <div className="text-xs text-white/50 font-mono flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>All 8 Instrument Engines Online (100% Offline Ready)</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {surveyStations.map(st => {
+            const Icon = st.icon;
+            return (
+              <button
+                key={st.id}
+                onClick={() => setActiveTab && setActiveTab(st.id)}
+                className="p-4 rounded-xl border border-white/5 hover:border-[#c9a063]/50 bg-[#141414] hover:bg-[#181818] transition-all text-left flex flex-col justify-between group relative overflow-hidden"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className={`p-2.5 rounded-xl border ${st.color}`}>
+                    <Icon className="w-5 h-5" />
+                  </div>
+                  <span className="text-[9px] uppercase font-mono px-2 py-0.5 rounded-full bg-white/5 text-white/50 border border-white/10">
+                    {st.badge}
+                  </span>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white group-hover:text-[#c9a063] transition-colors flex items-center justify-between">
+                    <span>{st.title}</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-white/30 group-hover:text-[#c9a063] group-hover:translate-x-0.5 transition-all" />
+                  </h3>
+                  <p className="text-[11px] text-white/50 mt-1 line-clamp-2 leading-relaxed">
+                    {st.subtitle}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 

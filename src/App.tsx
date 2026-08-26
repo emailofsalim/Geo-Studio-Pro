@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Navigation, AppTabId } from './components/Navigation';
 import { Header } from './components/Header';
+import { DesktopMenuBar } from './components/DesktopMenuBar';
+import { DesktopStatusBar } from './components/DesktopStatusBar';
+import { AndroidMobileLayout } from './components/AndroidMobileLayout';
 import { CommandPalette } from './components/CommandPalette';
 import { SettingsModal } from './components/SettingsModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
@@ -36,6 +39,7 @@ export function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<AppTabId>('templates');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isRail, setIsRail] = useState(false);
 
   // Settings State
   const [workingZone, setWorkingZone] = useState<string>(() => {
@@ -213,24 +217,47 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-[#d4d4d4] flex flex-col font-sans transition-colors duration-150 selection:bg-[#c9a063]/30 selection:text-[#f5f5f5]">
-      {/* Top Header */}
-      <Header
+      {/* 1. Desktop Workstation Top Menu Bar & Ribbon (Desktop Only) */}
+      <DesktopMenuBar
         activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        workingZone={workingZone}
+        setWorkingZone={setWorkingZone}
+        distanceUnit={distanceUnit}
+        setDistanceUnit={setDistanceUnit}
         isDark={isDarkMode}
         setIsDark={setIsDarkMode}
         openCommandPalette={() => setIsCommandPaletteOpen(true)}
         openSettings={() => setIsSettingsOpen(true)}
+        openShortcuts={() => setIsShortcutsOpen(true)}
         openTour={() => setIsTourOpen(true)}
-        setIsMobileOpen={setIsSidebarOpen}
+        openAiModal={() => setIsAiModalOpen(true)}
+        onExportProject={handleExportProject}
+        onImportProject={handleImportProject}
+        onClearAllData={handleClearAllData}
+        hasGpsFix={false}
+      />
+
+      {/* 2. Android Mobile Native Header & Telemetry (Mobile Only) */}
+      <AndroidMobileLayout
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        workingZone={workingZone}
+        setWorkingZone={setWorkingZone}
+        openCommandPalette={() => setIsCommandPaletteOpen(true)}
+        openSettings={() => setIsSettingsOpen(true)}
+        openAiModal={() => setIsAiModalOpen(true)}
         hasGpsFix={false}
       />
 
       {/* Main Workspace Body */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
+        {/* Desktop Collapsible Sidebar */}
         <Navigation
           activeTab={activeTab}
           setActiveTab={setActiveTab}
+          isRail={isRail}
+          setIsRail={setIsRail}
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
           openSettings={() => setIsSettingsOpen(true)}
@@ -238,7 +265,7 @@ export function App() {
         />
 
         {/* Content View Area */}
-        <main className="flex-1 p-4 sm:p-6 md:p-8 overflow-y-auto max-w-7xl mx-auto w-full custom-scrollbar">
+        <main className="flex-1 p-3 sm:p-5 md:p-8 overflow-y-auto max-w-7xl mx-auto w-full custom-scrollbar pb-24 md:pb-6">
           {activeTab === 'templates' && (
             <HomeTemplatesTab
               setActiveTab={setActiveTab}
@@ -342,6 +369,13 @@ export function App() {
           {(activeTab === 'help' || activeTab === 'faq') && <HelpFaqTab />}
         </main>
       </div>
+
+      {/* 3. Desktop Workstation Bottom Status Bar (Desktop Only) */}
+      <DesktopStatusBar
+        workingZone={workingZone}
+        distanceUnit={distanceUnit}
+        activeTab={activeTab}
+      />
 
       {/* Modals & Overlays */}
       <CommandPalette
