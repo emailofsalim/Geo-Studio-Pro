@@ -717,12 +717,12 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12">
-      {/* Minimal Header */}
-      <div className="pt-2 pb-2 space-y-1">
-        <h1 className="text-2xl sm:text-3xl font-serif italic text-slate-900 dark:text-white tracking-tight">
-          Precision Geodesy & Survey Workspace
+      {/* Header */}
+      <div className="pt-1 pb-1 space-y-1">
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
+          Survey Templates & Geomatics Archive
         </h1>
-        <p className="text-xs sm:text-sm text-slate-500 dark:text-white/50">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
           Standardized geodetic CSV templates, ZIP archive inspection, and custom survey schema generation.
         </p>
       </div>

@@ -22,9 +22,11 @@ import {
   Keyboard,
   ShieldCheck,
   Camera,
-  ShieldAlert
+  ShieldAlert,
+  X
 } from 'lucide-react';
 import { AppTabId, APPS_CONFIG } from './Navigation';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -51,6 +53,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onOpenTour,
   onOpenAi
 }) => {
+  const isOnline = useOnlineStatus();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -60,8 +63,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       setQuery('');
       setSelectedIndex(0);
       setTimeout(() => inputRef.current?.focus(), 50);
+
+      const handleGlobalEsc = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onClose();
+        }
+      };
+      window.addEventListener('keydown', handleGlobalEsc);
+      return () => window.removeEventListener('keydown', handleGlobalEsc);
     }
-  }, [isOpen]);
+  }, [isOpen, onClose]);
 
   const handleSettings = onOpenSettings || openSettings;
 
@@ -76,9 +88,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         onClose();
       }
     })),
-    ...(onOpenAi ? [{
+    ...(onOpenAi && isOnline ? [{
       id: 'act-ai',
-      title: 'Open AI Geomatics Consultant (Gemini / Assistant)',
+      title: 'Open BhuNex AI Assistant',
       category: 'AI Assistant',
       icon: Sparkles,
       run: () => {
@@ -154,12 +166,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-start justify-center pt-24 px-4">
+    <div
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-start justify-center pt-16 sm:pt-24 px-3 sm:px-4 cursor-pointer"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-xl bg-[#0f0f0f] rounded-2xl shadow-2xl border border-white/10 overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="w-full max-w-xl bg-[#0f0f0f] rounded-2xl shadow-2xl border border-white/10 overflow-hidden animate-in fade-in zoom-in-95 duration-150 cursor-default"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center px-5 border-b border-white/5">
+        <div className="flex items-center px-4 sm:px-5 border-b border-white/5 gap-2">
           <Search className="w-4 h-4 text-[#c9a063] shrink-0" />
           <input
             ref={inputRef}
@@ -171,11 +186,21 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             }}
             onKeyDown={handleKeyDown}
             placeholder="Type a command or jump to an application..."
-            className="w-full py-4 px-3.5 bg-transparent text-white placeholder-white/30 text-sm focus:outline-none font-sans"
+            className="w-full py-3.5 sm:py-4 px-2 sm:px-3 bg-transparent text-white placeholder-white/30 text-xs sm:text-sm focus:outline-none font-sans"
           />
-          <kbd className="px-2 py-0.5 text-[10px] font-mono bg-white/5 text-white/40 rounded border border-white/10">
-            ESC
-          </kbd>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <kbd className="hidden sm:inline-block px-2 py-0.5 text-[10px] font-mono bg-white/5 text-white/40 rounded border border-white/10">
+              ESC
+            </kbd>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+              title="Close (Esc)"
+              aria-label="Close Command Palette"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="max-h-80 overflow-y-auto p-2 space-y-1 custom-scrollbar">
@@ -213,8 +238,14 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           )}
         </div>
 
-        <div className="px-5 py-2.5 bg-[#0a0a0a] border-t border-white/5 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-white/30">
-          <span>Navigate with <kbd className="font-mono text-white/60">↑</kbd> <kbd className="font-mono text-white/60">↓</kbd></span>
+        <div className="px-4 sm:px-5 py-2.5 bg-[#0a0a0a] border-t border-white/5 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-white/40">
+          <span className="hidden sm:inline">Navigate with <kbd className="font-mono text-white/60">↑</kbd> <kbd className="font-mono text-white/60">↓</kbd></span>
+          <button
+            onClick={onClose}
+            className="sm:hidden text-white/60 hover:text-white font-medium py-1"
+          >
+            Tap anywhere or Click here to close
+          </button>
           <span>Select with <kbd className="font-mono text-white/60">Enter</kbd></span>
         </div>
       </div>

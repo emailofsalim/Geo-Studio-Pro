@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, ArrowRight, ArrowLeft, Check, Sparkles, Compass, MapPin, Layers, Globe } from 'lucide-react';
 import { AppTabId } from './Navigation';
 
@@ -10,6 +10,19 @@ interface TourSpotlightProps {
 
 export const TourSpotlight: React.FC<TourSpotlightProps> = ({ isOpen, onClose, setActiveTab }) => {
   const [stepIdx, setStepIdx] = useState(0);
+
+  useEffect(() => {
+    if (isOpen) {
+      const handleGlobalEsc = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onClose();
+        }
+      };
+      window.addEventListener('keydown', handleGlobalEsc);
+      return () => window.removeEventListener('keydown', handleGlobalEsc);
+    }
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 

@@ -1,36 +1,73 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="100%" height="100%">
   <defs>
-    <radialGradient id="bgGrad180" cx="50%" cy="50%" r="70%">
-      <stop offset="0%" stop-color="#1e1c18" />
-      <stop offset="60%" stop-color="#0f0e0d" />
-      <stop offset="100%" stop-color="#050505" />
+    <!-- Background Navy Blue Gradient -->
+    <linearGradient id="bgNavyGrad180" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e4e7a" />
+      <stop offset="35%" stop-color="#143c62" />
+      <stop offset="80%" stop-color="#0c253f" />
+      <stop offset="100%" stop-color="#071b2f" />
+    </linearGradient>
+
+    <!-- Subtle Bevel Gradient -->
+    <linearGradient id="borderSheen180" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#478bc7" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#0e2f50" stop-opacity="0.6" />
+    </linearGradient>
+
+    <!-- Reticle Cyan-Blue Gradient -->
+    <linearGradient id="reticleGrad180" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#bce4ff" />
+      <stop offset="100%" stop-color="#8ecbf8" />
+    </linearGradient>
+
+    <!-- Center Orange Dot Gradient -->
+    <radialGradient id="orangeCore180" cx="42%" cy="38%" r="62%">
+      <stop offset="0%" stop-color="#ff9138" />
+      <stop offset="50%" stop-color="#ff6a00" />
+      <stop offset="100%" stop-color="#c94100" />
     </radialGradient>
-    <linearGradient id="goldPrimary180" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#faecc0" />
-      <stop offset="40%" stop-color="#d4af37" />
-      <stop offset="80%" stop-color="#c9a063" />
-      <stop offset="100%" stop-color="#8c6827" />
-    </linearGradient>
-    <linearGradient id="goldAccent180" x1="100%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" />
-      <stop offset="40%" stop-color="#e5c580" />
-      <stop offset="100%" stop-color="#442e07" />
-    </linearGradient>
   </defs>
 
-  <rect width="180" height="180" fill="url(#bgGrad180)" />
-  <circle cx="90" cy="90" r="68" fill="none" stroke="#c9a063" stroke-width="0.8" stroke-opacity="0.25" stroke-dasharray="2 3" />
-  <circle cx="90" cy="90" r="50" fill="none" stroke="#c9a063" stroke-width="1.2" stroke-opacity="0.3" />
+  <!-- Apple Touch Base Container -->
+  <rect width="180" height="180" rx="40" fill="url(#bgNavyGrad180)" />
+  <rect x="1.5" y="1.5" width="177" height="177" rx="38.5" fill="none" stroke="url(#borderSheen180)" stroke-width="2" />
 
-  <line x1="90" y1="16" x2="90" y2="164" stroke="#c9a063" stroke-width="1.2" stroke-opacity="0.35" />
-  <line x1="16" y1="90" x2="164" y2="90" stroke="#c9a063" stroke-width="1.2" stroke-opacity="0.35" />
+  <!-- Target & Globe Vector Graphic -->
+  <g>
+    <!-- Globe Outer Circle -->
+    <circle cx="90" cy="90" r="52" fill="none" stroke="#8ecbf8" stroke-width="2.8" />
 
-  <path d="M 54 48 L 68 48 L 68 132 L 54 132 Z" fill="url(#goldPrimary180)" />
-  <path d="M 68 48 C 86 48 98 58 98 72 C 98 83 89 89 78 91 L 68 91 Z" fill="url(#goldAccent180)" />
-  <path d="M 68 58 L 78 58 C 85 58 89 63 89 72 C 89 79 84 81 77 81 L 68 81 Z" fill="#0e0d0c" />
-  <path d="M 77 89 L 114 132 L 129 132 L 91 89 Z" fill="url(#goldPrimary180)" />
-  <path d="M 115 48 L 129 48 L 129 132 L 115 132 Z" fill="url(#goldAccent180)" />
+    <!-- Inner Longitude Meridians -->
+    <ellipse cx="90" cy="90" rx="19.5" ry="52" fill="none" stroke="#8ecbf8" stroke-width="2.4" />
+    <ellipse cx="90" cy="90" rx="38" ry="52" fill="none" stroke="#8ecbf8" stroke-width="2.4" />
 
-  <circle cx="90" cy="90" r="6.5" fill="#050505" stroke="url(#goldPrimary180)" stroke-width="2" />
-  <circle cx="90" cy="90" r="2.5" fill="#fcf5dc" />
+    <!-- Upper Latitude Parallel Arc -->
+    <path d="M 46.5 59.8 Q 90 69.6 133.5 59.8" fill="none" stroke="#8ecbf8" stroke-width="2.4" stroke-linecap="round" />
+
+    <!-- Lower Latitude Parallel Arc -->
+    <path d="M 46.5 120.2 Q 90 110.4 133.5 120.2" fill="none" stroke="#8ecbf8" stroke-width="2.4" stroke-linecap="round" />
+
+    <!-- Crosshairs Reticle Main Axis Lines -->
+    <!-- Horizontal Crosshair -->
+    <line x1="25.5" y1="90" x2="154.5" y2="90" stroke="url(#reticleGrad180)" stroke-width="3" />
+    <!-- Left End T-Cap -->
+    <line x1="25.5" y1="82" x2="25.5" y2="98" stroke="url(#reticleGrad180)" stroke-width="3" stroke-linecap="round" />
+    <!-- Right End T-Cap -->
+    <line x1="154.5" y1="82" x2="154.5" y2="98" stroke="url(#reticleGrad180)" stroke-width="3" stroke-linecap="round" />
+
+    <!-- Vertical Crosshair -->
+    <line x1="90" y1="25.5" x2="90" y2="154.5" stroke="url(#reticleGrad180)" stroke-width="3" />
+    <!-- Top End T-Cap -->
+    <line x1="82" y1="25.5" x2="98" y2="25.5" stroke="url(#reticleGrad180)" stroke-width="3" stroke-linecap="round" />
+    <!-- Bottom End T-Cap -->
+    <line x1="82" y1="154.5" x2="98" y2="154.5" stroke="url(#reticleGrad180)" stroke-width="3" stroke-linecap="round" />
+
+    <!-- Center Target Marker -->
+    <!-- Outer White Ring -->
+    <circle cx="90" cy="90" r="10.2" fill="#ffffff" stroke="#bce4ff" stroke-width="1.1" />
+    <!-- Vibrant Orange Core Disc -->
+    <circle cx="90" cy="90" r="8" fill="url(#orangeCore180)" stroke="#fa8732" stroke-width="0.8" />
+    <!-- Specular Highlight -->
+    <circle cx="88.3" cy="88" r="1.8" fill="#ffffff" opacity="0.6" />
+  </g>
 </svg>

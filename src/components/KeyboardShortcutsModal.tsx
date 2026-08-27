@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { X, Keyboard } from 'lucide-react';
 
 interface KeyboardShortcutsModalProps {
@@ -7,6 +7,19 @@ interface KeyboardShortcutsModalProps {
 }
 
 export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({ isOpen, onClose }) => {
+  useEffect(() => {
+    if (isOpen) {
+      const handleGlobalEsc = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onClose();
+        }
+      };
+      window.addEventListener('keydown', handleGlobalEsc);
+      return () => window.removeEventListener('keydown', handleGlobalEsc);
+    }
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const shortcuts = [
@@ -20,8 +33,14 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({ 
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-[#0f0f0f] rounded-2xl shadow-2xl border border-white/10 overflow-hidden flex flex-col">
+    <div
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 cursor-pointer"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg bg-[#0f0f0f] rounded-2xl shadow-2xl border border-white/10 overflow-hidden flex flex-col cursor-default"
+        onClick={e => e.stopPropagation()}
+      >
         <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between bg-[#0a0a0a]">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-[#1a1a1a] border border-white/10 text-[#c9a063] flex items-center justify-center font-serif italic text-sm">

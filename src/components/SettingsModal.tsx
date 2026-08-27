@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Globe, Map, Moon, Sun, Download, Upload, Trash2, CheckCircle2, ShieldCheck, Database, RefreshCw, User, Mail, ExternalLink, Sparkles } from 'lucide-react';
 import { LandUnitPreset } from '../types';
 import { downloadBlob } from '../lib/zip';
@@ -78,6 +78,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'general' | 'land' | 'storage' | 'about'>('general');
 
+  useEffect(() => {
+    if (isOpen) {
+      const handleGlobalEsc = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onClose();
+        }
+      };
+      window.addEventListener('keydown', handleGlobalEsc);
+      return () => window.removeEventListener('keydown', handleGlobalEsc);
+    }
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const zones: string[] = [];
@@ -85,8 +98,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   for (let z = 1; z <= 60; z++) zones.push(`${z}S`);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl bg-[#0f0f0f] rounded-2xl shadow-2xl border border-white/10 overflow-hidden flex flex-col max-h-[90vh]">
+    <div
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 cursor-pointer"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl bg-[#0f0f0f] rounded-2xl shadow-2xl border border-white/10 overflow-hidden flex flex-col max-h-[90vh] cursor-default"
+        onClick={e => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between bg-[#0a0a0a]">
           <div className="flex items-center gap-3">

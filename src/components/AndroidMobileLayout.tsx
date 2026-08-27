@@ -16,6 +16,7 @@ import {
   Moon
 } from 'lucide-react';
 import { AppTabId, APPS_CONFIG } from './Navigation';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
 interface AndroidMobileLayoutProps {
   activeTab: AppTabId;
@@ -40,6 +41,7 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
   isDark = true,
   setIsDark = () => {}
 }) => {
+  const isOnline = useOnlineStatus();
   const [isAppsDrawerOpen, setIsAppsDrawerOpen] = useState(false);
   const [drawerSearch, setDrawerSearch] = useState('');
 
@@ -65,11 +67,19 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
       <header className="md:hidden sticky top-0 z-40 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-white/[0.08] select-none h-12 px-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <button
-            onClick={() => setIsAppsDrawerOpen(true)}
-            className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/[0.06] transition-colors"
-            aria-label="Open App Drawer"
+            onClick={() => setActiveTab('templates')}
+            className="p-1 -ml-1 rounded-xl hover:opacity-90 active:scale-95 transition-all flex items-center justify-center group"
+            aria-label="Go to Home"
+            title="BhuNex GeoStudio Home"
           >
-            <Menu className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-xl overflow-hidden border border-[#377cb8]/40 bg-[#0e2c4d] shadow-2xs flex items-center justify-center p-0.5 group-hover:border-[#8ecbf8]/80 transition-colors">
+              <img
+                src="/icon-192.svg"
+                alt="BhuNex GeoStudio Logo"
+                className="w-full h-full object-contain rounded-lg"
+                referrerPolicy="no-referrer"
+              />
+            </div>
           </button>
 
           <div>
@@ -91,13 +101,15 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
             {isDark ? <Sun className="w-4 h-4 text-[#c9a063]" /> : <Moon className="w-4 h-4" />}
           </button>
 
-          <button
-            onClick={openAiModal}
-            className="p-1.5 rounded-lg text-[#c9a063] bg-[#c9a063]/10 hover:bg-[#c9a063]/20 border border-[#c9a063]/20 transition-colors"
-            title="AI Help"
-          >
-            <Sparkles className="w-4 h-4" />
-          </button>
+          {isOnline && (
+            <button
+              onClick={openAiModal}
+              className="p-1.5 rounded-lg text-[#8ecbf8] bg-[#0d2640]/80 hover:bg-[#14365a] border border-[#377cb8]/40 transition-colors shadow-2xs"
+              title="AI Assistant (Online)"
+            >
+              <Sparkles className="w-4 h-4" />
+            </button>
+          )}
 
           <button
             onClick={openCommandPalette}

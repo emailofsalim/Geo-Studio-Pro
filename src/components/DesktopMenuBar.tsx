@@ -30,6 +30,7 @@ import {
   Info
 } from 'lucide-react';
 import { AppTabId, APPS_CONFIG } from './Navigation';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
 interface DesktopMenuBarProps {
   activeTab: AppTabId;
@@ -71,6 +72,7 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
   onImportProject,
   onClearAllData
 }) => {
+  const isOnline = useOnlineStatus();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -117,11 +119,17 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
         <button
           onClick={() => setActiveTab('templates')}
           className="flex items-center gap-2 text-left group"
+          title="BhuNex GeoStudio Home"
         >
-          <div className="w-6 h-6 rounded-lg bg-[#c9a063]/10 border border-[#c9a063]/30 flex items-center justify-center text-[#c9a063] group-hover:bg-[#c9a063]/20 transition-colors">
-            <Crosshair className="w-3.5 h-3.5" />
+          <div className="w-7 h-7 rounded-lg overflow-hidden border border-[#377cb8]/40 bg-[#0e2c4d] flex items-center justify-center p-0.5 group-hover:border-[#8ecbf8]/80 transition-colors shadow-2xs">
+            <img
+              src="/icon-192.svg"
+              alt="BhuNex Logo"
+              className="w-full h-full object-contain"
+              referrerPolicy="no-referrer"
+            />
           </div>
-          <span className="font-serif italic font-semibold text-sm text-white tracking-tight">
+          <span className="font-semibold text-sm text-white tracking-tight">
             BhuNex
           </span>
         </button>
@@ -374,19 +382,21 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
 
             {openMenu === 'help' && (
               <div className="absolute left-0 top-full mt-1.5 w-52 bg-[#121212] border border-white/[0.08] rounded-xl shadow-xl py-1 z-50 text-xs text-white/90">
-                <button
-                  onClick={() => {
-                    openAiModal();
-                    setOpenMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-2">
-                    <Sparkles className="w-3.5 h-3.5 text-[#c9a063]" />
-                    AI Consultant
-                  </span>
-                  <span className="text-[10px] text-white/30 font-mono">⌘G</span>
-                </button>
+                {isOnline && (
+                  <button
+                    onClick={() => {
+                      openAiModal();
+                      setOpenMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center justify-between"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Sparkles className="w-3.5 h-3.5 text-[#8ecbf8]" />
+                      AI Assistant
+                    </span>
+                    <span className="text-[10px] text-white/30 font-mono">⌘G</span>
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     openCommandPalette();
@@ -486,15 +496,17 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
           <kbd className="text-[10px] bg-white/[0.08] text-white/50 px-1.5 py-0.2 rounded font-mono">⌘K</kbd>
         </button>
 
-        {/* AI Geomatics Consultant */}
-        <button
-          onClick={openAiModal}
-          className="h-8 px-2.5 rounded-md bg-[#c9a063]/10 hover:bg-[#c9a063]/20 border border-[#c9a063]/25 text-[#c9a063] font-medium flex items-center gap-1.5 transition-colors text-xs"
-          title="AI Geomatics Consultant (Ctrl+G)"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">AI Help</span>
-        </button>
+        {/* AI Geomatics Consultant - Only shown when online */}
+        {isOnline && (
+          <button
+            onClick={openAiModal}
+            className="h-8 px-2.5 rounded-md bg-[#0d2640]/80 hover:bg-[#14365a] border border-[#377cb8]/40 text-[#8ecbf8] font-medium flex items-center gap-1.5 transition-colors text-xs shadow-2xs"
+            title="AI Assistant (Ctrl+G)"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">AI Help</span>
+          </button>
+        )}
 
         {/* Theme Toggle */}
         <button

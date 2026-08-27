@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { X, Mail, User, ShieldCheck, Globe, Compass, ExternalLink, Code2, Heart, Sparkles } from 'lucide-react';
 
 interface AboutModalProps {
@@ -7,20 +7,44 @@ interface AboutModalProps {
 }
 
 export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
+  useEffect(() => {
+    if (isOpen) {
+      const handleGlobalEsc = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onClose();
+        }
+      };
+      window.addEventListener('keydown', handleGlobalEsc);
+      return () => window.removeEventListener('keydown', handleGlobalEsc);
+    }
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-[#0f0f0f] rounded-2xl shadow-2xl border border-white/10 overflow-hidden flex flex-col max-h-[90vh]">
+    <div
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 cursor-pointer"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg bg-[#0f0f0f] rounded-2xl shadow-2xl border border-white/10 overflow-hidden flex flex-col max-h-[90vh] cursor-default"
+        onClick={e => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between bg-[#0a0a0a]">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#c9a063]/10 border border-[#c9a063]/30 text-[#c9a063] flex items-center justify-center font-serif italic text-base font-bold">
-              BN
+            <div className="w-10 h-10 rounded-xl overflow-hidden border border-[#478bc7]/40 bg-[#0d2640] shadow-sm flex items-center justify-center p-0.5">
+              <img
+                src="/icon-192.svg"
+                alt="BhuNex Logo"
+                className="w-full h-full object-contain rounded-lg"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
               <h3 className="font-serif italic text-lg text-white">About BhuNex</h3>
-              <p className="text-[10px] uppercase tracking-[0.18em] text-[#c9a063] font-mono">Geomatics & Cadastral Suite</p>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-[#8ecbf8] font-mono">Geomatics & Cadastral Suite</p>
             </div>
           </div>
           <button
