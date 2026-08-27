@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useIsDarkMode } from '../hooks/useIsDarkMode';
 import {
   Layers,
   MapPin,
@@ -92,6 +93,7 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
   const isSouth = workingZone.endsWith('S');
 
   // Canvas Refs & Viewport State
+  const isDark = useIsDarkMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [scale, setScale] = useState<number>(1);
   const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -398,23 +400,32 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
     ctx.clearRect(0, 0, cv.width, cv.height);
 
     // 1. Basemap Background & Graticule
-    if (basemapTheme === 'dark_obsidian') {
+    const isLightBg = basemapTheme === 'light_topo' || (!isDark && (basemapTheme === 'dark_obsidian' || basemapTheme === 'parchment'));
+    
+    if (basemapTheme === 'light_topo' || (!isDark && basemapTheme === 'dark_obsidian')) {
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+    } else if (basemapTheme === 'dark_obsidian') {
       ctx.fillStyle = '#0a0d14';
       ctx.fillRect(0, 0, cv.width, cv.height);
     } else if (basemapTheme === 'blueprint') {
-      ctx.fillStyle = '#0f172a';
+      ctx.fillStyle = isDark ? '#0f172a' : '#0369a1';
       ctx.fillRect(0, 0, cv.width, cv.height);
     } else if (basemapTheme === 'parchment') {
-      ctx.fillStyle = '#1c1917';
+      ctx.fillStyle = isDark ? '#1c1917' : '#fef3c7';
       ctx.fillRect(0, 0, cv.width, cv.height);
     } else {
-      ctx.fillStyle = '#18181b';
+      ctx.fillStyle = isDark ? '#18181b' : '#f8fafc';
       ctx.fillRect(0, 0, cv.width, cv.height);
     }
 
     // Draw Grid Lines
     if (showGrid) {
-      ctx.strokeStyle = basemapTheme === 'blueprint' ? 'rgba(56, 189, 248, 0.08)' : 'rgba(255, 255, 255, 0.05)';
+      ctx.strokeStyle = basemapTheme === 'blueprint'
+        ? 'rgba(56, 189, 248, 0.15)'
+        : isLightBg
+        ? 'rgba(100, 116, 139, 0.2)'
+        : 'rgba(255, 255, 255, 0.05)';
       ctx.lineWidth = 1;
       const step = 100; // 100m grid
       const minW = screenToWorld(0, cv.height, cv.height);
@@ -441,7 +452,7 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
       ctx.stroke();
 
       // Grid Coordinate labels
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.fillStyle = isLightBg ? 'rgba(71, 85, 105, 0.75)' : 'rgba(255, 255, 255, 0.3)';
       ctx.font = '9px monospace';
       for (let e = startE; e <= endE; e += step * 2) {
         const s = worldToScreen(e, minW.N, cv.height);
@@ -640,12 +651,12 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
     ctx.lineTo(sbX + barWidthPx, sbY + 4);
     ctx.stroke();
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = isDark ? '#ffffff' : '#0f172a';
     ctx.font = '10px monospace';
     ctx.textAlign = 'center';
     ctx.fillText(`${groundMeters >= 1000 ? `${(groundMeters / 1000).toFixed(2)} km` : `${groundMeters.toFixed(0)} m`}`, sbX + barWidthPx / 2, sbY + 14);
     ctx.restore();
-  }, [layers, scale, offset, selectedFeature, measurePts, drawnPts, basemapTheme, showGrid, showLabels, activeTool, zNum, isSouth]);
+  }, [layers, scale, offset, selectedFeature, measurePts, drawnPts, basemapTheme, showGrid, showLabels, activeTool, zNum, isSouth, isDark]);
 
   useEffect(() => {
     renderCanvas();
@@ -1881,7 +1892,7 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
           </div>
 
           {/* Canvas Viewport */}
-          <div className="relative flex-1 min-h-[420px] rounded-xl overflow-hidden border border-white/10 bg-[#0a0d14]">
+          <div className="relative flex-1 min-h-[420px] rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-[#0a0d14]">
             <canvas
               ref={canvasRef}
               width={800}
@@ -1890,7 +1901,7 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onWheel={handleWheel}
-              className="w-full h-full cursor-crosshair block"
+              className="w-full h-full cursor-crosshair block bg-slate-50 dark:bg-[#0a0d14]"
             />
 
             {/* Drawing / Measuring Floating HUD */}

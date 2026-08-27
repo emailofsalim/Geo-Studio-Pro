@@ -3,6 +3,7 @@ import { ZoomIn, ZoomOut, Maximize2, Ruler, Download, Trash2, Type, MapPin, Undo
 import { GeoFeature, LatLon } from '../types';
 import { lonLatToUtm, utmToLonLat, pointInPoly } from '../lib/geodesy';
 import { downloadBlob } from '../lib/zip';
+import { useIsDarkMode } from '../hooks/useIsDarkMode';
 
 interface VectorRadarMapProps {
   features: GeoFeature[];
@@ -19,6 +20,7 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
   onFeaturesChange,
   title = 'Interactive Vector Map'
 }) => {
+  const isDark = useIsDarkMode();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [features, setFeatures] = useState<GeoFeature[]>(initialFeatures);
   const [history, setHistory] = useState<GeoFeature[][]>([]);
@@ -114,12 +116,12 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
 
     ctx.clearRect(0, 0, cv.width, cv.height);
 
-    // Background
-    ctx.fillStyle = '#0f172a';
+    // Dynamic background for dark vs light mode
+    ctx.fillStyle = isDark ? '#0f172a' : '#f8fafc';
     ctx.fillRect(0, 0, cv.width, cv.height);
 
     if (!bbox) {
-      ctx.fillStyle = '#64748b';
+      ctx.fillStyle = isDark ? '#64748b' : '#94a3b8';
       ctx.font = '14px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('No vector geometry loaded to display.', cv.width / 2, cv.height / 2);
@@ -142,8 +144,8 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
     const n1 = Math.ceil(Math.max(tl.N, br.N) / gridStep) * gridStep;
 
     ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.5)';
+    ctx.strokeStyle = isDark ? 'rgba(148, 163, 184, 0.15)' : 'rgba(100, 116, 139, 0.22)';
+    ctx.fillStyle = isDark ? 'rgba(148, 163, 184, 0.6)' : 'rgba(71, 85, 105, 0.75)';
     ctx.font = '10px Consolas, monospace';
 
     for (let e = e0; e <= e1; e += gridStep) {
@@ -169,9 +171,9 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
       const isHovered = idx === hoveredIdx;
       const isSelected = idx === selectedIdx;
 
-      let strokeColor = '#0e7c86';
+      let strokeColor = isDark ? '#0e7c86' : '#0284c7';
       if (colorBy === 'geom') {
-        strokeColor = f.geom === 'polygon' ? '#38bdf8' : f.geom === 'line' ? '#a855f7' : '#f59e0b';
+        strokeColor = f.geom === 'polygon' ? (isDark ? '#38bdf8' : '#0284c7') : f.geom === 'line' ? '#a855f7' : '#f59e0b';
       } else if (colorBy === 'status' && f.props?.status) {
         strokeColor = f.props.status === 'POSITIVE' ? '#22c55e' : '#ef4444';
       }
@@ -188,14 +190,14 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
           ctx.arc(scr.x, scr.y, isHovered || isSelected ? 6 : 4, 0, Math.PI * 2);
           ctx.fillStyle = strokeColor;
           ctx.fill();
-          ctx.strokeStyle = '#ffffff';
+          ctx.strokeStyle = isDark ? '#ffffff' : '#0f172a';
           ctx.lineWidth = 1.5;
           ctx.stroke();
 
           // Label
           if (f.name) {
             ctx.font = 'bold 11px Consolas, monospace';
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = isDark ? '#ffffff' : '#0f172a';
             ctx.textAlign = 'center';
             ctx.fillText(f.name, scr.x, scr.y - 8);
           }
@@ -210,7 +212,9 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
 
         if (f.geom === 'polygon') {
           ctx.closePath();
-          ctx.fillStyle = isHovered || isSelected ? 'rgba(245, 158, 11, 0.25)' : 'rgba(14, 124, 134, 0.18)';
+          ctx.fillStyle = isHovered || isSelected
+            ? 'rgba(245, 158, 11, 0.25)'
+            : (isDark ? 'rgba(14, 124, 134, 0.25)' : 'rgba(2, 132, 199, 0.15)');
           ctx.fill();
         }
         ctx.stroke();
@@ -221,7 +225,7 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
           f.enPts.forEach(p => { cx += p.E; cy += p.N; });
           const scr = worldToScreen(cx / f.enPts.length, cy / f.enPts.length, cv.height);
           ctx.font = 'bold 11px sans-serif';
-          ctx.fillStyle = '#ffffff';
+          ctx.fillStyle = isDark ? '#ffffff' : '#0f172a';
           ctx.textAlign = 'center';
           ctx.fillText(f.name, scr.x, scr.y);
         }
@@ -257,17 +261,17 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
 
         ctx.font = 'bold 12px sans-serif';
         const txtWidth = ctx.measureText(distStr).width + 12;
-        ctx.fillStyle = '#0f172a';
+        ctx.fillStyle = isDark ? '#0f172a' : '#ffffff';
         ctx.fillRect(midX - txtWidth / 2, midY - 18, txtWidth, 20);
         ctx.strokeStyle = '#ea580c';
         ctx.strokeRect(midX - txtWidth / 2, midY - 18, txtWidth, 20);
 
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = isDark ? '#ffffff' : '#0f172a';
         ctx.textAlign = 'center';
         ctx.fillText(distStr, midX, midY - 4);
       }
     }
-  }, [bbox, scale, offset, enFeatures, hoveredIdx, selectedIdx, colorBy, rulerPoints, screenToWorld, worldToScreen]);
+  }, [bbox, scale, offset, enFeatures, hoveredIdx, selectedIdx, colorBy, rulerPoints, screenToWorld, worldToScreen, isDark]);
 
   useEffect(() => {
     draw();
@@ -524,7 +528,7 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
         </div>
       </div>
 
-      <div className="relative rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-[#0a0a0a]">
+      <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-white/10 shadow-2xl bg-slate-100 dark:bg-[#0a0a0a]">
         <canvas
           ref={canvasRef}
           width={720}
@@ -533,7 +537,7 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onWheel={handleWheel}
-          className="w-full h-80 bg-[#0a0a0a] cursor-crosshair block"
+          className="w-full h-80 bg-slate-50 dark:bg-[#0a0a0a] cursor-crosshair block"
         />
 
         {/* Hover Tooltip */}

@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { useIsDarkMode } from '../hooks/useIsDarkMode';
 import {
   Layers,
   ZoomIn,
@@ -69,6 +70,7 @@ export const CameraPipMap: React.FC<CameraPipMapProps> = ({
   className = '',
   onCanvasReady
 }) => {
+  const isDark = useIsDarkMode();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [zoom, setZoom] = useState<number>(16);
   const [provider, setProvider] = useState<MapTileProvider>('satellite');
@@ -129,19 +131,24 @@ export const CameraPipMap: React.FC<CameraPipMapProps> = ({
       drawFallbackGrid(ctx, w, h, cx, cy);
       drawOverlays(ctx, w, h, cx, cy);
     }
-  }, [lat, lon, zoom, provider, isOnline, tileLoadError, azimuth, accuracy]);
+  }, [lat, lon, zoom, provider, isOnline, tileLoadError, azimuth, accuracy, isDark]);
 
   const drawFallbackGrid = (ctx: CanvasRenderingContext2D, w: number, h: number, cx: number, cy: number) => {
-    // Dark geodetic radar backdrop
-    const grad = ctx.createRadialGradient(cx, cy, 10, cx, cy, Math.max(w, h));
-    grad.addColorStop(0, '#0f172a');
-    grad.addColorStop(0.7, '#090d16');
-    grad.addColorStop(1, '#030712');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, w, h);
+    // Geodetic radar backdrop adapted to dark / light mode
+    if (isDark) {
+      const grad = ctx.createRadialGradient(cx, cy, 10, cx, cy, Math.max(w, h));
+      grad.addColorStop(0, '#0f172a');
+      grad.addColorStop(0.7, '#090d16');
+      grad.addColorStop(1, '#030712');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, 0, w, h);
+    }
 
     // Coordinate grid lines
-    ctx.strokeStyle = 'rgba(201, 160, 99, 0.2)';
+    ctx.strokeStyle = isDark ? 'rgba(201, 160, 99, 0.2)' : 'rgba(148, 163, 184, 0.35)';
     ctx.lineWidth = 1;
     for (let x = 0; x < w; x += 30) {
       ctx.beginPath();
@@ -157,7 +164,7 @@ export const CameraPipMap: React.FC<CameraPipMapProps> = ({
     }
 
     // Range rings
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+    ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(2, 132, 199, 0.35)';
     [40, 80, 120].forEach(r => {
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -260,7 +267,7 @@ export const CameraPipMap: React.FC<CameraPipMapProps> = ({
         ref={canvasRef}
         width={isExpanded ? 380 : 260}
         height={isExpanded ? 320 : 180}
-        className="w-full h-full object-cover block bg-slate-950 cursor-crosshair"
+        className="w-full h-full object-cover block bg-slate-100 dark:bg-slate-950 cursor-crosshair"
       />
 
       {/* Top Floating Control Bar */}

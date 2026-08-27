@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="100%" height="100%">
+  <defs>
+    <linearGradient id="cpGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#faecc0" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="28" fill="#141414" stroke="#8b5cf6" stroke-width="2.5" />
+  <!-- Trigonometrical Station Double Triangle -->
+  <polygon points="32,14 48,42 16,42" fill="none" stroke="url(#cpGrad)" stroke-width="2.5" stroke-linejoin="round" />
+  <circle cx="32" cy="32" r="4" fill="#faecc0" stroke="#8b5cf6" stroke-width="1.5" />
+</svg>

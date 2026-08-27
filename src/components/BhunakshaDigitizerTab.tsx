@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useIsDarkMode } from '../hooks/useIsDarkMode';
 import {
   Layers,
   Upload,
@@ -127,6 +128,7 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
   customKathaPerBigha
 }) => {
   const toast = useToast();
+  const isDark = useIsDarkMode();
   // Map Image & Sheet Metadata
   const [mapImageSrc, setMapImageSrc] = useState<string | null>(null);
   const [imageName, setImageName] = useState<string>('village_bhunaksha_sheet_01');
@@ -936,9 +938,9 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
       ctx.restore();
     } else {
       // Cadastral Sheet grid canvas
-      ctx.fillStyle = '#141414';
+      ctx.fillStyle = isDark ? '#141414' : '#f8fafc';
       ctx.fillRect(0, 0, 800, 540);
-      ctx.strokeStyle = '#262626';
+      ctx.strokeStyle = isDark ? '#262626' : '#e2e8f0';
       ctx.lineWidth = 1;
       for (let x = 0; x < 800; x += 40) {
         ctx.beginPath();
@@ -952,7 +954,7 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
         ctx.lineTo(800, y);
         ctx.stroke();
       }
-      ctx.fillStyle = '#c9a063';
+      ctx.fillStyle = isDark ? '#c9a063' : '#b45309';
       ctx.font = 'italic 14px serif';
       ctx.fillText('BhuNaksha Cadastral Canvas — Upload Sheet Image or Click "Load Sample Sheet"', 40, 50);
     }
@@ -1164,7 +1166,8 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
     fillOpacity,
     scaleCalib,
     measurePoints,
-    affineMatrix
+    affineMatrix,
+    isDark
   ]);
 
   // Export Digitize Vectors to KML
@@ -1640,7 +1643,7 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
           {/* Canvas Container with Crosshair HUD */}
           <div
             ref={containerRef}
-            className="w-full h-[540px] bg-[#080808] rounded-xl overflow-hidden relative cursor-crosshair border border-white/10 flex items-center justify-center select-none"
+            className="w-full h-[540px] bg-slate-100 dark:bg-[#080808] rounded-xl overflow-hidden relative cursor-crosshair border border-slate-200 dark:border-white/10 flex items-center justify-center select-none"
           >
             <canvas
               ref={canvasRef}

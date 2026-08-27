@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useIsDarkMode } from '../hooks/useIsDarkMode';
 import {
   Compass,
   Play,
@@ -182,6 +183,9 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   onSendToOffset
 }) => {
   const toast = useToast();
+
+  // Hook for active Dark / Light mode detection
+  const isDark = useIsDarkMode();
 
   // Active Tab: 'cockpit' | 'averaging' | 'navigation' | 'trip' | 'satellites' | 'waypoints'
   const [subTab, setSubTab] = useState<'cockpit' | 'averaging' | 'navigation' | 'trip' | 'satellites' | 'waypoints'>('cockpit');
@@ -671,7 +675,8 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
 
     ctx.clearRect(0, 0, cv.width, cv.height);
 
-    ctx.fillStyle = '#0a0e17';
+    // Dynamic background for dark vs light mode
+    ctx.fillStyle = isDark ? '#0a0e17' : '#f8fafc';
     ctx.fillRect(0, 0, cv.width, cv.height);
 
     const cx = cv.width / 2;
@@ -700,11 +705,11 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       const r = dist * scale;
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(201, 160, 99, 0.2)';
+      ctx.strokeStyle = isDark ? 'rgba(201, 160, 99, 0.25)' : 'rgba(180, 83, 9, 0.25)';
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      ctx.fillStyle = 'rgba(201, 160, 99, 0.6)';
+      ctx.fillStyle = isDark ? 'rgba(201, 160, 99, 0.8)' : '#b45309';
       ctx.font = '10px monospace';
       ctx.fillText(`${Math.round(dist)}m`, cx + 4, cy - r + 11);
     });
@@ -713,7 +718,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     ctx.beginPath();
     ctx.moveTo(cx, cy - rMax); ctx.lineTo(cx, cy + rMax);
     ctx.moveTo(cx - rMax, cy); ctx.lineTo(cx + rMax, cy);
-    ctx.strokeStyle = 'rgba(201, 160, 99, 0.2)';
+    ctx.strokeStyle = isDark ? 'rgba(201, 160, 99, 0.2)' : 'rgba(148, 163, 184, 0.4)';
     ctx.stroke();
 
     // North Indicator
@@ -734,7 +739,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
         const pt = toScreen(trackPoints[i].E, trackPoints[i].N);
         ctx.lineTo(pt.x, pt.y);
       }
-      ctx.strokeStyle = '#38bdf8';
+      ctx.strokeStyle = isDark ? '#38bdf8' : '#0284c7';
       ctx.lineWidth = 2.5;
       ctx.stroke();
     }
@@ -760,7 +765,9 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
         } else {
           ctx.save();
           ctx.setLineDash([3, 3]);
-          ctx.strokeStyle = isMuted ? 'rgba(255, 255, 255, 0.15)' : 'rgba(201, 160, 99, 0.25)';
+          ctx.strokeStyle = isMuted
+            ? (isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)')
+            : (isDark ? 'rgba(201, 160, 99, 0.25)' : 'rgba(180, 83, 9, 0.3)');
           ctx.lineWidth = 1;
           ctx.stroke();
           ctx.restore();
@@ -770,13 +777,15 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       // Waypoint Monument Marker
       ctx.beginPath();
       ctx.arc(p.x, p.y, isInside ? 6 : 5, 0, Math.PI * 2);
-      ctx.fillStyle = isInside ? '#22c55e' : '#c9a063';
+      ctx.fillStyle = isInside ? '#22c55e' : (isDark ? '#c9a063' : '#b45309');
       ctx.fill();
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = isDark ? '#ffffff' : '#0f172a';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      ctx.fillStyle = isInside ? '#4ade80' : '#ffffff';
+      ctx.fillStyle = isDark
+        ? (isInside ? '#4ade80' : '#ffffff')
+        : (isInside ? '#15803d' : '#0f172a');
       ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'center';
       ctx.fillText(w.id, p.x, p.y - (isInside ? 10 : 8));
@@ -839,7 +848,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       ctx.lineWidth = 2;
       ctx.stroke();
     }
-  }, [currentPos, waypoints, trackPoints, radarZoom, compassMode, deviceHeading, navMetrics, navTargetE, navTargetN, navTargetId]);
+  }, [currentPos, waypoints, trackPoints, radarZoom, compassMode, deviceHeading, navMetrics, navTargetE, navTargetN, navTargetId, isDark]);
 
   // Render Averaging Scatter Canvas
   useEffect(() => {
@@ -850,7 +859,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     if (!ctx) return;
 
     ctx.clearRect(0, 0, cv.width, cv.height);
-    ctx.fillStyle = '#0a0e17';
+    ctx.fillStyle = isDark ? '#0a0e17' : '#f8fafc';
     ctx.fillRect(0, 0, cv.width, cv.height);
 
     const cx = cv.width / 2;
@@ -863,11 +872,13 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       const rPx = rad * scale;
       ctx.beginPath();
       ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
-      ctx.strokeStyle = idx === 0 ? 'rgba(34, 197, 94, 0.4)' : 'rgba(234, 179, 8, 0.4)';
+      ctx.strokeStyle = idx === 0
+        ? (isDark ? 'rgba(34, 197, 94, 0.4)' : 'rgba(22, 163, 74, 0.5)')
+        : (isDark ? 'rgba(234, 179, 8, 0.4)' : 'rgba(217, 119, 6, 0.5)');
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      ctx.fillStyle = idx === 0 ? '#22c55e' : '#eab308';
+      ctx.fillStyle = idx === 0 ? (isDark ? '#22c55e' : '#16a34a') : (isDark ? '#eab308' : '#d97706');
       ctx.font = '10px monospace';
       ctx.fillText(`${idx === 0 ? 'CEP50' : 'CEP95'}: ${rad.toFixed(2)}m`, cx + 6, cy - rPx + 12);
     });
@@ -876,7 +887,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     ctx.beginPath();
     ctx.moveTo(cx, 10); ctx.lineTo(cx, cv.height - 10);
     ctx.moveTo(10, cy); ctx.lineTo(cv.width - 10, cy);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(100, 116, 139, 0.3)';
     ctx.stroke();
 
     // Plot Epoch Points
@@ -888,19 +899,19 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
 
       ctx.beginPath();
       ctx.arc(px, py, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.7)';
+      ctx.fillStyle = isDark ? 'rgba(56, 189, 248, 0.8)' : 'rgba(2, 132, 199, 0.8)';
       ctx.fill();
     });
 
     // Centroid
     ctx.beginPath();
     ctx.arc(cx, cy, 6, 0, Math.PI * 2);
-    ctx.fillStyle = '#c9a063';
+    ctx.fillStyle = isDark ? '#c9a063' : '#b45309';
     ctx.fill();
-    ctx.strokeStyle = '#fff';
+    ctx.strokeStyle = isDark ? '#fff' : '#0f172a';
     ctx.lineWidth = 2;
     ctx.stroke();
-  }, [subTab, avgStats, avgSamples]);
+  }, [subTab, avgStats, avgSamples, isDark]);
 
   // Render Skyplot Canvas
   useEffect(() => {
@@ -911,7 +922,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     if (!ctx) return;
 
     ctx.clearRect(0, 0, cv.width, cv.height);
-    ctx.fillStyle = '#0a0e17';
+    ctx.fillStyle = isDark ? '#0a0e17' : '#f8fafc';
     ctx.fillRect(0, 0, cv.width, cv.height);
 
     const cx = cv.width / 2;
@@ -923,10 +934,10 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       const r = rMax * (1 - el / 90);
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(201, 160, 99, 0.2)';
+      ctx.strokeStyle = isDark ? 'rgba(201, 160, 99, 0.2)' : 'rgba(180, 83, 9, 0.25)';
       ctx.stroke();
 
-      ctx.fillStyle = 'rgba(201, 160, 99, 0.5)';
+      ctx.fillStyle = isDark ? 'rgba(201, 160, 99, 0.6)' : '#b45309';
       ctx.font = '9px monospace';
       ctx.fillText(`${el}°`, cx + 4, cy - r + 10);
     });
@@ -935,7 +946,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     ctx.beginPath();
     ctx.moveTo(cx, cy - rMax); ctx.lineTo(cx, cy + rMax);
     ctx.moveTo(cx - rMax, cy); ctx.lineTo(cx + rMax, cy);
-    ctx.strokeStyle = 'rgba(201, 160, 99, 0.2)';
+    ctx.strokeStyle = isDark ? 'rgba(201, 160, 99, 0.2)' : 'rgba(148, 163, 184, 0.4)';
     ctx.stroke();
 
     // North
@@ -952,9 +963,11 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
 
       ctx.beginPath();
       ctx.arc(sx, sy, 8, 0, Math.PI * 2);
-      ctx.fillStyle = sat.used ? (sat.system === 'GPS' ? '#38bdf8' : sat.system === 'GLONASS' ? '#ef4444' : sat.system === 'Galileo' ? '#22c55e' : '#f59e0b') : '#64748b';
+      ctx.fillStyle = sat.used
+        ? (sat.system === 'GPS' ? '#38bdf8' : sat.system === 'GLONASS' ? '#ef4444' : sat.system === 'Galileo' ? '#22c55e' : '#f59e0b')
+        : (isDark ? '#64748b' : '#94a3b8');
       ctx.fill();
-      ctx.strokeStyle = '#fff';
+      ctx.strokeStyle = isDark ? '#fff' : '#0f172a';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
@@ -964,7 +977,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       ctx.textBaseline = 'middle';
       ctx.fillText(sat.prn, sx, sy);
     });
-  }, [subTab]);
+  }, [subTab, isDark]);
 
   // Save Averaged Benchmark to Waypoint Registry
   const handleCommitAveragedWaypoint = () => {
@@ -1359,8 +1372,8 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                 </div>
               </div>
 
-              <div className="rounded-xl overflow-hidden border border-white/10 shadow-inner flex justify-center bg-black">
-                <canvas ref={canvasRef} width={600} height={420} className="w-full max-w-[600px] h-[360px] sm:h-[420px]" />
+              <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 shadow-inner flex justify-center bg-slate-100 dark:bg-black">
+                <canvas ref={canvasRef} width={600} height={420} className="w-full max-w-[600px] h-[360px] sm:h-[420px] bg-slate-50 dark:bg-black" />
               </div>
             </div>
           </div>
@@ -1614,8 +1627,8 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
               <BarChart3 className="w-4 h-4 text-[#c9a063]" />
               Epoch Scatter Distribution Plot
             </h4>
-            <div className="rounded-xl overflow-hidden border border-white/10 shadow-inner flex justify-center bg-black">
-              <canvas ref={scatterCanvasRef} width={450} height={320} className="w-full h-[300px]" />
+            <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 shadow-inner flex justify-center bg-slate-100 dark:bg-black">
+              <canvas ref={scatterCanvasRef} width={450} height={320} className="w-full h-[300px] bg-slate-50 dark:bg-black" />
             </div>
           </div>
         </div>
@@ -2282,8 +2295,8 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
             <p className="text-xs text-white/50">
               Visual azimuth and elevation polar distribution of tracked satellites (GPS, GLONASS, Galileo, BeiDou).
             </p>
-            <div className="rounded-xl overflow-hidden border border-white/10 shadow-inner flex justify-center bg-black">
-              <canvas ref={skyplotCanvasRef} width={400} height={340} className="w-full h-[320px]" />
+            <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 shadow-inner flex justify-center bg-slate-100 dark:bg-black">
+              <canvas ref={skyplotCanvasRef} width={400} height={340} className="w-full h-[320px] bg-slate-50 dark:bg-black" />
             </div>
           </div>
 

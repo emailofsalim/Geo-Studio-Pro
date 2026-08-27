@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="100%" height="100%">
+  <defs>
+    <linearGradient id="tsGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#faecc0" />
+      <stop offset="100%" stop-color="#fbbf24" />
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="28" fill="#141414" stroke="#fbbf24" stroke-width="2.5" />
+  <!-- Instrument Head / Tribrach -->
+  <rect x="24" y="16" width="16" height="14" rx="2" fill="url(#tsGrad)" stroke="#fbbf24" stroke-width="1.5" />
+  <!-- Telescope Optical Barrel -->
+  <line x1="16" y1="20" x2="48" y2="20" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" />
+  <!-- Tripod Legs -->
+  <line x1="28" y1="30" x2="18" y2="52" stroke="#fbbf24" stroke-width="2.5" stroke-linecap="round" />
+  <line x1="32" y1="30" x2="32" y2="52" stroke="#fbbf24" stroke-width="2.5" stroke-linecap="round" />
+  <line x1="36" y1="30" x2="46" y2="52" stroke="#fbbf24" stroke-width="2.5" stroke-linecap="round" />
+  <!-- Laser Plumb Dot -->
+  <circle cx="32" cy="52" r="2" fill="#ef4444" />
+</svg>

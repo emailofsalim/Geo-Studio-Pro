@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bgGrad192" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#1e1c18" />
+      <stop offset="60%" stop-color="#0f0e0d" />
+      <stop offset="100%" stop-color="#050505" />
+    </radialGradient>
+    <linearGradient id="goldPrimary192" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#faecc0" />
+      <stop offset="40%" stop-color="#d4af37" />
+      <stop offset="80%" stop-color="#c9a063" />
+      <stop offset="100%" stop-color="#8c6827" />
+    </linearGradient>
+    <linearGradient id="goldAccent192" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="40%" stop-color="#e5c580" />
+      <stop offset="100%" stop-color="#442e07" />
+    </linearGradient>
+  </defs>
+
+  <rect width="192" height="192" rx="42" fill="url(#bgGrad192)" stroke="#c9a063" stroke-width="3" stroke-opacity="0.4" />
+  <circle cx="96" cy="96" r="72" fill="none" stroke="#c9a063" stroke-width="0.8" stroke-opacity="0.2" stroke-dasharray="2 3" />
+  <circle cx="96" cy="96" r="54" fill="none" stroke="#c9a063" stroke-width="1" stroke-opacity="0.3" />
+
+  <line x1="96" y1="18" x2="96" y2="174" stroke="#c9a063" stroke-width="1" stroke-opacity="0.3" />
+  <line x1="18" y1="96" x2="174" y2="96" stroke="#c9a063" stroke-width="1" stroke-opacity="0.3" />
+
+  <!-- Monogram BN -->
+  <path d="M 58 52 L 73 52 L 73 140 L 58 140 Z" fill="url(#goldPrimary192)" />
+  <path d="M 73 52 C 92 52 104 62 104 77 C 104 89 94 95 83 97 L 73 97 Z" fill="url(#goldAccent192)" />
+  <path d="M 73 63 L 83 63 C 90 63 94 68 94 77 C 94 85 89 87 82 87 L 73 87 Z" fill="#0e0d0c" />
+  <path d="M 82 95 L 121 140 L 137 140 L 97 95 Z" fill="url(#goldPrimary192)" />
+  <path d="M 122 52 L 137 52 L 137 140 L 122 140 Z" fill="url(#goldAccent192)" />
+
+  <circle cx="96" cy="96" r="7" fill="#050505" stroke="url(#goldPrimary192)" stroke-width="2" />
+  <circle cx="96" cy="96" r="2.5" fill="#fcf5dc" />
+</svg>

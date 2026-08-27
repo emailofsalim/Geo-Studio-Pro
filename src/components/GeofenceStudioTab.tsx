@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useIsDarkMode } from '../hooks/useIsDarkMode';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -236,6 +237,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
   onSendToOffset
 }) => {
   const toast = useToast();
+  const isDark = useIsDarkMode();
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
 
@@ -519,7 +521,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
 
     // Background & Radar Rings
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = '#0f172a'; // slate-900
+    ctx.fillStyle = isDark ? '#0f172a' : '#f8fafc';
     ctx.fillRect(0, 0, width, height);
 
     // Compute coordinate bounds
@@ -560,7 +562,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
     };
 
     // Draw Grid Lines (100m grid)
-    ctx.strokeStyle = 'rgba(51, 65, 85, 0.4)'; // slate-700
+    ctx.strokeStyle = isDark ? 'rgba(51, 65, 85, 0.4)' : 'rgba(148, 163, 184, 0.5)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
     const gridStep = spanX > 3000 ? 500 : spanX > 1000 ? 200 : 50;
@@ -764,37 +766,37 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
     ctx.stroke();
 
     // Rover Telemetry Badge
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-    ctx.strokeStyle = '#334155';
+    ctx.fillStyle = isDark ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.9)';
+    ctx.strokeStyle = isDark ? '#334155' : '#cbd5e1';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.roundRect(rScr.x + 12, rScr.y - 28, 120, 36, 6);
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = '#38bdf8';
+    ctx.fillStyle = isDark ? '#38bdf8' : '#0284c7';
     ctx.font = 'bold 11px sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(`ROVER: ${roverPos.speedKmh} km/h`, rScr.x + 18, rScr.y - 14);
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = isDark ? '#94a3b8' : '#64748b';
     ctx.font = '10px monospace';
     ctx.fillText(`${roverPos.lat.toFixed(5)}°, ${roverPos.lon.toFixed(5)}°`, rScr.x + 18, rScr.y - 1);
 
     // Scale Bar in lower left
     const scaleBarMeters = spanX > 2000 ? 500 : spanX > 500 ? 100 : 25;
     const scaleBarPx = scaleBarMeters * baseScale;
-    ctx.strokeStyle = '#ffffff';
+    ctx.strokeStyle = isDark ? '#ffffff' : '#0f172a';
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(20, height - 25);
     ctx.lineTo(20 + scaleBarPx, height - 25);
     ctx.stroke();
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = isDark ? '#ffffff' : '#0f172a';
     ctx.font = '10px monospace';
     ctx.fillText(`${scaleBarMeters} m`, 20 + scaleBarPx / 2 - 12, height - 32);
 
-  }, [metricZones, selectedZoneId, roverUtm, roverPos, trackHistory, activeBreachAlert, drawMode, newFencePts, zoomLevel, panOffset, zNum, isSouth]);
+  }, [metricZones, selectedZoneId, roverUtm, roverPos, trackHistory, activeBreachAlert, drawMode, newFencePts, zoomLevel, panOffset, zNum, isSouth, isDark]);
 
   // Handle Canvas Mouse Interactions
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1270,7 +1272,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
             </div>
 
             {/* Canvas Viewport */}
-            <div className="relative w-full h-[480px] bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center cursor-crosshair">
+            <div className="relative w-full h-[480px] bg-slate-100 dark:bg-slate-950 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 flex items-center justify-center cursor-crosshair">
               <canvas
                 ref={canvasRef}
                 width={800}
@@ -1278,7 +1280,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
                 onMouseDown={handleCanvasMouseDown}
                 onMouseMove={handleCanvasMouseMove}
                 onMouseUp={handleCanvasMouseUp}
-                className="w-full h-full object-contain"
+                className="w-full h-full object-contain bg-slate-50 dark:bg-slate-950"
               />
 
               {/* Cursor Coordinates Overlay */}
