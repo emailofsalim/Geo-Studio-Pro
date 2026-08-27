@@ -15,8 +15,8 @@ export const TourSpotlight: React.FC<TourSpotlightProps> = ({ isOpen, onClose, s
 
   const tourSteps = [
     {
-      title: 'Welcome to Geo Studio Pro',
-      desc: 'An all-in-one 100% offline geomatics, GNSS field surveyor, and cadastral mapping suite.',
+      title: 'Welcome to BhuNex Pro',
+      desc: 'An all-in-one 100% offline geomatics, GNSS field surveyor, and cadastral mapping suite developed by Md Salim Ansari.',
       tab: 'templates' as AppTabId,
       icon: Sparkles
     },

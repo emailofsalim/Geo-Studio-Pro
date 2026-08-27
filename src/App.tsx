@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Navigation, AppTabId } from './components/Navigation';
-import { Header } from './components/Header';
 import { DesktopMenuBar } from './components/DesktopMenuBar';
 import { DesktopStatusBar } from './components/DesktopStatusBar';
 import { AndroidMobileLayout } from './components/AndroidMobileLayout';
@@ -9,10 +8,15 @@ import { SettingsModal } from './components/SettingsModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { TourSpotlight } from './components/TourSpotlight';
 import { AiGeomaticsModal } from './components/AiGeomaticsModal';
+import { AboutModal } from './components/AboutModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { useToast } from './context/ToastContext';
 import { downloadBlob } from './lib/zip';
+import { saveSessionSnapshot, getLastAutoSaveMeta, loadLatestSessionSnapshot } from './lib/indexedDbStorage';
 
 // Tabs
 import { HomeTemplatesTab } from './components/HomeTemplatesTab';
+import { FieldSensorsTab } from './components/FieldSensorsTab';
 import { GisStudioTab } from './components/GisStudioTab';
 import { CoordinateConverterTab } from './components/CoordinateConverterTab';
 import { GpsSurveyorTab } from './components/GpsSurveyorTab';
@@ -29,6 +33,8 @@ import { TutorialTab } from './components/TutorialTab';
 import { HelpFaqTab } from './components/HelpFaqTab';
 
 export function App() {
+  const toast = useToast();
+
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem('geo_studio_theme');
@@ -66,14 +72,72 @@ export function App() {
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isTourOpen, setIsTourOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+
+  // Auto-Save Engine State (IndexedDB)
+  const [lastAutoSaveTimeString, setLastAutoSaveTimeString] = useState<string>('');
+  const [isAutoSaving, setIsAutoSaving] = useState<boolean>(false);
+
+  // Initialize and check previous IndexedDB auto-save on startup
+  useEffect(() => {
+    getLastAutoSaveMeta().then(meta => {
+      if (meta && meta.timeString) {
+        setLastAutoSaveTimeString(meta.timeString);
+      }
+    });
+  }, []);
+
+  // 30-Second Periodic Session Auto-Save to IndexedDB
+  useEffect(() => {
+    const runAutoSave = async () => {
+      try {
+        setIsAutoSaving(true);
+        // Gather all workspace inputs and caches from localStorage
+        const appData: Record<string, any> = {};
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key) {
+            try {
+              const val = localStorage.getItem(key);
+              appData[key] = val ? JSON.parse(val) : val;
+            } catch {
+              appData[key] = localStorage.getItem(key);
+            }
+          }
+        }
+
+        const snapshot = await saveSessionSnapshot({
+          activeTab,
+          workingZone,
+          distanceUnit,
+          isDarkMode,
+          appData
+        });
+
+        setLastAutoSaveTimeString(snapshot.timeString);
+      } catch (err) {
+        console.warn('Session auto-save error:', err);
+      } finally {
+        setTimeout(() => setIsAutoSaving(false), 800);
+      }
+    };
+
+    // Auto-save every 30 seconds (30000 ms)
+    const interval = setInterval(runAutoSave, 30000);
+    return () => clearInterval(interval);
+  }, [activeTab, workingZone, distanceUnit, isDarkMode]);
 
   // Apply dark mode class to root HTML
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+      document.documentElement.setAttribute('data-theme', 'dark');
       localStorage.setItem('geo_studio_theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('light');
+      document.documentElement.setAttribute('data-theme', 'light');
       localStorage.setItem('geo_studio_theme', 'light');
     }
   }, [isDarkMode]);
@@ -135,24 +199,29 @@ export function App() {
   }, []);
 
   const handleExportProject = () => {
-    const projectData = {
-      version: '1.0.0',
-      timestamp: new Date().toISOString(),
-      theme: isDarkMode ? 'dark' : 'light',
-      settings: {
-        workingZone,
-        localLandUnitPreset,
-        customBighaM2,
-        customKathaPerBigha,
-        distanceUnit
-      },
-      storageDump: { ...localStorage }
-    };
-    downloadBlob(
-      JSON.stringify(projectData, null, 2),
-      `geomatics_project_backup_${new Date().toISOString().slice(0, 10)}.json`,
-      'application/json'
-    );
+    try {
+      const projectData = {
+        version: '1.0.0',
+        timestamp: new Date().toISOString(),
+        theme: isDarkMode ? 'dark' : 'light',
+        settings: {
+          workingZone,
+          localLandUnitPreset,
+          customBighaM2,
+          customKathaPerBigha,
+          distanceUnit
+        },
+        storageDump: { ...localStorage }
+      };
+      downloadBlob(
+        JSON.stringify(projectData, null, 2),
+        `geomatics_project_backup_${new Date().toISOString().slice(0, 10)}.json`,
+        'application/json'
+      );
+      toast.showSuccess('Project state and workspace configuration exported successfully.');
+    } catch (err: any) {
+      toast.showError(`Failed to export project: ${err.message}`);
+    }
   };
 
   const handleImportProject = (file: File) => {
@@ -178,8 +247,9 @@ export function App() {
             }
           });
         }
-      } catch (err) {
-        console.error('Failed to import project file:', err);
+        toast.showSuccess(`Project restored successfully from ${file.name}`);
+      } catch (err: any) {
+        toast.showError(`Failed to import project file: ${err.message}`);
       }
     };
     reader.readAsText(file);
@@ -193,7 +263,8 @@ export function App() {
     setCustomKathaPerBigha(20);
     setDistanceUnit('m');
     setIsDarkMode(true);
-    window.location.reload();
+    toast.showInfo('Reset all workspace settings and caches.');
+    setTimeout(() => window.location.reload(), 600);
   };
 
   const handleAddFeaturesToGis = (features: any[], layerName: string) => {
@@ -211,12 +282,15 @@ export function App() {
     try {
       const existing = JSON.parse(localStorage.getItem('gis_studio_layers') || '[]');
       localStorage.setItem('gis_studio_layers', JSON.stringify([newLayer, ...existing]));
-    } catch (err) {}
+      toast.showSuccess(`Transferred ${features.length} feature(s) to GIS Studio layer "${layerName}".`);
+    } catch (err: any) {
+      toast.showError(`Could not send features to GIS: ${err.message}`);
+    }
     setActiveTab('gis');
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-[#d4d4d4] flex flex-col font-sans transition-colors duration-150 selection:bg-[#c9a063]/30 selection:text-[#f5f5f5]">
+    <div className={`min-h-screen ${isDarkMode ? 'bg-[#0a0a0a] text-[#d4d4d4]' : 'bg-[#f8fafc] text-[#1e293b]'} flex flex-col font-sans transition-colors duration-150 selection:bg-[#c9a063]/30 selection:text-[#f5f5f5]`}>
       {/* 1. Desktop Workstation Top Menu Bar & Ribbon (Desktop Only) */}
       <DesktopMenuBar
         activeTab={activeTab}
@@ -232,6 +306,7 @@ export function App() {
         openShortcuts={() => setIsShortcutsOpen(true)}
         openTour={() => setIsTourOpen(true)}
         openAiModal={() => setIsAiModalOpen(true)}
+        openAbout={() => setIsAboutOpen(true)}
         onExportProject={handleExportProject}
         onImportProject={handleImportProject}
         onClearAllData={handleClearAllData}
@@ -248,6 +323,8 @@ export function App() {
         openSettings={() => setIsSettingsOpen(true)}
         openAiModal={() => setIsAiModalOpen(true)}
         hasGpsFix={false}
+        isDark={isDarkMode}
+        setIsDark={setIsDarkMode}
       />
 
       {/* Main Workspace Body */}
@@ -266,107 +343,117 @@ export function App() {
 
         {/* Content View Area */}
         <main className="flex-1 p-3 sm:p-5 md:p-8 overflow-y-auto max-w-7xl mx-auto w-full custom-scrollbar pb-24 md:pb-6">
-          {activeTab === 'templates' && (
-            <HomeTemplatesTab
-              setActiveTab={setActiveTab}
-              workingZone={workingZone}
-              localLandUnitPreset={localLandUnitPreset}
-              customBighaM2={customBighaM2}
-              customKathaPerBigha={customKathaPerBigha}
-            />
-          )}
+          <ErrorBoundary fallbackTitle={`Error rendering ${activeTab} workspace`}>
+            {activeTab === 'templates' && (
+              <HomeTemplatesTab
+                setActiveTab={setActiveTab}
+                workingZone={workingZone}
+                localLandUnitPreset={localLandUnitPreset}
+                customBighaM2={customBighaM2}
+                customKathaPerBigha={customKathaPerBigha}
+              />
+            )}
 
-          {activeTab === 'gis' && (
-            <GisStudioTab
-              workingZone={workingZone}
-              localLandUnitPreset={localLandUnitPreset}
-              customBighaM2={customBighaM2}
-              customKathaPerBigha={customKathaPerBigha}
-            />
-          )}
+            {(activeTab === 'sensors' || activeTab === 'sensor' || activeTab === 'theodolite' || activeTab === 'level') && (
+              <FieldSensorsTab
+                workingZone={workingZone}
+                distanceUnit={distanceUnit}
+                onSendToGisLayers={handleAddFeaturesToGis}
+              />
+            )}
 
-          {(activeTab === 'geofence' || activeTab === 'gf') && (
-            <GeofenceStudioTab
-              workingZone={workingZone}
-              onSendToGis={(features) => handleAddFeaturesToGis(features, 'Geofence Boundaries')}
-            />
-          )}
+            {activeTab === 'gis' && (
+              <GisStudioTab
+                workingZone={workingZone}
+                localLandUnitPreset={localLandUnitPreset}
+                customBighaM2={customBighaM2}
+                customKathaPerBigha={customKathaPerBigha}
+              />
+            )}
 
-          {(activeTab === 'camera' || activeTab === 'cam' || activeTab === 'photo') && (
-            <CameraLandmarkStudio
-              workingZone={workingZone}
-              onSendToGisLayers={handleAddFeaturesToGis}
-            />
-          )}
+            {(activeTab === 'geofence' || activeTab === 'gf') && (
+              <GeofenceStudioTab
+                workingZone={workingZone}
+                onSendToGis={(features) => handleAddFeaturesToGis(features, 'Geofence Boundaries')}
+              />
+            )}
 
-          {activeTab === 'convert' && (
-            <CoordinateConverterTab
-              workingZone={workingZone}
-              setWorkingZone={setWorkingZone}
-            />
-          )}
+            {(activeTab === 'camera' || activeTab === 'cam' || activeTab === 'photo') && (
+              <CameraLandmarkStudio
+                workingZone={workingZone}
+                onSendToGisLayers={handleAddFeaturesToGis}
+              />
+            )}
 
-          {activeTab === 'gps' && (
-            <GpsSurveyorTab
-              workingZone={workingZone}
-              distanceUnit={distanceUnit}
-            />
-          )}
+            {activeTab === 'convert' && (
+              <CoordinateConverterTab
+                workingZone={workingZone}
+                setWorkingZone={setWorkingZone}
+              />
+            )}
 
-          {activeTab === 'calc' && (
-            <SurveyCalculatorTab
-              workingZone={workingZone}
-              localLandUnitPreset={localLandUnitPreset}
-              customBighaM2={customBighaM2}
-              customKathaPerBigha={customKathaPerBigha}
-              onSendToGisLayers={handleAddFeaturesToGis}
-            />
-          )}
+            {activeTab === 'gps' && (
+              <GpsSurveyorTab
+                workingZone={workingZone}
+                distanceUnit={distanceUnit}
+              />
+            )}
 
-          {activeTab === 'studio' && (
-            <FormatConverterTab workingZone={workingZone} />
-          )}
+            {activeTab === 'calc' && (
+              <SurveyCalculatorTab
+                workingZone={workingZone}
+                localLandUnitPreset={localLandUnitPreset}
+                customBighaM2={customBighaM2}
+                customKathaPerBigha={customKathaPerBigha}
+                onSendToGisLayers={handleAddFeaturesToGis}
+              />
+            )}
 
-          {(activeTab === 'combine' || activeTab === 'merge') && (
-            <MergeSplitTab workingZone={workingZone} />
-          )}
+            {activeTab === 'studio' && (
+              <FormatConverterTab workingZone={workingZone} />
+            )}
 
-          {activeTab === 'bore' && (
-            <BoreholeMapperTab workingZone={workingZone} />
-          )}
+            {(activeTab === 'combine' || activeTab === 'merge') && (
+              <MergeSplitTab workingZone={workingZone} />
+            )}
 
-          {(activeTab === 'bhunaksha' || activeTab === 'digitize') && (
-            <BhunakshaDigitizerTab
-              workingZone={workingZone}
-              localLandUnitPreset={localLandUnitPreset}
-              customBighaM2={customBighaM2}
-              customKathaPerBigha={customKathaPerBigha}
-            />
-          )}
+            {activeTab === 'bore' && (
+              <BoreholeMapperTab workingZone={workingZone} />
+            )}
 
-          {activeTab === 'cad' && (
-            <CadastralMapperTab
-              workingZone={workingZone}
-              localLandUnitPreset={localLandUnitPreset}
-              customBighaM2={customBighaM2}
-              customKathaPerBigha={customKathaPerBigha}
-            />
-          )}
+            {(activeTab === 'bhunaksha' || activeTab === 'digitize') && (
+              <BhunakshaDigitizerTab
+                workingZone={workingZone}
+                localLandUnitPreset={localLandUnitPreset}
+                customBighaM2={customBighaM2}
+                customKathaPerBigha={customKathaPerBigha}
+              />
+            )}
 
-          {(activeTab === 'off' || activeTab === 'offset') && (
-            <BoundaryOffsetTab
-              workingZone={workingZone}
-              localLandUnitPreset={localLandUnitPreset}
-              customBighaM2={customBighaM2}
-              customKathaPerBigha={customKathaPerBigha}
-            />
-          )}
+            {activeTab === 'cad' && (
+              <CadastralMapperTab
+                workingZone={workingZone}
+                localLandUnitPreset={localLandUnitPreset}
+                customBighaM2={customBighaM2}
+                customKathaPerBigha={customKathaPerBigha}
+              />
+            )}
 
-          {(activeTab === 'tut' || activeTab === 'tutorials') && (
-            <TutorialTab setActiveTab={setActiveTab} />
-          )}
+            {(activeTab === 'off' || activeTab === 'offset') && (
+              <BoundaryOffsetTab
+                workingZone={workingZone}
+                localLandUnitPreset={localLandUnitPreset}
+                customBighaM2={customBighaM2}
+                customKathaPerBigha={customKathaPerBigha}
+              />
+            )}
 
-          {(activeTab === 'help' || activeTab === 'faq') && <HelpFaqTab />}
+            {(activeTab === 'tut' || activeTab === 'tutorials') && (
+              <TutorialTab setActiveTab={setActiveTab} />
+            )}
+
+            {(activeTab === 'help' || activeTab === 'faq') && <HelpFaqTab />}
+          </ErrorBoundary>
         </main>
       </div>
 
@@ -375,6 +462,8 @@ export function App() {
         workingZone={workingZone}
         distanceUnit={distanceUnit}
         activeTab={activeTab}
+        lastAutoSaveTime={lastAutoSaveTimeString}
+        isAutoSaving={isAutoSaving}
       />
 
       {/* Modals & Overlays */}
@@ -424,6 +513,11 @@ export function App() {
         onClose={() => setIsAiModalOpen(false)}
         workingZone={workingZone}
         activeTab={activeTab}
+      />
+
+      <AboutModal
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
       />
     </div>
   );

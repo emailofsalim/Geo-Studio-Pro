@@ -276,6 +276,12 @@ export interface PhotoLandmark {
   windKmh?: number;
   pressureHpa?: number;
   magneticDeclination?: number;
+  addressLocality?: string;
+  solarAzimuthDeg?: number;
+  solarElevationDeg?: number;
+  kpIndex?: number;
+  edmPpmCorrection?: number;
+  isOnlineSync?: boolean;
   integrityHash?: string;
   brandLogoUrl?: string;
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Calculator,
   RotateCw,
@@ -15,7 +15,13 @@ import {
   Crosshair,
   ListOrdered,
   Camera,
-  Ruler
+  Ruler,
+  MapPin,
+  Radio,
+  Navigation,
+  Globe,
+  RefreshCw,
+  Share2
 } from 'lucide-react';
 import {
   vincentyCore,
@@ -28,12 +34,16 @@ import {
   solve3PointDipStrike,
   computeEndAreaVolume,
   solveTienstraResection,
-  LevelingRow
+  LevelingRow,
+  parseDMSval,
+  toDMSstr
 } from '../lib/geodesy';
+import { calculateMagneticDeclination, convertAzimuthAngles, MagneticDeclinationResult } from '../lib/geomagnetism';
 import { downloadBlob } from '../lib/zip';
 import { toCSVtext, csvEnc } from '../lib/formats';
 import { CameraLandmarkStudio } from './CameraLandmarkStudio';
 import { GeoFeature } from '../types';
+import { useToast } from '../context/ToastContext';
 
 interface SurveyCalculatorTabProps {
   workingZone?: string;
@@ -51,8 +61,19 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
   onSendToGisLayers
 }) => {
   const [activeSubTool, setActiveSubTool] = useState<
-    'camera' | 'vincenty' | 'traverse' | 'area' | 'curve' | 'intersect' | 'leveling' | 'dipstrike' | 'volume' | 'resection' | 'calc'
+    'camera' | 'magnetic' | 'vincenty' | 'traverse' | 'area' | 'curve' | 'intersect' | 'leveling' | 'dipstrike' | 'volume' | 'resection' | 'calc'
   >('camera');
+  const toast = useToast();
+
+  // Magnetic Declination State
+  const [magLat, setMagLat] = useState('23.541200');
+  const [magLon, setMagLon] = useState('84.601550');
+  const [magElevation, setMagElevation] = useState('150');
+  const [magDate, setMagDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [magResult, setMagResult] = useState<MagneticDeclinationResult | null>(null);
+  const [magAzimuthTest, setMagAzimuthTest] = useState('45.0');
+  const [isLocatingGps, setIsLocatingGps] = useState(false);
+  const [magCopied, setMagCopied] = useState(false);
 
   // Vincenty State
   const [vLon1, setVLon1] = useState('84.601550');
@@ -124,6 +145,85 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
   const [calcDisplay, setCalcDisplay] = useState('0');
   const [angleMode, setAngleMode] = useState<'deg' | 'rad'>('deg');
 
+  // Compute Magnetic Declination
+  const handleComputeDeclination = () => {
+    const lat = parseDMSval(magLat);
+    const lon = parseDMSval(magLon);
+    const elev = parseFloat(magElevation) || 0;
+    const d = magDate ? new Date(magDate) : new Date();
+    const zoneNum = parseInt(workingZone, 10) || 45;
+
+    if (isNaN(lat) || isNaN(lon)) return;
+    const res = calculateMagneticDeclination(lat, lon, elev, d, zoneNum);
+    setMagResult(res);
+  };
+
+  // Re-run magnetic declination when inputs change
+  useEffect(() => {
+    handleComputeDeclination();
+  }, [magLat, magLon, magElevation, magDate, workingZone]);
+
+  // Acquire Live GPS Coordinates for Magnetic Declination
+  const handleGetDeviceLocationForDeclination = () => {
+    if (!navigator.geolocation) {
+      toast.showError('Geolocation is not supported by your browser or environment.');
+      return;
+    }
+    setIsLocatingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        setIsLocatingGps(false);
+        const lat = pos.coords.latitude.toFixed(6);
+        const lon = pos.coords.longitude.toFixed(6);
+        const alt = pos.coords.altitude != null ? Math.round(pos.coords.altitude).toString() : '100';
+        setMagLat(lat);
+        setMagLon(lon);
+        setMagElevation(alt);
+        toast.showSuccess(`Acquired GPS coordinates: ${lat}°, ${lon}° (${alt}m MSL)`);
+      },
+      err => {
+        setIsLocatingGps(false);
+        toast.showError(`Could not acquire GPS position: ${err.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // Export Magnetic Declination Certificate
+  const handleExportMagneticReport = () => {
+    if (!magResult) return;
+    const cols = ['Parameter', 'Primary Value', 'Secondary Value / Units'];
+    const rows = [
+      ['GEOMATICS MAGNETIC DECLINATION & GRID CONVERGENCE CERTIFICATE', '', ''],
+      ['Generated On', new Date().toISOString(), ''],
+      ['UTM Working Zone', `UTM Zone ${workingZone}`, ''],
+      ['', '', ''],
+      ['COORDINATES & OBSERVATION EPOCH', '', ''],
+      ['Latitude (WGS84)', magResult.latitude.toFixed(6), toDMSstr(magResult.latitude, true)],
+      ['Longitude (WGS84)', magResult.longitude.toFixed(6), toDMSstr(magResult.longitude, false)],
+      ['Elevation (MSL)', `${magResult.elevationMeters} meters`, ''],
+      ['Date / Decimal Epoch', magResult.date.toDateString(), `${magResult.decimalYear} yr`],
+      ['', '', ''],
+      ['GEOMAGNETIC VALUES', '', ''],
+      ['Magnetic Declination (D)', `${magResult.declinationDegrees.toFixed(4)}°`, magResult.declinationDMS],
+      ['Direction', magResult.declinationDirection, ''],
+      ['Annual Secular Drift', `${magResult.annualDriftMinutes} min/year`, ''],
+      ['Magnetic Inclination / Dip (I)', `${magResult.inclinationDegrees.toFixed(4)}°`, magResult.inclinationDMS],
+      ['Total Field Intensity (F)', `${magResult.totalIntensityNanoTesla} nT`, ''],
+      ['Horizontal Field Intensity (H)', `${magResult.horizontalIntensityNanoTesla} nT`, ''],
+      ['Vertical Field Intensity (Z)', `${magResult.verticalIntensityNanoTesla} nT`, ''],
+      ['', '', ''],
+      ['GRID & GRIVATION VALUES', '', ''],
+      ['UTM Grid Convergence (gamma)', `${magResult.gridConvergenceDegrees.toFixed(4)}°`, magResult.gridConvergenceDMS],
+      ['Grivation / Grid Magnetic Angle (D - gamma)', `${magResult.grivationDegrees.toFixed(4)}°`, magResult.grivationDMS],
+      ['Summary', magResult.compassVariationSummary, '']
+    ];
+
+    const csvContent = toCSVtext(cols, rows);
+    downloadBlob(csvContent, `Magnetic_Declination_Report_${magResult.latitude.toFixed(4)}_${magResult.longitude.toFixed(4)}.csv`, 'text/csv');
+    toast.showSuccess('Exported Magnetic Declination Certificate (.csv)');
+  };
+
   // Compute Vincenty
   const handleComputeVincenti = () => {
     const lon1 = parseFloat(vLon1), lat1 = parseFloat(vLat1);
@@ -147,8 +247,9 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
       if (legs.length < 2) return;
       const res = bowditchBalance(parseFloat(startE) || 0, parseFloat(startN) || 0, legs);
       setTravResult(res);
+      toast.showSuccess(`Traverse balanced (${legs.length} stations, linear closure ${res.precision})`);
     } catch (err: any) {
-      alert(`Traverse computation error: ${err.message}`);
+      toast.showError(`Traverse computation error: ${err.message}`);
     }
   };
 
@@ -167,8 +268,9 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
       const poly = polygonAreaPerimeter(pts);
       const formatted = formatAreaAllUnits(poly.areaM2, localLandUnitPreset, customBighaM2, customKathaPerBigha);
       setAreaResult({ ...poly, formatted });
+      toast.showSuccess(`Computed area: ${poly.areaHa.toFixed(4)} Ha (${poly.perimM.toFixed(2)}m perimeter)`);
     } catch (err: any) {
-      alert(`Area calculation error: ${err.message}`);
+      toast.showError(`Area calculation error: ${err.message}`);
     }
   };
 
@@ -190,8 +292,9 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
     try {
       const res = bearingBearingIntersection(e1, n1, b1, e2, n2, b2);
       setIntResult(res);
+      toast.showSuccess(`Intersection solved: E=${res.E.toFixed(3)}, N=${res.N.toFixed(3)}`);
     } catch (err: any) {
-      alert(err.message);
+      toast.showError(err.message);
     }
   };
 
@@ -218,8 +321,9 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
       const initialRL = parseFloat(levelingBmRL) || 100;
       const res = computeDifferentialLeveling(initialRL, rows);
       setLevelingResult(res);
+      toast.showSuccess(`Differential Leveling solved (${res.rows.length} stations, check closure=${res.checkPassed ? 'OK' : 'MISMATCH'})`);
     } catch (err: any) {
-      alert(`Leveling error: ${err.message}`);
+      toast.showError(`Leveling error: ${err.message}`);
     }
   };
 
@@ -248,8 +352,9 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
       });
       const res = computeEndAreaVolume(sections);
       setVolumeResult(res);
+      toast.showSuccess(`Volume computed: Total Cut=${res.cutVolume.toFixed(1)} m³, Total Fill=${res.fillVolume.toFixed(1)} m³`);
     } catch (err: any) {
-      alert(`Volume error: ${err.message}`);
+      toast.showError(`Volume error: ${err.message}`);
     }
   };
 
@@ -264,8 +369,9 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
       const gamma = parseFloat(resGamma);
       const res = solveTienstraResection(A, B, C, alpha, beta, gamma);
       setResectionResult(res);
+      toast.showSuccess(`Resection point determined: E=${res.E.toFixed(3)}, N=${res.N.toFixed(3)}`);
     } catch (err: any) {
-      alert(`Resection error: ${err.message}`);
+      toast.showError(`Resection error: ${err.message}`);
     }
   };
 
@@ -312,6 +418,7 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
         <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5 text-xs font-semibold">
           {[
             { id: 'camera', label: 'GPS Cam & Rangefinder', icon: Camera },
+            { id: 'magnetic', label: 'Magnetic Declination (WMM)', icon: Navigation },
             { id: 'vincenty', label: 'Vincenty Geodesic', icon: Compass },
             { id: 'traverse', label: 'Traverse Balancing', icon: TrendingUp },
             { id: 'leveling', label: 'Differential Leveling', icon: ListOrdered },
@@ -349,6 +456,309 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
           workingZone={workingZone}
           onSendToGisLayers={onSendToGisLayers}
         />
+      )}
+
+      {/* 1. Magnetic Declination & World Magnetic Model Sub-tool */}
+      {activeSubTool === 'magnetic' && (
+        <div className="bg-[#0f0f0f] rounded-2xl p-6 sm:p-8 border border-white/5 space-y-6">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-[#c9a063] font-semibold">Geomagnetism & Geodesy</span>
+                <span className="text-[10px] bg-[#c9a063]/10 text-[#c9a063] px-2 py-0.5 rounded border border-[#c9a063]/20 font-mono">
+                  World Magnetic Model &bull; IGRF Epoch
+                </span>
+              </div>
+              <h4 className="text-lg font-serif italic text-white flex items-center gap-2">
+                <Navigation className="w-5 h-5 text-[#c9a063]" />
+                Magnetic Declination, Grid Convergence & Grivation
+              </h4>
+              <p className="text-xs text-white/40 mt-1 max-w-2xl">
+                Calculates the exact localized angular offset between True (Geographic) North, Magnetic North (Compass needle), and UTM Grid North with secular annual drift.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleGetDeviceLocationForDeclination}
+                disabled={isLocatingGps}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md active:scale-95 disabled:opacity-50"
+              >
+                <MapPin className={`w-3.5 h-3.5 ${isLocatingGps ? 'animate-bounce' : ''}`} />
+                {isLocatingGps ? 'Acquiring GPS...' : 'Use Current Device GPS'}
+              </button>
+
+              <button
+                onClick={handleExportMagneticReport}
+                disabled={!magResult}
+                className="px-3.5 py-2 bg-[#141414] hover:bg-[#1a1a1a] text-white border border-white/10 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all"
+              >
+                <Download className="w-3.5 h-3.5 text-[#c9a063]" />
+                Export Certificate (.CSV)
+              </button>
+            </div>
+          </div>
+
+          {/* Coordinate Inputs */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-[#141414] p-4 rounded-xl border border-white/5 text-xs">
+            <div>
+              <label className="text-white/60 block mb-1 font-medium flex items-center justify-between">
+                <span>Latitude (DD or DMS)</span>
+                <span className="text-[10px] text-white/40 font-mono">{toDMSstr(parseDMSval(magLat) || 0, true)}</span>
+              </label>
+              <input
+                type="text"
+                value={magLat}
+                onChange={e => setMagLat(e.target.value)}
+                placeholder={'e.g. 23.541200 or 23°32\'28"N'}
+                className="w-full py-2 px-3 rounded-lg border border-white/10 bg-[#0a0a0a] text-white font-mono focus:border-[#c9a063] focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-white/60 block mb-1 font-medium flex items-center justify-between">
+                <span>Longitude (DD or DMS)</span>
+                <span className="text-[10px] text-white/40 font-mono">{toDMSstr(parseDMSval(magLon) || 0, false)}</span>
+              </label>
+              <input
+                type="text"
+                value={magLon}
+                onChange={e => setMagLon(e.target.value)}
+                placeholder={'e.g. 84.601550 or 84°36\'05"E'}
+                className="w-full py-2 px-3 rounded-lg border border-white/10 bg-[#0a0a0a] text-white font-mono focus:border-[#c9a063] focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-white/60 block mb-1 font-medium">Elevation Above MSL (m)</label>
+              <input
+                type="number"
+                value={magElevation}
+                onChange={e => setMagElevation(e.target.value)}
+                placeholder="e.g. 150"
+                className="w-full py-2 px-3 rounded-lg border border-white/10 bg-[#0a0a0a] text-white font-mono focus:border-[#c9a063] focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-white/60 block mb-1 font-medium">Calculation Date / Epoch</label>
+              <input
+                type="date"
+                value={magDate}
+                onChange={e => setMagDate(e.target.value)}
+                className="w-full py-2 px-3 rounded-lg border border-white/10 bg-[#0a0a0a] text-white font-mono focus:border-[#c9a063] focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Results Grid */}
+          {magResult && (
+            <div className="space-y-6">
+              {/* Primary Output Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {/* 1. Magnetic Declination Card */}
+                <div className="p-5 bg-[#141414] rounded-2xl border border-[#c9a063]/30 space-y-2 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-3 opacity-10">
+                    <Navigation className="w-16 h-16 text-[#c9a063]" />
+                  </div>
+                  <span className="text-[10px] uppercase tracking-wider text-[#c9a063] font-mono font-bold block">
+                    Magnetic Declination (D)
+                  </span>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-bold font-mono text-white">
+                      {Math.abs(magResult.declinationDegrees).toFixed(3)}°
+                    </span>
+                    <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded font-mono ${
+                      magResult.declinationDegrees >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                    }`}>
+                      {magResult.declinationDirection} (True North)
+                    </span>
+                  </div>
+                  <p className="text-xs font-mono text-white/70">
+                    {magResult.declinationDMS}
+                  </p>
+                  <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-white/50">
+                    <span>Annual Secular Drift:</span>
+                    <span className="font-mono text-[#c9a063] font-bold">
+                      {magResult.annualDriftMinutes > 0 ? `+${magResult.annualDriftMinutes}` : magResult.annualDriftMinutes}' / year
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. Grid Convergence Card */}
+                <div className="p-5 bg-[#141414] rounded-2xl border border-white/5 space-y-2 relative overflow-hidden">
+                  <span className="text-[10px] uppercase tracking-wider text-sky-400 font-mono font-bold block">
+                    UTM Grid Convergence (γ)
+                  </span>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-bold font-mono text-white">
+                      {magResult.gridConvergenceDegrees.toFixed(3)}°
+                    </span>
+                    <span className="text-xs text-white/50 font-mono">UTM Zone {workingZone}</span>
+                  </div>
+                  <p className="text-xs font-mono text-white/70">
+                    {magResult.gridConvergenceDMS}
+                  </p>
+                  <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-white/50">
+                    <span>Grid vs True North:</span>
+                    <span className="font-mono text-sky-300">
+                      {magResult.gridConvergenceDegrees >= 0 ? 'Grid East of True' : 'Grid West of True'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Grivation / Grid Magnetic Angle Card */}
+                <div className="p-5 bg-[#141414] rounded-2xl border border-white/5 space-y-2 relative overflow-hidden">
+                  <span className="text-[10px] uppercase tracking-wider text-amber-400 font-mono font-bold block">
+                    Grivation / Grid Magnetic Angle (D - γ)
+                  </span>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-bold font-mono text-white">
+                      {magResult.grivationDegrees.toFixed(3)}°
+                    </span>
+                    <span className="text-xs text-white/50 font-mono">Total Variation</span>
+                  </div>
+                  <p className="text-xs font-mono text-white/70">
+                    {magResult.grivationDMS}
+                  </p>
+                  <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-white/50">
+                    <span>Magnetic to Grid:</span>
+                    <span className="font-mono text-amber-300">
+                      Grid = Mag {magResult.grivationDegrees >= 0 ? `+ ${magResult.grivationDegrees.toFixed(2)}°` : `- ${Math.abs(magResult.grivationDegrees).toFixed(2)}°`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Visual Compass Needle & Geomagnetic Vectors */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-[#141414] p-6 rounded-2xl border border-white/5">
+                {/* 3-North Needle Compass Graphic */}
+                <div className="lg:col-span-5 flex flex-col items-center justify-center p-4 bg-[#0a0a0a] rounded-xl border border-white/5">
+                  <div className="text-[10px] uppercase tracking-widest text-[#c9a063] font-bold mb-3">
+                    3-North Directional Vector Diagram
+                  </div>
+                  <div className="relative w-48 h-48 rounded-full border border-white/10 bg-[#0f0f0f] flex items-center justify-center shadow-inner">
+                    {/* Outer Compass Cardinal Marks */}
+                    <span className="absolute top-1 text-[11px] font-mono font-bold text-white">N (0°)</span>
+                    <span className="absolute right-2 text-[11px] font-mono font-bold text-white/40">E</span>
+                    <span className="absolute bottom-1 text-[11px] font-mono font-bold text-white/40">S</span>
+                    <span className="absolute left-2 text-[11px] font-mono font-bold text-white/40">W</span>
+
+                    {/* True North Line (Black/White Star 0 deg) */}
+                    <div className="absolute w-0.5 h-20 bg-white bottom-24 origin-bottom shadow-sm">
+                      <div className="w-2 h-2 -ml-[3px] -mt-1 bg-white rotate-45" />
+                    </div>
+
+                    {/* Grid North Line (Sky Blue) */}
+                    <div
+                      className="absolute w-0.5 h-20 bg-sky-400 bottom-24 origin-bottom transition-all duration-300"
+                      style={{ transform: `rotate(${magResult.gridConvergenceDegrees}deg)` }}
+                    >
+                      <div className="w-2 h-2 -ml-[3px] -mt-1 bg-sky-400 rotate-45" />
+                    </div>
+
+                    {/* Magnetic North Needle (Gold) */}
+                    <div
+                      className="absolute w-1 h-22 bg-[#c9a063] bottom-24 origin-bottom transition-all duration-300 shadow-md shadow-[#c9a063]/30"
+                      style={{ transform: `rotate(${magResult.declinationDegrees}deg)` }}
+                    >
+                      <div className="w-3 h-3 -ml-[4px] -mt-1.5 bg-[#c9a063] rotate-45" />
+                    </div>
+
+                    {/* Center Pivot Point */}
+                    <div className="w-3 h-3 rounded-full bg-white border-2 border-black z-10" />
+                  </div>
+
+                  {/* Needle Legend */}
+                  <div className="mt-4 flex items-center justify-center gap-4 text-[10px] font-mono flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 bg-white rounded-full" />
+                      <span className="text-white/80">True North (TN 0.0°)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 bg-[#c9a063] rounded-full" />
+                      <span className="text-[#c9a063]">Mag North (MN {magResult.declinationDegrees >= 0 ? `+${magResult.declinationDegrees.toFixed(2)}` : magResult.declinationDegrees.toFixed(2)}°)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 bg-sky-400 rounded-full" />
+                      <span className="text-sky-400">Grid North (GN {magResult.gridConvergenceDegrees >= 0 ? `+${magResult.gridConvergenceDegrees.toFixed(2)}` : magResult.gridConvergenceDegrees.toFixed(2)}°)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Field Intensities & Interactive Heading Converter */}
+                <div className="lg:col-span-7 space-y-4">
+                  {/* Additional Geomagnetic Field Metrics */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+                    <div className="p-3 bg-[#0a0a0a] rounded-xl border border-white/5">
+                      <span className="text-[10px] text-white/40 block">Inclination / Dip (I)</span>
+                      <span className="text-white font-bold">{magResult.inclinationDegrees.toFixed(2)}°</span>
+                      <span className="text-[9px] text-white/40 block">{magResult.inclinationDMS}</span>
+                    </div>
+                    <div className="p-3 bg-[#0a0a0a] rounded-xl border border-white/5">
+                      <span className="text-[10px] text-white/40 block">Total Intensity (F)</span>
+                      <span className="text-emerald-400 font-bold">{magResult.totalIntensityNanoTesla} nT</span>
+                      <span className="text-[9px] text-white/40 block">{(magResult.totalIntensityNanoTesla / 100000).toFixed(4)} Gauss</span>
+                    </div>
+                    <div className="p-3 bg-[#0a0a0a] rounded-xl border border-white/5">
+                      <span className="text-[10px] text-white/40 block">Horizontal (H)</span>
+                      <span className="text-sky-400 font-bold">{magResult.horizontalIntensityNanoTesla} nT</span>
+                    </div>
+                    <div className="p-3 bg-[#0a0a0a] rounded-xl border border-white/5">
+                      <span className="text-[10px] text-white/40 block">Vertical (Z)</span>
+                      <span className="text-amber-400 font-bold">{magResult.verticalIntensityNanoTesla} nT</span>
+                    </div>
+                  </div>
+
+                  {/* Interactive Azimuth & Compass Bearing Transformer */}
+                  <div className="p-4 bg-[#0a0a0a] rounded-xl border border-white/5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                        <Compass className="w-3.5 h-3.5 text-[#c9a063]" />
+                        Azimuth & Compass Bearing Transformation Matrix
+                      </span>
+                      <span className="text-[10px] text-white/40 font-mono">Live Recalculation</span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="w-32 shrink-0">
+                        <label className="text-[10px] text-white/60 block mb-0.5">True Azimuth (°)</label>
+                        <input
+                          type="number"
+                          value={magAzimuthTest}
+                          onChange={e => setMagAzimuthTest(e.target.value)}
+                          placeholder="e.g. 45.0"
+                          className="w-full py-1.5 px-2.5 rounded-lg border border-white/10 bg-[#141414] text-white font-mono text-xs focus:border-[#c9a063] focus:outline-none"
+                        />
+                      </div>
+
+                      {(() => {
+                        const trueAz = parseFloat(magAzimuthTest) || 0;
+                        const conv = convertAzimuthAngles(trueAz, magResult.declinationDegrees, magResult.gridConvergenceDegrees);
+                        return (
+                          <div className="flex-1 grid grid-cols-3 gap-2 text-center text-xs font-mono">
+                            <div className="p-2 bg-[#141414] rounded-lg border border-white/5">
+                              <span className="text-[9px] text-white/40 block uppercase">True Azimuth</span>
+                              <span className="text-white font-bold">{conv.trueAzimuth.toFixed(2)}°</span>
+                            </div>
+                            <div className="p-2 bg-[#141414] rounded-lg border border-[#c9a063]/30">
+                              <span className="text-[9px] text-[#c9a063] block uppercase">Magnetic Compass</span>
+                              <span className="text-[#c9a063] font-bold">{conv.magneticBearing.toFixed(2)}°</span>
+                            </div>
+                            <div className="p-2 bg-[#141414] rounded-lg border border-sky-500/30">
+                              <span className="text-[9px] text-sky-400 block uppercase">Grid Azimuth</span>
+                              <span className="text-sky-300 font-bold">{conv.gridAzimuth.toFixed(2)}°</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* 2. Vincenty Geodesic Sub-tool */}

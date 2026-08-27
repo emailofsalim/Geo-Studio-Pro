@@ -31,6 +31,7 @@ import {
 } from '../lib/geodesy';
 import { parseCSV, stripBOM, toCSVtext, csvEnc } from '../lib/formats';
 import { downloadBlob } from '../lib/zip';
+import { useToast } from '../context/ToastContext';
 
 interface CoordinateConverterTabProps {
   workingZone: string;
@@ -41,6 +42,7 @@ export const CoordinateConverterTab: React.FC<CoordinateConverterTabProps> = ({
   workingZone,
   setWorkingZone
 }) => {
+  const toast = useToast();
   // Single Point State
   const [direction, setDirection] = useState<'u2w' | 'w2u'>('u2w');
   const [valA, setValA] = useState<string>('254800.00');
@@ -302,8 +304,9 @@ export const CoordinateConverterTab: React.FC<CoordinateConverterTabProps> = ({
         }
       });
       setHelmertConverted(conv);
+      toast.showSuccess(`Helmert transformation solved (Scale=${res.scale.toFixed(6)}, Rot=${res.rotDeg.toFixed(4)}°, Residual RMS=${res.rms.toFixed(4)}m)`);
     } catch (err: any) {
-      alert(`Helmert fit error: ${err.message}`);
+      toast.showError(`Helmert fit error: ${err.message}`);
     }
   };
 

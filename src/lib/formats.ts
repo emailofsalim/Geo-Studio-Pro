@@ -6,7 +6,7 @@ export const PROV = {
   author: 'Md Salim Ansari',
   org: 'Personal project',
   email: 'emailofsalim@gmail.com',
-  line: 'Geo Studio © Md Salim Ansari - personal project.'
+  line: 'BhuNex © Md Salim Ansari (emailofsalim@gmail.com) - personal project.'
 };
 
 export function stripBOM(t: string): string {
@@ -473,9 +473,9 @@ export function wktToFeatures(text: string): GeoFeature[] {
     } else if (type === 'MULTIPOINT') {
       ring(inner.replace(/[()]/g, '')).forEach(p => push('point', [p]));
     } else if (type === 'MULTILINESTRING') {
-      (inner.match(/\(([^()]*)\)/g) || []).forEach(g => push('line', ring(g.replace(/[()]/g, ''))));
+      (inner.match(/\(([^()]*)\)/g) || []).forEach((g: string) => push('line', ring(g.replace(/[()]/g, ''))));
     } else if (type === 'MULTIPOLYGON') {
-      (inner.match(/\(\s*\(([^()]*)\)/g) || []).forEach(g => push('polygon', ring(g.replace(/[()]/g, ''))));
+      (inner.match(/\(\s*\(([^()]*)\)/g) || []).forEach((g: string) => push('polygon', ring(g.replace(/[()]/g, ''))));
     }
   });
   return out;
@@ -2528,10 +2528,13 @@ export function buildPhotoLandmarksZip(
   zipEntries.push({ name: `${projectName}.geojson`, data: enc.encode(JSON.stringify(geojsonObj, null, 2)) });
 
   // 3. CSV Register
-  const headers = [
+    const headers = [
     'ID', 'Name', 'Timestamp', 'Latitude', 'Longitude', 'Altitude_m',
     'Accuracy_m', 'UTM_Zone', 'Easting_m', 'Northing_m', 'Azimuth_deg',
-    'Pitch_deg', 'Slope_pct', 'Target_Dist_m', 'Target_Height_m', 'Surveyor', 'Notes'
+    'Pitch_deg', 'Slope_pct', 'Target_Dist_m', 'Target_Height_m',
+    'Weather', 'Temp_C', 'Humidity_pct', 'Pressure_hPa', 'MagDeclination_deg',
+    'Locality', 'SolarAzimuth_deg', 'SolarElevation_deg', 'SpaceWeather_Kp',
+    'EDM_PPM_Correction', 'Online_Sync', 'Surveyor', 'Notes'
   ];
   const rows = landmarks.map(lm => [
     lm.id,
@@ -2549,6 +2552,17 @@ export function buildPhotoLandmarksZip(
     lm.slopePercent != null ? lm.slopePercent.toFixed(1) : '',
     lm.targetDistanceMeters != null ? lm.targetDistanceMeters.toFixed(2) : '',
     lm.targetHeightMeters != null ? lm.targetHeightMeters.toFixed(2) : '',
+    lm.weatherCondition || '',
+    lm.temperatureC != null ? lm.temperatureC.toFixed(1) : '',
+    lm.humidityPct != null ? lm.humidityPct.toString() : '',
+    lm.pressureHpa != null ? lm.pressureHpa.toFixed(1) : '',
+    lm.magneticDeclination != null ? lm.magneticDeclination.toFixed(2) : '',
+    lm.addressLocality || '',
+    lm.solarAzimuthDeg != null ? lm.solarAzimuthDeg.toFixed(1) : '',
+    lm.solarElevationDeg != null ? lm.solarElevationDeg.toFixed(1) : '',
+    lm.kpIndex != null ? lm.kpIndex.toFixed(1) : '',
+    lm.edmPpmCorrection != null ? lm.edmPpmCorrection.toFixed(1) : '',
+    lm.isOnlineSync ? 'YES' : 'NO (OFFLINE)',
     lm.surveyor || '',
     lm.notes || ''
   ]);

@@ -15,14 +15,18 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
   ShieldAlert,
-  Camera
+  Camera,
+  Activity
 } from 'lucide-react';
 
 export type AppTabId =
   | 'templates'
   | 'gis'
+  | 'sensors'
+  | 'sensor'
+  | 'theodolite'
+  | 'level'
   | 'geofence'
   | 'gf'
   | 'camera'
@@ -59,21 +63,22 @@ interface NavigationProps {
 }
 
 export const APPS_CONFIG: { id: AppTabId; name: string; category: string; icon: any }[] = [
-  { id: 'templates', name: 'Home & Templates', category: 'Overview', icon: FileSpreadsheet },
-  { id: 'gis', name: 'GIS Map Studio', category: 'Conversion & GIS', icon: Layers },
-  { id: 'camera', name: 'GPS Map Camera', category: 'Field & Coordinates', icon: Camera },
-  { id: 'gps', name: 'GPS Field Surveyor', category: 'Field & Coordinates', icon: CompassIcon },
-  { id: 'geofence', name: 'Geofence Sentinel', category: 'Field & Coordinates', icon: ShieldAlert },
-  { id: 'convert', name: 'Coordinate Converter', category: 'Field & Coordinates', icon: Globe },
-  { id: 'calc', name: 'Survey Calculator', category: 'Field & Coordinates', icon: Calculator },
-  { id: 'studio', name: 'Format Converter', category: 'Conversion & GIS', icon: FileCode },
-  { id: 'combine', name: 'Merge & Split', category: 'Conversion & GIS', icon: Layers2 },
-  { id: 'bhunaksha', name: 'BhuNaksha Digitizer', category: 'Exploration & Cadastre', icon: Scan },
-  { id: 'bore', name: 'Borehole Mapper', category: 'Exploration & Cadastre', icon: MapPin },
-  { id: 'cad', name: 'Cadastral Mapper', category: 'Exploration & Cadastre', icon: Layers2 },
-  { id: 'off', name: 'Boundary Offset', category: 'Exploration & Cadastre', icon: Spline },
-  { id: 'tut', name: 'Tutorial Zone', category: 'Knowledge', icon: BookOpen },
-  { id: 'help', name: 'Help & Tips', category: 'Knowledge', icon: HelpCircle }
+  { id: 'templates', name: 'Overview & Templates', category: 'Overview', icon: FileSpreadsheet },
+  { id: 'sensors', name: 'Field Hardware & Meteorology', category: 'Field & Map Tools', icon: Activity },
+  { id: 'gis', name: 'GIS Map Studio', category: 'Field & Map Tools', icon: Layers },
+  { id: 'gps', name: 'GNSS Field Surveyor', category: 'Field & Map Tools', icon: CompassIcon },
+  { id: 'calc', name: 'Survey Calculator', category: 'Field & Map Tools', icon: Calculator },
+  { id: 'convert', name: 'Coordinate Converter', category: 'Field & Map Tools', icon: Globe },
+  { id: 'camera', name: 'GPS Map Camera', category: 'Field & Map Tools', icon: Camera },
+  { id: 'geofence', name: 'Geofence Sentinel', category: 'Field & Map Tools', icon: ShieldAlert },
+  { id: 'bhunaksha', name: 'BhuNaksha Digitizer', category: 'Cadastre & Exploration', icon: Scan },
+  { id: 'cad', name: 'Cadastral Mapper', category: 'Cadastre & Exploration', icon: Layers2 },
+  { id: 'bore', name: 'Borehole Stratigraphy', category: 'Cadastre & Exploration', icon: MapPin },
+  { id: 'studio', name: 'Universal Converter', category: 'Cadastre & Exploration', icon: FileCode },
+  { id: 'combine', name: 'Merge & Split', category: 'Cadastre & Exploration', icon: Layers2 },
+  { id: 'off', name: 'Boundary Offset', category: 'Cadastre & Exploration', icon: Spline },
+  { id: 'tut', name: 'Tutorials', category: 'Reference', icon: BookOpen },
+  { id: 'help', name: 'Help & Docs', category: 'Reference', icon: HelpCircle }
 ];
 
 export const Navigation: React.FC<NavigationProps> = ({
@@ -94,37 +99,42 @@ export const Navigation: React.FC<NavigationProps> = ({
     if (setIsMobileOpen) setIsMobileOpen(false);
   };
 
-  const categories = ['Overview', 'Field & Coordinates', 'Conversion & GIS', 'Exploration & Cadastre', 'Knowledge'];
+  const categories = ['Overview', 'Field & Map Tools', 'Cadastre & Exploration', 'Reference'];
 
-  // Tab normalization
-  const normalizedActiveTab = activeTab === 'merge' ? 'combine' : activeTab === 'offset' ? 'off' : activeTab === 'tutorials' ? 'tut' : activeTab === 'faq' ? 'help' : activeTab;
+  const normalizedActiveTab =
+    activeTab === 'merge' ? 'combine' :
+    activeTab === 'offset' ? 'off' :
+    activeTab === 'tutorials' ? 'tut' :
+    activeTab === 'faq' ? 'help' :
+    activeTab;
 
   return (
     <>
       {/* Mobile Backdrop */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 bg-black/80 z-40 md:hidden backdrop-blur-sm transition-opacity"
+          className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-xs transition-opacity"
           onClick={handleClose}
         />
       )}
 
-      {/* Sidebar Navigation */}
+      {/* Minimal Sidebar Navigation */}
       <aside
-        className={`fixed md:relative top-0 left-0 h-full z-30 flex flex-col bg-[#0c0c0c] border-r border-white/10 text-[#d4d4d4] transition-all duration-200 shadow-2xl ${
-          isRail ? 'w-16' : 'w-64'
+        className={`fixed md:relative top-0 left-0 h-full z-30 flex flex-col bg-[#0d0d0d] border-r border-white/[0.06] text-[#d4d4d4] transition-all duration-150 ${
+          isRail ? 'w-14' : 'w-60'
         } ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
-        {/* Brand Header */}
-        <div className="p-6 pb-5 border-b border-white/5 flex items-center justify-between">
-          <div className="flex flex-col">
-            <h1 className="text-2xl font-serif italic text-[#c9a063] tracking-tight">GeoStudio</h1>
-            <p className="text-[10px] uppercase tracking-[0.2em] opacity-40 mt-0.5">Geomatics Intelligence</p>
-          </div>
+        {/* Top Header */}
+        <div className="h-12 px-3 flex items-center justify-between border-b border-white/[0.06]">
+          {!isRail && (
+            <span className="text-xs font-semibold tracking-wide text-white/50 uppercase pl-1">
+              Workspace
+            </span>
+          )}
           {setIsRail && (
             <button
               onClick={() => setIsRail(!isRail)}
-              className="hidden md:flex p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/5 transition-colors"
+              className="p-1 rounded-md text-white/40 hover:text-white hover:bg-white/[0.06] transition-colors ml-auto"
               title={isRail ? 'Expand sidebar' : 'Collapse sidebar'}
             >
               {isRail ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
@@ -132,26 +142,16 @@ export const Navigation: React.FC<NavigationProps> = ({
           )}
         </div>
 
-        {/* Working Zone Quick Badge */}
-        {!isRail && (
-          <div className="mx-4 mt-4 px-3.5 py-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between text-xs">
-            <span className="text-white/40 text-[10px] uppercase tracking-widest font-medium">Zone Active</span>
-            <span className="font-mono text-xs font-semibold text-[#c9a063] bg-[#c9a063]/10 px-2 py-0.5 rounded border border-[#c9a063]/30">
-              UTM {workingZone}
-            </span>
-          </div>
-        )}
-
         {/* Navigation Items */}
-        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4 custom-scrollbar">
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-4 custom-scrollbar">
           {categories.map(cat => {
             const items = APPS_CONFIG.filter(app => app.category === cat);
             if (!items.length) return null;
 
             return (
-              <div key={cat} className="space-y-1">
+              <div key={cat} className="space-y-0.5">
                 {!isRail && (
-                  <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-white/30 select-none">
+                  <div className="px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-white/30 select-none">
                     {cat}
                   </div>
                 )}
@@ -171,26 +171,23 @@ export const Navigation: React.FC<NavigationProps> = ({
                         setActiveTab(app.id as any);
                         handleClose();
                       }}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all group relative ${
+                      className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors group relative ${
                         isActive
-                          ? 'bg-white/5 border border-white/10 text-white font-medium shadow-xs'
-                          : 'text-white/60 hover:text-white hover:bg-white/5 border border-transparent'
+                          ? 'bg-white/[0.08] text-white'
+                          : 'text-white/60 hover:text-white hover:bg-white/[0.04]'
                       }`}
                       title={isRail ? app.name : undefined}
                     >
-                      {isActive ? (
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#c9a063] shrink-0"></div>
-                      ) : (
-                        <Icon className="w-4 h-4 text-white/40 group-hover:text-white shrink-0 transition-colors" />
-                      )}
-                      {!isRail && <span className="truncate">{app.name}</span>}
-                      {isActive && !isRail && (
-                        <span className="ml-auto text-[9px] uppercase tracking-wider text-[#c9a063] font-serif italic">
-                          active
-                        </span>
-                      )}
+                      <Icon
+                        className={`w-4 h-4 shrink-0 transition-colors ${
+                          isActive ? 'text-[#c9a063]' : 'text-white/40 group-hover:text-white/80'
+                        }`}
+                      />
+                      {!isRail && <span className="truncate text-left">{app.name}</span>}
+
+                      {/* Rail Tooltip */}
                       {isRail && (
-                        <div className="absolute left-full ml-3 px-3 py-1.5 bg-[#141414] border border-white/10 rounded-lg text-xs font-medium text-white whitespace-nowrap shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
+                        <div className="absolute left-full ml-2 px-2.5 py-1 bg-[#1a1a1a] border border-white/[0.08] rounded-md text-xs font-medium text-white whitespace-nowrap shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
                           {app.name}
                         </div>
                       )}
@@ -202,23 +199,22 @@ export const Navigation: React.FC<NavigationProps> = ({
           })}
         </nav>
 
-        {/* Footer Info */}
-        <div className="p-4 border-t border-white/5 bg-[#0f0f0f] mt-auto">
-          <div className="flex items-center space-x-3 mb-2">
-            <div className="w-7 h-7 rounded-full bg-[#1a1a1a] border border-white/10 flex items-center justify-center text-[10px] font-mono text-[#c9a063]">
-              GS
-            </div>
-            <div className="text-xs">
-              <p className="text-white text-[11px] font-medium leading-tight font-serif italic">GeoStudio Pro</p>
-              <p className="text-[9px] uppercase tracking-widest text-white/40">v4.8.2 Suite</p>
-            </div>
+        {/* Minimal Footer */}
+        {!isRail && (
+          <div className="p-3 border-t border-white/[0.06] text-[11px] text-white/40 flex items-center justify-between">
+            <span className="font-mono">UTM {workingZone}</span>
+            {openSettings && (
+              <button
+                onClick={openSettings}
+                className="hover:text-white transition-colors"
+                title="Settings"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
-          <div className="text-[9px] text-center uppercase tracking-[0.2em] text-white/20">
-            Offline Field Engine
-          </div>
-        </div>
+        )}
       </aside>
     </>
   );
 };
-

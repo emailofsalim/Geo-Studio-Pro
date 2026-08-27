@@ -1,34 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   FileSpreadsheet,
   Layers,
   Camera,
   Navigation as CompassIcon,
-  ShieldAlert,
-  Globe,
   Calculator,
-  FileCode,
-  Layers2,
-  Scan,
-  MapPin,
-  Spline,
-  BookOpen,
-  HelpCircle,
   Menu,
   Search,
   Settings,
-  Plus,
-  Crosshair,
-  Radio,
-  Battery,
-  Wifi,
-  Clock,
   Sparkles,
   X,
-  Compass,
-  Maximize,
-  Check,
-  ChevronUp
+  Crosshair,
+  Activity,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { AppTabId, APPS_CONFIG } from './Navigation';
 
@@ -41,41 +26,31 @@ interface AndroidMobileLayoutProps {
   openSettings: () => void;
   openAiModal: () => void;
   hasGpsFix?: boolean;
+  isDark?: boolean;
+  setIsDark?: (dark: boolean) => void;
 }
 
 export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
   activeTab,
   setActiveTab,
   workingZone,
-  setWorkingZone,
   openCommandPalette,
   openSettings,
   openAiModal,
-  hasGpsFix = false
+  isDark = true,
+  setIsDark = () => {}
 }) => {
-  const [currentTime, setCurrentTime] = useState('');
   const [isAppsDrawerOpen, setIsAppsDrawerOpen] = useState(false);
-  const [isQuickFabOpen, setIsQuickFabOpen] = useState(false);
   const [drawerSearch, setDrawerSearch] = useState('');
-
-  useEffect(() => {
-    const updateTime = () => {
-      const d = new Date();
-      setCurrentTime(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }));
-    };
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   const currentApp = APPS_CONFIG.find(a => a.id === activeTab) || APPS_CONFIG[0];
 
   const primaryMobileNav: { id: AppTabId; label: string; icon: any }[] = [
-    { id: 'templates', label: 'Projects', icon: FileSpreadsheet },
-    { id: 'gis', label: 'GIS Map', icon: Layers },
-    { id: 'gps', label: 'GPS Rover', icon: CompassIcon },
-    { id: 'calc', label: 'COGO Calc', icon: Calculator },
-    { id: 'camera', label: 'Survey Cam', icon: Camera }
+    { id: 'templates', label: 'Home', icon: FileSpreadsheet },
+    { id: 'sensors', label: 'Sensors', icon: Activity },
+    { id: 'gis', label: 'GIS', icon: Layers },
+    { id: 'gps', label: 'GNSS', icon: CompassIcon },
+    { id: 'camera', label: 'Camera', icon: Camera }
   ];
 
   const filteredApps = APPS_CONFIG.filter(
@@ -86,179 +61,64 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
 
   return (
     <>
-      {/* 1. Android Top System & Instrument Telemetry Status Bar */}
-      <div className="md:hidden sticky top-0 z-40 bg-[#0a0a0a] border-b border-white/10 select-none">
-        {/* Android Native Status Bar */}
-        <div className="flex items-center justify-between px-3 py-1 bg-[#050505] text-[10px] text-white/70 font-mono">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-white">{currentTime}</span>
-            <span className="text-white/40">•</span>
-            <div className="flex items-center gap-1 text-emerald-400 font-bold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block" />
-              <span>RTK FIX</span>
-            </div>
-          </div>
+      {/* Clean Mobile App Header */}
+      <header className="md:hidden sticky top-0 z-40 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-white/[0.08] select-none h-12 px-3 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setIsAppsDrawerOpen(true)}
+            className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/[0.06] transition-colors"
+            aria-label="Open App Drawer"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
 
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-0.5 text-white/80">
-              <Radio className="w-2.5 h-2.5 text-[#c9a063]" />
-              <span>18 Sat</span>
+          <div>
+            <div className="text-xs font-semibold text-white tracking-tight flex items-center gap-1.5">
+              <span>{currentApp.name}</span>
             </div>
-            <span className="text-white/40">|</span>
-            <div className="flex items-center gap-0.5 text-white/80">
-              <span>HDOP 0.8</span>
-            </div>
-            <span className="text-white/40">|</span>
-            <div className="flex items-center gap-0.5 text-emerald-400">
-              <Battery className="w-3 h-3" />
-              <span>96%</span>
+            <div className="text-[10px] text-white/40 font-mono leading-none">
+              UTM {workingZone}
             </div>
           </div>
         </div>
 
-        {/* Android Survey Controller App Bar */}
-        <div className="flex items-center justify-between px-3 py-2 bg-[#121212]">
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={() => setIsAppsDrawerOpen(true)}
-              className="p-2 rounded-xl bg-white/5 active:bg-white/15 border border-white/10 text-white"
-              aria-label="Open All Survey Stations"
-            >
-              <Menu className="w-4 h-4 text-[#c9a063]" />
-            </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setIsDark(!isDark)}
+            className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
+            title={isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+          >
+            {isDark ? <Sun className="w-4 h-4 text-[#c9a063]" /> : <Moon className="w-4 h-4" />}
+          </button>
 
-            <div>
-              <h1 className="text-sm font-bold text-white tracking-tight flex items-center gap-1.5">
-                <span>{currentApp.name}</span>
-              </h1>
-              <div className="flex items-center gap-1.5 text-[10px] text-white/50 font-mono">
-                <span className="text-[#c9a063] font-bold">UTM {workingZone}</span>
-                <span>•</span>
-                <span>WGS84</span>
-              </div>
-            </div>
-          </div>
+          <button
+            onClick={openAiModal}
+            className="p-1.5 rounded-lg text-[#c9a063] bg-[#c9a063]/10 hover:bg-[#c9a063]/20 border border-[#c9a063]/20 transition-colors"
+            title="AI Help"
+          >
+            <Sparkles className="w-4 h-4" />
+          </button>
 
-          <div className="flex items-center gap-1.5">
-            {/* AI Assistant Pill */}
-            <button
-              onClick={openAiModal}
-              className="p-2 rounded-xl bg-[#c9a063]/15 border border-[#c9a063]/30 text-[#c9a063] active:scale-95 transition-transform"
-              title="AI Consultant"
-            >
-              <Sparkles className="w-4 h-4" />
-            </button>
+          <button
+            onClick={openCommandPalette}
+            className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
+            title="Search"
+          >
+            <Search className="w-4 h-4" />
+          </button>
 
-            {/* Quick Search */}
-            <button
-              onClick={openCommandPalette}
-              className="p-2 rounded-xl bg-white/5 border border-white/10 text-white/70 active:bg-white/10"
-              title="Search"
-            >
-              <Search className="w-4 h-4" />
-            </button>
-
-            {/* Settings */}
-            <button
-              onClick={openSettings}
-              className="p-2 rounded-xl bg-white/5 border border-white/10 text-white/70 active:bg-white/10"
-              title="Settings"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            onClick={openSettings}
+            className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
+            title="Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
         </div>
-      </div>
+      </header>
 
-      {/* 2. Floating Action Button (FAB) for Quick Survey Measurement / Action */}
-      <div className="md:hidden fixed bottom-20 right-4 z-40">
-        <button
-          onClick={() => setIsQuickFabOpen(!isQuickFabOpen)}
-          className={`w-14 h-14 rounded-2xl shadow-2xl flex items-center justify-center border transition-all duration-200 ${
-            isQuickFabOpen
-              ? 'bg-[#181818] border-white/20 text-white rotate-45'
-              : 'bg-[#c9a063] border-[#c9a063] text-black shadow-[#c9a063]/30 hover:scale-105 active:scale-95'
-          }`}
-          aria-label="Quick Survey Measure Action"
-        >
-          <Plus className="w-6 h-6 stroke-[2.5]" />
-        </button>
-
-        {/* Quick Actions Radial / Vertical Menu */}
-        {isQuickFabOpen && (
-          <div className="absolute bottom-16 right-0 w-56 bg-[#161616] border border-white/15 rounded-2xl shadow-2xl p-2 space-y-1.5 text-xs text-white z-50 animate-in fade-in slide-in-from-bottom-3 duration-150">
-            <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#c9a063]">
-              Quick Field Actions
-            </div>
-            <button
-              onClick={() => {
-                setActiveTab('gps');
-                setIsQuickFabOpen(false);
-              }}
-              className="w-full p-2.5 rounded-xl bg-white/5 hover:bg-white/10 flex items-center gap-2.5 text-left"
-            >
-              <div className="w-7 h-7 rounded-lg bg-[#c9a063]/20 text-[#c9a063] flex items-center justify-center">
-                <Crosshair className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-semibold text-white">Log GPS Fix</div>
-                <div className="text-[10px] text-white/50">Stack & store current epoch</div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => {
-                setActiveTab('camera');
-                setIsQuickFabOpen(false);
-              }}
-              className="w-full p-2.5 rounded-xl bg-white/5 hover:bg-white/10 flex items-center gap-2.5 text-left"
-            >
-              <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                <Camera className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-semibold text-white">Geostamp Photo</div>
-                <div className="text-[10px] text-white/50">Snap with HUD overlay</div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => {
-                setActiveTab('calc');
-                setIsQuickFabOpen(false);
-              }}
-              className="w-full p-2.5 rounded-xl bg-white/5 hover:bg-white/10 flex items-center gap-2.5 text-left"
-            >
-              <div className="w-7 h-7 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center">
-                <Calculator className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-semibold text-white">COGO Inverse</div>
-                <div className="text-[10px] text-white/50">Bearing & Distance calc</div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => {
-                setActiveTab('convert');
-                setIsQuickFabOpen(false);
-              }}
-              className="w-full p-2.5 rounded-xl bg-white/5 hover:bg-white/10 flex items-center gap-2.5 text-left"
-            >
-              <div className="w-7 h-7 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center">
-                <Globe className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="font-semibold text-white">Transform Datum</div>
-                <div className="text-[10px] text-white/50">Lat/Lon ↔ UTM ↔ Cassini</div>
-              </div>
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* 3. Android Bottom Navigation Bar (Material Design 3 Controller style) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0e0e0e]/95 backdrop-blur-md border-t border-white/10 px-2 py-1.5 flex items-center justify-around select-none">
+      {/* Clean Bottom Navigation Bar */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0c0c0c]/95 backdrop-blur-md border-t border-white/[0.08] px-2 py-1 flex items-center justify-around select-none h-14">
         {primaryMobileNav.map(item => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -266,67 +126,47 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
           return (
             <button
               key={item.id}
-              onClick={() => {
-                setActiveTab(item.id);
-                setIsQuickFabOpen(false);
-              }}
-              className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all ${
-                isActive ? 'text-white' : 'text-white/40 active:text-white'
+              onClick={() => setActiveTab(item.id)}
+              className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg transition-colors ${
+                isActive ? 'text-[#c9a063]' : 'text-white/40 hover:text-white/70'
               }`}
             >
-              <div
-                className={`w-10 h-7 rounded-full flex items-center justify-center transition-all ${
-                  isActive ? 'bg-[#c9a063] text-black shadow-lg shadow-[#c9a063]/30 font-bold' : 'bg-transparent'
-                }`}
-              >
-                <Icon className={`w-4 h-4 ${isActive ? 'stroke-[2.5]' : ''}`} />
-              </div>
-              <span className={`text-[10px] mt-0.5 tracking-tight ${isActive ? 'font-bold text-[#c9a063]' : ''}`}>
+              <Icon className="w-4 h-4" />
+              <span className="text-[10px] mt-1 tracking-tight font-medium">
                 {item.label}
               </span>
             </button>
           );
         })}
 
-        {/* 6th: "All Modules" Sheet Launcher */}
+        {/* More Apps Button */}
         <button
           onClick={() => setIsAppsDrawerOpen(true)}
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-white/40 active:text-white ${
-            !primaryMobileNav.some(n => n.id === activeTab) ? 'text-[#c9a063]' : ''
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg transition-colors ${
+            !primaryMobileNav.some(n => n.id === activeTab) ? 'text-[#c9a063]' : 'text-white/40 hover:text-white/70'
           }`}
         >
-          <div
-            className={`w-10 h-7 rounded-full flex items-center justify-center transition-all ${
-              !primaryMobileNav.some(n => n.id === activeTab)
-                ? 'bg-[#c9a063] text-black shadow-lg shadow-[#c9a063]/30'
-                : 'bg-white/5'
-            }`}
-          >
-            <Menu className="w-4 h-4" />
-          </div>
-          <span className="text-[10px] mt-0.5 tracking-tight">More Apps</span>
+          <Menu className="w-4 h-4" />
+          <span className="text-[10px] mt-1 tracking-tight font-medium">More</span>
         </button>
       </nav>
 
-      {/* 4. Android Bottom Sheet Drawer: All 15 Surveying Stations & Modules */}
+      {/* Minimal Drawer: All Tools & Stations */}
       {isAppsDrawerOpen && (
-        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div
-            className="flex-1"
-            onClick={() => setIsAppsDrawerOpen(false)}
-          />
-          <div className="bg-[#121212] border-t border-white/15 rounded-t-3xl max-h-[85vh] flex flex-col p-4 shadow-2xl animate-in slide-in-from-bottom duration-250">
+        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="flex-1" onClick={() => setIsAppsDrawerOpen(false)} />
+          <div className="bg-[#121212] border-t border-white/[0.08] rounded-t-2xl max-h-[80vh] flex flex-col p-4 shadow-2xl">
             {/* Sheet Handle */}
-            <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-3" />
+            <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-3" />
 
-            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
               <div className="flex items-center gap-2">
-                <Crosshair className="w-5 h-5 text-[#c9a063]" />
-                <h2 className="text-base font-bold text-white">Geomatics Workstations</h2>
+                <Crosshair className="w-4 h-4 text-[#c9a063]" />
+                <h2 className="text-sm font-semibold text-white">All Workspaces</h2>
               </div>
               <button
                 onClick={() => setIsAppsDrawerOpen(false)}
-                className="p-1.5 rounded-full bg-white/10 text-white/70 hover:text-white"
+                className="p-1 rounded-md text-white/50 hover:text-white"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -337,15 +177,15 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
               <Search className="w-4 h-4 absolute left-3 top-2.5 text-white/40" />
               <input
                 type="text"
-                placeholder="Search survey station or tool..."
+                placeholder="Search tools..."
                 value={drawerSearch}
                 onChange={e => setDrawerSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-[#1a1a1a] border border-white/10 rounded-xl text-xs text-white placeholder:text-white/40 focus:outline-none focus:border-[#c9a063]"
+                className="w-full pl-9 pr-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-xs text-white placeholder:text-white/40 focus:outline-none focus:border-[#c9a063]/50"
               />
             </div>
 
             {/* Apps Grid */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar grid grid-cols-2 gap-2.5 py-2">
+            <div className="flex-1 overflow-y-auto custom-scrollbar grid grid-cols-2 gap-2 py-1">
               {filteredApps.map(app => {
                 const Icon = app.icon;
                 const isCurrent = activeTab === app.id;
@@ -357,27 +197,22 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
                       setActiveTab(app.id);
                       setIsAppsDrawerOpen(false);
                     }}
-                    className={`p-3 rounded-2xl border text-left flex flex-col justify-between gap-2 transition-all ${
+                    className={`p-2.5 rounded-xl border text-left flex items-center gap-2.5 transition-colors ${
                       isCurrent
-                        ? 'bg-[#c9a063]/15 border-[#c9a063] text-white shadow-lg'
-                        : 'bg-[#181818] hover:bg-[#202020] border-white/10 text-white/80 active:scale-98'
+                        ? 'bg-white/[0.08] border-white/[0.12] text-white'
+                        : 'bg-white/[0.02] hover:bg-white/[0.05] border-white/[0.06] text-white/70'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <div
-                        className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                          isCurrent ? 'bg-[#c9a063] text-black font-bold' : 'bg-white/10 text-[#c9a063]'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4" />
-                      </div>
-                      <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-white/5 text-white/40">
-                        {app.category.split(' ')[0]}
-                      </span>
+                    <div
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                        isCurrent ? 'bg-[#c9a063]/20 text-[#c9a063]' : 'bg-white/[0.06] text-white/50'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
                     </div>
-                    <div>
-                      <div className="font-bold text-xs leading-tight text-white">{app.name}</div>
-                      <div className="text-[10px] text-white/40 mt-0.5">{app.category}</div>
+                    <div className="truncate">
+                      <div className="text-xs font-medium truncate">{app.name}</div>
+                      <div className="text-[10px] text-white/40 truncate">{app.category}</div>
                     </div>
                   </button>
                 );

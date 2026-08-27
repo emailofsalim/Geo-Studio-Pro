@@ -37,6 +37,15 @@ import { GeoFeature, GeoPoint, GeofenceZone, GeofenceBreachEvent, GeofenceType, 
 import { lonLatToUtm, utmToLonLat, polygonAreaPerimeter, pointInPoly, vincentyCore, toDMSstr } from '../lib/geodesy';
 import { parseCSV, stripBOM, toCSVtext, csvEnc, kmlBuild, geoJsonBuild, dxfBuild, extractAllFeaturesFromZip } from '../lib/formats';
 import { downloadBlob } from '../lib/zip';
+import {
+  triggerWaypointAddedHaptic,
+  triggerVertexAddedHaptic,
+  triggerGeofenceBreachHaptic,
+  isVibrationSupported,
+  triggerHaptic,
+  HAPTIC_PATTERNS
+} from '../lib/haptics';
+import { useToast } from '../context/ToastContext';
 
 interface GeofenceStudioTabProps {
   workingZone: string;
@@ -226,6 +235,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
   onSendToGis,
   onSendToOffset
 }) => {
+  const toast = useToast();
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
 
@@ -242,6 +252,14 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(zones[0]?.id || null);
   const [isEditingZone, setIsEditingZone] = useState<boolean>(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [vibrationEnabled, setVibrationEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('geo_geofence_haptics');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
 
   // Live Position / Rover State
   const [trackingMode, setTrackingMode] = useState<'sim' | 'gps' | 'idle'>('sim');
@@ -396,19 +414,24 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
 
     setActiveBreachAlert(highestSeverityAlert);
 
-    // Trigger Audio Alarm
-    if (soundEnabled && highestSeverityAlert) {
+    // Trigger Audio & Haptic Physical Alarms
+    if (highestSeverityAlert) {
       const now = Date.now();
       if (now - lastBreachSoundTime > 1800) {
-        if (highestSeverityAlert.severity === 'critical' || highestSeverityAlert.severity === 'high') {
-          audioEngine.playBreachAlarm();
-        } else {
-          audioEngine.playWarningChime();
+        if (soundEnabled) {
+          if (highestSeverityAlert.severity === 'critical' || highestSeverityAlert.severity === 'high') {
+            audioEngine.playBreachAlarm();
+          } else {
+            audioEngine.playWarningChime();
+          }
+        }
+        if (vibrationEnabled) {
+          triggerGeofenceBreachHaptic(highestSeverityAlert.severity);
         }
         setLastBreachSoundTime(now);
       }
     }
-  }, [metricZones, zNum, isSouth, soundEnabled, lastBreachSoundTime]);
+  }, [metricZones, zNum, isSouth, soundEnabled, vibrationEnabled, lastBreachSoundTime]);
 
   // Simulation Loop
   useEffect(() => {
@@ -451,7 +474,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
   useEffect(() => {
     if (trackingMode !== 'gps') return;
     if (!navigator.geolocation) {
-      alert('Geolocation API not supported in this browser.');
+      toast.showError('Geolocation API not supported in this browser.');
       setTrackingMode('sim');
       return;
     }
@@ -509,7 +532,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
         allPts.push({ x: c.a + z.radiusMeters, y: c.b + z.radiusMeters });
       }
     });
-    allPts.push({ x: roverUtm.utmE, y: roverUtm.utmN });
+    allPts.push({ x: roverUtm.E, y: roverUtm.N });
 
     let minX = Math.min(...allPts.map(p => p.x));
     let maxX = Math.max(...allPts.map(p => p.x));
@@ -788,7 +811,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
 
       const allPts: { x: number; y: number }[] = [];
       metricZones.forEach(z => z.utmPts.forEach(pt => allPts.push({ x: pt.a, y: pt.b })));
-      allPts.push({ x: roverUtm.utmE, y: roverUtm.utmN });
+      allPts.push({ x: roverUtm.E, y: roverUtm.N });
       let minX = Math.min(...allPts.map(p => p.x));
       let maxX = Math.max(...allPts.map(p => p.x));
       let minY = Math.min(...allPts.map(p => p.y));
@@ -806,6 +829,9 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
 
       const ll = utmToLonLat(utmE, utmN, zNum, isSouth);
       setNewFencePts(prev => [...prev, { a: ll.lon, b: ll.lat }]);
+      if (vibrationEnabled) {
+        triggerVertexAddedHaptic();
+      }
       return;
     }
 
@@ -831,7 +857,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
 
     const allPts: { x: number; y: number }[] = [];
     metricZones.forEach(z => z.utmPts.forEach(pt => allPts.push({ x: pt.a, y: pt.b })));
-    allPts.push({ x: roverUtm.utmE, y: roverUtm.utmN });
+    allPts.push({ x: roverUtm.E, y: roverUtm.N });
     let minX = Math.min(...allPts.map(p => p.x));
     let maxX = Math.max(...allPts.map(p => p.x));
     let minY = Math.min(...allPts.map(p => p.y));
@@ -857,7 +883,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
   // Complete Drawing New Geofence
   const handleFinishDrawing = () => {
     if (newFencePts.length < (drawMode === 'circle' ? 1 : drawMode === 'corridor' ? 2 : 3)) {
-      alert(`Please click at least ${drawMode === 'circle' ? 1 : drawMode === 'corridor' ? 2 : 3} points on the map.`);
+      toast.showWarning(`Please click at least ${drawMode === 'circle' ? 1 : drawMode === 'corridor' ? 2 : 3} points on the map.`);
       return;
     }
 
@@ -880,9 +906,13 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
     };
 
     setZones(prev => [...prev, newZone]);
+    if (vibrationEnabled) {
+      triggerWaypointAddedHaptic();
+    }
     setSelectedZoneId(newZone.id);
     setDrawMode('none');
     setNewFencePts([]);
+    toast.showSuccess(`Created new geofence: ${newZone.name}`);
   };
 
   // Import Geofences from GIS Files & Archives
@@ -949,12 +979,12 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
 
       if (importedZones.length > 0) {
         setZones(prev => [...prev, ...importedZones]);
-        alert(`Successfully imported ${importedZones.length} geofence boundaries from ${file.name}`);
+        toast.showSuccess(`Successfully imported ${importedZones.length} geofence boundaries from ${file.name}`);
       } else {
-        alert('No compatible polygon or line boundaries found in file.');
+        toast.showWarning('No compatible polygon or line boundaries found in file.');
       }
     } catch (err: any) {
-      alert(`Error reading geofence file: ${err.message}`);
+      toast.showError(`Error reading geofence file: ${err.message}`);
     }
   };
 
@@ -995,12 +1025,13 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
 
     const out = JSON.stringify({ type: 'FeatureCollection', features: geoJsonFeats }, null, 2);
     downloadBlob(new TextEncoder().encode(out), 'geofence_zones.geojson', 'application/geo+json');
+    toast.showSuccess('Exported geofences as GeoJSON');
   };
 
   // Export Breach Ledger as CSV
   const handleExportBreachCSV = () => {
     if (breachEvents.length === 0) {
-      alert('No breach events logged yet.');
+      toast.showWarning('No breach events logged yet.');
       return;
     }
     const headers = ['Timestamp', 'DateTime', 'FenceName', 'EventType', 'Severity', 'Latitude', 'Longitude', 'UTM_E', 'UTM_N', 'Speed_kmh', 'Heading', 'DistanceToBorder_m', 'Message'];
@@ -1022,12 +1053,13 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
 
     const csv = toCSVtext(headers, rows);
     downloadBlob(new TextEncoder().encode(csv), 'geofence_breach_audit_log.csv', 'text/csv;charset=utf-8');
+    toast.showSuccess('Exported Geofence Breach Audit Log (.csv)');
   };
 
   // Send Geofences to GIS Studio
   const handleSendToGisStudio = () => {
     if (!onSendToGis) {
-      alert('GIS Studio connector is active.');
+      toast.showInfo('GIS Studio connector is active.');
       return;
     }
     const feats: GeoFeature[] = zones.map(z => ({
@@ -1044,7 +1076,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
       }
     }));
     onSendToGis(feats);
-    alert(`Transferred ${feats.length} Geofence boundary layers to GIS Map Studio!`);
+    toast.showSuccess(`Transferred ${feats.length} Geofence boundary layers to GIS Map Studio!`);
   };
 
   const selectedZone = zones.find(z => z.id === selectedZoneId);
@@ -1094,13 +1126,36 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
           </div>
 
           <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
+            onClick={() => {
+              const next = !soundEnabled;
+              setSoundEnabled(next);
+            }}
             className={`p-2 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-all ${
               soundEnabled ? 'bg-slate-800 text-emerald-400 border-emerald-500/40' : 'bg-slate-800/60 text-slate-500 border-slate-700'
             }`}
-            title={soundEnabled ? 'Audio Alarms Muted' : 'Audio Alarms Active'}
+            title={soundEnabled ? 'Audio Alarms Active (Click to Mute)' : 'Audio Alarms Muted'}
           >
             {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </button>
+
+          <button
+            onClick={() => {
+              const next = !vibrationEnabled;
+              setVibrationEnabled(next);
+              try { localStorage.setItem('geo_geofence_haptics', String(next)); } catch {}
+              if (next) {
+                triggerGeofenceBreachHaptic('critical');
+              }
+            }}
+            className={`p-2 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-all ${
+              vibrationEnabled ? 'bg-slate-800 text-[#c9a063] border-[#c9a063]/40' : 'bg-slate-800/60 text-slate-500 border-slate-700'
+            }`}
+            title={vibrationEnabled ? 'Physical Vibration Active (Click to Mute / Test)' : 'Physical Vibration Muted'}
+          >
+            <Activity className="w-4 h-4" />
+            <span className="hidden sm:inline text-[11px] font-mono">
+              {vibrationEnabled ? (isVibrationSupported() ? 'Haptics ON' : 'Haptics (Emulated)') : 'Haptics OFF'}
+            </span>
           </button>
 
           <button

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Globe, Map, Moon, Sun, Download, Upload, Trash2, CheckCircle2, ShieldCheck, Database, RefreshCw } from 'lucide-react';
+import { X, Globe, Map, Moon, Sun, Download, Upload, Trash2, CheckCircle2, ShieldCheck, Database, RefreshCw, User, Mail, ExternalLink, Sparkles } from 'lucide-react';
 import { LandUnitPreset } from '../types';
 import { downloadBlob } from '../lib/zip';
 
@@ -76,7 +76,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onImportProject = (_f: File) => {},
   onClearAllData = () => {}
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'general' | 'land' | 'storage'>('general');
+  const [activeSubTab, setActiveSubTab] = useState<'general' | 'land' | 'storage' | 'about'>('general');
 
   if (!isOpen) return null;
 
@@ -90,12 +90,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Header */}
         <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between bg-[#0a0a0a]">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-[#1a1a1a] border border-white/10 text-[#c9a063] flex items-center justify-center font-serif italic text-sm">
-              GS
+            <div className="w-8 h-8 rounded-lg bg-[#c9a063]/10 border border-[#c9a063]/30 text-[#c9a063] flex items-center justify-center font-serif italic text-sm font-bold">
+              BN
             </div>
             <div>
-              <h3 className="font-serif italic text-lg text-white">Settings & Workspace Config</h3>
-              <p className="text-[10px] uppercase tracking-[0.18em] text-white/40">UTM Projection, Land Units, and Local Cache</p>
+              <h3 className="font-serif italic text-lg text-white">BhuNex Workspace Settings</h3>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-white/40">UTM Projection, Land Units, and Preferences</p>
             </div>
           </div>
           <button
@@ -107,10 +107,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Tab Selector */}
-        <div className="flex border-b border-white/5 px-6 bg-[#0a0a0a] gap-6 text-xs uppercase tracking-wider font-medium">
+        <div className="flex border-b border-white/5 px-6 bg-[#0a0a0a] gap-4 sm:gap-6 text-xs uppercase tracking-wider font-medium overflow-x-auto">
           <button
             onClick={() => setActiveSubTab('general')}
-            className={`py-3.5 border-b-2 transition-all ${
+            className={`py-3.5 border-b-2 transition-all shrink-0 ${
               activeSubTab === 'general'
                 ? 'border-[#c9a063] text-[#c9a063] font-semibold'
                 : 'border-transparent text-white/40 hover:text-white/80'
@@ -120,7 +120,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
           <button
             onClick={() => setActiveSubTab('land')}
-            className={`py-3.5 border-b-2 transition-all ${
+            className={`py-3.5 border-b-2 transition-all shrink-0 ${
               activeSubTab === 'land'
                 ? 'border-[#c9a063] text-[#c9a063] font-semibold'
                 : 'border-transparent text-white/40 hover:text-white/80'
@@ -130,13 +130,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
           <button
             onClick={() => setActiveSubTab('storage')}
-            className={`py-3.5 border-b-2 transition-all ${
+            className={`py-3.5 border-b-2 transition-all shrink-0 ${
               activeSubTab === 'storage'
                 ? 'border-[#c9a063] text-[#c9a063] font-semibold'
                 : 'border-transparent text-white/40 hover:text-white/80'
             }`}
           >
             Backup & Cache
+          </button>
+          <button
+            onClick={() => setActiveSubTab('about')}
+            className={`py-3.5 border-b-2 transition-all shrink-0 ${
+              activeSubTab === 'about'
+                ? 'border-[#c9a063] text-[#c9a063] font-semibold'
+                : 'border-transparent text-white/40 hover:text-white/80'
+            }`}
+          >
+            About & Credits
           </button>
         </div>
 
@@ -330,10 +340,68 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
           )}
+
+          {activeSubTab === 'about' && (
+            <div className="space-y-4">
+              {/* Product Info */}
+              <div className="p-5 rounded-xl bg-gradient-to-br from-[#141414] to-[#181818] border border-white/5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <span className="font-serif italic text-lg text-white font-semibold">BhuNex Pro</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#c9a063]/20 text-[#c9a063] border border-[#c9a063]/30">v2.4</span>
+                  </div>
+                  <span className="text-[11px] text-white/40 font-mono">Geomatics & Cadastral Suite</span>
+                </div>
+                <p className="text-xs text-white/70 leading-relaxed font-light">
+                  A high-precision offline geomatics, geodesy, and cadastral mapping system built for field surveyors, civil engineers, and GIS specialists.
+                </p>
+              </div>
+
+              {/* Developer Info Card */}
+              <div className="p-5 rounded-xl bg-[#141414] border border-white/5 flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-[#1a1a1a] border border-white/10 flex items-center justify-center text-[#c9a063] shrink-0">
+                  <User className="w-6 h-6" />
+                </div>
+                <div className="flex-1">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-[#c9a063]">Software Development</div>
+                  <h4 className="text-base font-serif font-semibold text-white mt-0.5">Developed by Md Salim Ansari</h4>
+                  <p className="text-xs text-white/50 mt-0.5 font-light">Lead Creator & Geomatics Software Architect</p>
+                </div>
+              </div>
+
+              {/* Feedback Email Card */}
+              <div className="p-5 rounded-xl bg-[#141414] border border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-[#1a1a1a] border border-white/10 flex items-center justify-center text-[#c9a063] shrink-0">
+                    <Mail className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-semibold uppercase tracking-wider text-white">Feedback & Support</h5>
+                    <a
+                      href="mailto:emailofsalim@gmail.com?subject=BhuNex%20Feedback"
+                      className="text-xs sm:text-sm font-mono text-[#c9a063] hover:underline flex items-center gap-1.5 mt-0.5"
+                    >
+                      <span>emailofsalim@gmail.com</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                </div>
+                <a
+                  href="mailto:emailofsalim@gmail.com?subject=BhuNex%20Feedback"
+                  className="px-4 py-2 rounded-full bg-[#c9a063] hover:bg-[#d6b074] text-black text-xs font-semibold uppercase tracking-wider transition-colors shrink-0"
+                >
+                  Send Feedback
+                </a>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-white/5 bg-[#0a0a0a] flex justify-end">
+        <div className="px-6 py-4 border-t border-white/5 bg-[#0a0a0a] flex items-center justify-between">
+          <span className="text-[11px] text-white/40 font-mono">
+            Developed by Md Salim Ansari
+          </span>
           <button
             onClick={onClose}
             className="px-6 py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-white text-xs font-medium transition-colors uppercase tracking-wider"

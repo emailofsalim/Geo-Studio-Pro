@@ -1,9 +1,10 @@
 {
-  "name": "GeoStudio Geomatics Suite",
-  "description": "Professional offline geomatics, GIS & cadastral toolkit with coordinate transformations, GNSS surveyor, real-time geofence sentinel & boundary monitoring, borehole mapping, survey calculator, cadastral land management, universal archive extractor, and interactive offline maps.",
+  "name": "BhuNex",
+  "description": "Professional offline geomatics, GIS & cadastral engineering suite developed by Md Salim Ansari (emailofsalim@gmail.com) with Bluetooth LE RTK/GNSS and Laser Disto rangefinders, NFC cadastral monument reader/writer, Wi-Fi Direct P2P field mesh, USB-OTG total stations, optical theodolite HUD, 2D spirit level, live free meteorology & space weather EDM atmospheric correction, and sound level analyzer.",
   "requestFramePermissions": [
     "geolocation",
-    "camera"
+    "camera",
+    "microphone"
   ],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

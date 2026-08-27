@@ -33,8 +33,12 @@ import {
   BarChart2,
   Share2,
   RefreshCw,
-  FolderArchive
+  FolderArchive,
+  FileDown,
+  Image as ImageIcon,
+  Check
 } from 'lucide-react';
+import jsPDF from 'jspdf';
 import { GeoFeature, GeoPoint, GisLayer, TopologyIssue } from '../types';
 import { lonLatToUtm, utmToLonLat, polygonAreaPerimeter, pointInPoly, vincentyCore, toDMSstr, formatAreaAllUnits } from '../lib/geodesy';
 import {
@@ -67,6 +71,8 @@ import {
   generateVoronoiCells,
   computeFieldStatistics
 } from '../lib/spatialAnalysis';
+import { deduplicateFeatures } from '../lib/deduplication';
+import { useToast } from '../context/ToastContext';
 
 interface GisStudioTabProps {
   workingZone: string;
@@ -81,6 +87,7 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
   customBighaM2,
   customKathaPerBigha
 }) => {
+  const toast = useToast();
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
 
@@ -297,7 +304,7 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
   const [tableSearchQuery, setTableSearchQuery] = useState('');
   const [statusBanner, setStatusBanner] = useState<string | null>(null);
 
-  // Analysis State
+  // Analysis & Export State
   const [bufferDistance, setBufferDistance] = useState<number>(50);
   const [bufferUnit, setBufferUnit] = useState<'m' | 'ft'>('m');
   const [topologyIssues, setTopologyIssues] = useState<TopologyIssue[]>([]);
@@ -305,6 +312,21 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
   const [showMapComposerModal, setShowMapComposerModal] = useState(false);
   const [composerTitle, setComposerTitle] = useState('EXPLORATION & CADASTRAL GIS GEOPORTAL');
   const [composerSubTitle, setComposerSubTitle] = useState(`Apex Mining Lease ML-04 • Datum: WGS84 / UTM Zone ${workingZone}`);
+
+  // High-Resolution Export State
+  const [pdfOrientation, setPdfOrientation] = useState<'landscape' | 'portrait'>('landscape');
+  const [pdfPageFormat, setPdfPageFormat] = useState<'a4' | 'a3' | 'letter'>('a4');
+  const [pdfSurveyorName, setPdfSurveyorName] = useState('Lead Geomatics Surveyor');
+  const [pdfOrgName, setPdfOrgName] = useState('Geomatics Engineering Division');
+  const [pdfProjectRef, setPdfProjectRef] = useState('GEO-MAP-2026-08');
+  const [pngScaleMultiplier, setPngScaleMultiplier] = useState<number>(2);
+  const [exportIncludeGrid, setExportIncludeGrid] = useState(true);
+  const [exportIncludeScale, setExportIncludeScale] = useState(true);
+  const [exportIncludeNorth, setExportIncludeNorth] = useState(true);
+  const [exportIncludeLegend, setExportIncludeLegend] = useState(true);
+  const [exportIncludeSignatures, setExportIncludeSignatures] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportSuccessMsg, setExportSuccessMsg] = useState<string | null>(null);
 
   // Calculate Global Bounding Box across all visible layers
   const globalBBox = useMemo(() => {
@@ -947,6 +969,424 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
     setStatusBanner(`Topology QA Audit complete: Found ${issues.length} item(s) to review.`);
   };
 
+  // 6. Deduplicate & Clean Layer Geometry
+  const handleDeduplicateActiveLayer = () => {
+    if (!activeLayer || !activeLayer.features.length) {
+      toast.showWarning('Active layer contains no features to deduplicate.');
+      return;
+    }
+    const { cleanFeatures, summary } = deduplicateFeatures(activeLayer.features, {
+      distanceToleranceMeters: 0.05
+    });
+
+    setLayers(prev =>
+      prev.map(l =>
+        l.id === activeLayer.id ? { ...l, features: cleanFeatures } : l
+      )
+    );
+
+    if (summary.removedCount > 0 || summary.details.length > 0) {
+      toast.showSuccess(
+        `Layer "${activeLayer.name}" cleaned: ${summary.removedCount} duplicate geometry/features removed (${cleanFeatures.length} remaining).`
+      );
+      setStatusBanner(`Deduplicated "${activeLayer.name}": Removed ${summary.removedCount} duplicate/overlapping features.`);
+    } else {
+      toast.showInfo(`Layer "${activeLayer.name}" is clean. No duplicates detected.`);
+      setStatusBanner(`Layer "${activeLayer.name}" has no duplicate features or vertices.`);
+    }
+  };
+
+  const handleDeduplicateAllLayers = () => {
+    let totalRemoved = 0;
+    const cleaned = layers.map(l => {
+      const { cleanFeatures, summary } = deduplicateFeatures(l.features, {
+        distanceToleranceMeters: 0.05
+      });
+      totalRemoved += summary.removedCount;
+      return { ...l, features: cleanFeatures };
+    });
+
+    setLayers(cleaned);
+    if (totalRemoved > 0) {
+      toast.showSuccess(`Batch GIS deduplication complete: Removed ${totalRemoved} duplicate features across all layers.`);
+      setStatusBanner(`Cleaned all layers: ${totalRemoved} duplicates removed.`);
+    } else {
+      toast.showInfo('All GIS layers verified: No duplicates found.');
+      setStatusBanner('All GIS layers verified: Zero duplicates detected.');
+    }
+  };
+
+  // High-Resolution Map Canvas Exporter Engine
+  const generateExportImage = useCallback((multiplier: number = 2): { dataUrl: string; width: number; height: number } => {
+    const baseW = 800;
+    const baseH = 450;
+    const expW = Math.round(baseW * multiplier);
+    const expH = Math.round(baseH * multiplier);
+
+    const offCv = document.createElement('canvas');
+    offCv.width = expW;
+    offCv.height = expH;
+    const ctx = offCv.getContext('2d');
+    if (!ctx) return { dataUrl: '', width: expW, height: expH };
+
+    ctx.save();
+    ctx.scale(multiplier, multiplier);
+
+    // 1. Background
+    if (basemapTheme === 'dark_obsidian') {
+      ctx.fillStyle = '#0a0d14';
+    } else if (basemapTheme === 'blueprint') {
+      ctx.fillStyle = '#0f172a';
+    } else if (basemapTheme === 'parchment') {
+      ctx.fillStyle = '#1c1917';
+    } else {
+      ctx.fillStyle = '#18181b';
+    }
+    ctx.fillRect(0, 0, baseW, baseH);
+
+    // 2. Graticule Grid
+    if (exportIncludeGrid && showGrid) {
+      ctx.strokeStyle = basemapTheme === 'blueprint' ? 'rgba(56, 189, 248, 0.12)' : 'rgba(255, 255, 255, 0.08)';
+      ctx.lineWidth = 1;
+      const stepM = Math.max(50, Math.pow(10, Math.floor(Math.log10(200 / scale))));
+      const leftW = screenToWorld(0, 0, baseH);
+      const rightW = screenToWorld(baseW, baseH, baseH);
+      const startE = Math.floor(Math.min(leftW.E, rightW.E) / stepM) * stepM;
+      const endE = Math.ceil(Math.max(leftW.E, rightW.E) / stepM) * stepM;
+      const startN = Math.floor(Math.min(leftW.N, rightW.N) / stepM) * stepM;
+      const endN = Math.ceil(Math.max(leftW.N, rightW.N) / stepM) * stepM;
+
+      ctx.beginPath();
+      for (let e = startE; e <= endE; e += stepM) {
+        const scP = worldToScreen(e, startN, baseH);
+        ctx.moveTo(scP.x, 0);
+        ctx.lineTo(scP.x, baseH);
+      }
+      for (let n = startN; n <= endN; n += stepM) {
+        const scP = worldToScreen(startE, n, baseH);
+        ctx.moveTo(0, scP.y);
+        ctx.lineTo(baseW, scP.y);
+      }
+      ctx.stroke();
+
+      // Coordinates text along borders
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'left';
+      for (let e = startE; e <= endE; e += stepM) {
+        const scP = worldToScreen(e, startN, baseH);
+        if (scP.x >= 20 && scP.x <= baseW - 40) {
+          ctx.fillText(`${(e / 1000).toFixed(1)}k E`, scP.x + 2, baseH - 6);
+        }
+      }
+    }
+
+    // 3. Render Vector Features
+    layers.forEach(layer => {
+      if (!layer.visible) return;
+
+      layer.features.forEach((feat, fIdx) => {
+        const pts = feat.pts.map(p => {
+          if (feat.kind === 'en') return { E: p.a, N: p.b };
+          const u = lonLatToUtm(p.a, p.b, zNum, isSouth);
+          return { E: u.E, N: u.N };
+        });
+
+        if (pts.length === 0) return;
+
+        if (feat.geom === 'polygon' && pts.length >= 3) {
+          ctx.beginPath();
+          pts.forEach((p, i) => {
+            const scPos = worldToScreen(p.E, p.N, baseH);
+            if (i === 0) ctx.moveTo(scPos.x, scPos.y);
+            else ctx.lineTo(scPos.x, scPos.y);
+          });
+          ctx.closePath();
+
+          ctx.fillStyle = layer.fillColor || layer.color;
+          ctx.globalAlpha = layer.fillOpacity !== undefined ? layer.fillOpacity : 0.3;
+          ctx.fill();
+          ctx.globalAlpha = 1.0;
+
+          ctx.strokeStyle = layer.color;
+          ctx.lineWidth = layer.strokeWidth || 2;
+          ctx.stroke();
+
+          if (showLabels && feat.name) {
+            const sumE = pts.reduce((s, p) => s + p.E, 0) / pts.length;
+            const sumN = pts.reduce((s, p) => s + p.N, 0) / pts.length;
+            const scCent = worldToScreen(sumE, sumN, baseH);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 9px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(feat.name, scCent.x, scCent.y);
+          }
+        } else if (feat.geom === 'line' && pts.length >= 2) {
+          ctx.beginPath();
+          pts.forEach((p, i) => {
+            const scPos = worldToScreen(p.E, p.N, baseH);
+            if (i === 0) ctx.moveTo(scPos.x, scPos.y);
+            else ctx.lineTo(scPos.x, scPos.y);
+          });
+          ctx.strokeStyle = layer.color;
+          ctx.lineWidth = layer.strokeWidth || 2.5;
+          ctx.stroke();
+
+          if (showLabels && feat.name) {
+            const midIdx = Math.floor(pts.length / 2);
+            const midP = pts[midIdx];
+            const scMid = worldToScreen(midP.E, midP.N, baseH);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '9px sans-serif';
+            ctx.fillText(feat.name, scMid.x + 6, scMid.y - 4);
+          }
+        } else if (feat.geom === 'point') {
+          pts.forEach(p => {
+            const scPos = worldToScreen(p.E, p.N, baseH);
+            ctx.beginPath();
+            ctx.arc(scPos.x, scPos.y, 5, 0, Math.PI * 2);
+            ctx.fillStyle = layer.color;
+            ctx.fill();
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
+
+            if (showLabels && feat.name) {
+              ctx.fillStyle = '#ffffff';
+              ctx.font = 'bold 9px monospace';
+              ctx.textAlign = 'left';
+              ctx.fillText(feat.name, scPos.x + 8, scPos.y + 3);
+            }
+          });
+        }
+      });
+    });
+
+    // 4. North Arrow & Scale Bar (if enabled)
+    if (exportIncludeNorth) {
+      const naX = 30, naY = 35;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.beginPath();
+      ctx.arc(naX, naY, 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.moveTo(naX, naY - 14);
+      ctx.lineTo(naX - 4, naY);
+      ctx.lineTo(naX, naY - 3);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(naX, naY - 14);
+      ctx.lineTo(naX + 4, naY);
+      ctx.lineTo(naX, naY - 3);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('N', naX, naY - 16);
+    }
+
+    if (exportIncludeScale) {
+      const sbX = 60, sbY = 35;
+      const barWidthPx = 80;
+      const groundMeters = barWidthPx / scale;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sbX, sbY);
+      ctx.lineTo(sbX + barWidthPx, sbY);
+      ctx.moveTo(sbX, sbY - 4);
+      ctx.lineTo(sbX, sbY + 4);
+      ctx.moveTo(sbX + barWidthPx, sbY - 4);
+      ctx.lineTo(sbX + barWidthPx, sbY + 4);
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${groundMeters >= 1000 ? `${(groundMeters / 1000).toFixed(2)} km` : `${groundMeters.toFixed(0)} m`}`, sbX + barWidthPx / 2, sbY + 14);
+    }
+
+    ctx.restore();
+    return { dataUrl: offCv.toDataURL('image/png'), width: expW, height: expH };
+  }, [layers, scale, offset, showGrid, showLabels, basemapTheme, exportIncludeGrid, exportIncludeNorth, exportIncludeScale, zNum, isSouth, screenToWorld, worldToScreen]);
+
+  // Handle Export High-Resolution PNG
+  const handleExportHighResPNG = (multiplier: number) => {
+    try {
+      setIsExporting(true);
+      const img = generateExportImage(multiplier);
+      if (!img.dataUrl) throw new Error('Could not render image buffer');
+
+      const a = document.createElement('a');
+      a.href = img.dataUrl;
+      a.download = `GIS_Map_Export_UTM${workingZone}_${multiplier}x_${new Date().toISOString().slice(0, 10)}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      setExportSuccessMsg(`Successfully exported ${img.width}x${img.height} High-Resolution PNG.`);
+      toast.showSuccess(`Exported High-Resolution PNG (${img.width}x${img.height} px)`);
+      setTimeout(() => setExportSuccessMsg(null), 4000);
+    } catch (err: any) {
+      toast.showError(`PNG export failed: ${err.message}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Handle Export Cartographic PDF Map Sheet
+  const handleExportMapPDF = () => {
+    try {
+      setIsExporting(true);
+      const isLandscape = pdfOrientation === 'landscape';
+      const doc = new jsPDF({
+        orientation: pdfOrientation,
+        unit: 'mm',
+        format: pdfPageFormat
+      });
+
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const margin = 12;
+
+      // 1. Outer Border & Frame
+      doc.setDrawColor(201, 160, 99); // Gold
+      doc.setLineWidth(0.8);
+      doc.rect(margin, margin, pageW - 2 * margin, pageH - 2 * margin);
+
+      doc.setDrawColor(80, 80, 80);
+      doc.setLineWidth(0.2);
+      doc.rect(margin + 1.5, margin + 1.5, pageW - 2 * margin - 3, pageH - 2 * margin - 3);
+
+      // 2. Title Header Banner
+      doc.setFillColor(20, 20, 20);
+      doc.rect(margin + 2, margin + 2, pageW - 2 * margin - 4, 18, 'F');
+
+      doc.setTextColor(201, 160, 99);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text(composerTitle, pageW / 2, margin + 8, { align: 'center' });
+
+      doc.setTextColor(200, 200, 200);
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8.5);
+      doc.text(composerSubTitle, pageW / 2, margin + 14, { align: 'center' });
+
+      // 3. Map Raster Viewport
+      const mapImg = generateExportImage(3); // 3x Print resolution
+      const mapW = pageW - 2 * margin - 8;
+      const mapH = isLandscape ? pageH * 0.52 : pageH * 0.42;
+      const mapX = margin + 4;
+      const mapY = margin + 23;
+
+      doc.addImage(mapImg.dataUrl, 'PNG', mapX, mapY, mapW, mapH);
+      doc.setDrawColor(120, 120, 120);
+      doc.setLineWidth(0.3);
+      doc.rect(mapX, mapY, mapW, mapH);
+
+      // 4. Symbology Legend & Metadata Section
+      const infoY = mapY + mapH + 5;
+      const colWidth = (pageW - 2 * margin - 8) / 3;
+
+      // Column A: Layer Symbology Legend
+      if (exportIncludeLegend) {
+        doc.setFillColor(245, 245, 245);
+        doc.rect(mapX, infoY, colWidth - 2, 28, 'F');
+        doc.setDrawColor(200, 200, 200);
+        doc.rect(mapX, infoY, colWidth - 2, 28);
+
+        doc.setTextColor(40, 40, 40);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.text('LAYER SYMBOLOGY LEGEND', mapX + 3, infoY + 5);
+
+        let legY = infoY + 10;
+        layers.filter(l => l.visible).slice(0, 4).forEach(l => {
+          doc.setFillColor(l.color);
+          doc.rect(mapX + 3, legY - 2.5, 4, 3, 'F');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          doc.text(`${l.name} (${l.geomType})`, mapX + 9, legY);
+          legY += 4.5;
+        });
+      }
+
+      // Column B: Geodetic Spatial Extents
+      doc.setFillColor(245, 245, 245);
+      doc.rect(mapX + colWidth, infoY, colWidth - 2, 28, 'F');
+      doc.setDrawColor(200, 200, 200);
+      doc.rect(mapX + colWidth, infoY, colWidth - 2, 28);
+
+      doc.setTextColor(40, 40, 40);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text('GEODETIC REFERENCE & BOUNDS', mapX + colWidth + 3, infoY + 5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.text(`UTM Grid Zone: ${workingZone} (WGS-84)`, mapX + colWidth + 3, infoY + 10);
+      if (globalBBox) {
+        doc.text(`Min Easting: ${globalBBox.minE.toFixed(1)} m`, mapX + colWidth + 3, infoY + 14.5);
+        doc.text(`Max Easting: ${globalBBox.maxE.toFixed(1)} m`, mapX + colWidth + 3, infoY + 19);
+        doc.text(`Min Northing: ${globalBBox.minN.toFixed(1)} m`, mapX + colWidth + 3, infoY + 23.5);
+      }
+
+      // Column C: Survey Authority & Date
+      doc.setFillColor(245, 245, 245);
+      doc.rect(mapX + 2 * colWidth, infoY, colWidth, 28, 'F');
+      doc.setDrawColor(200, 200, 200);
+      doc.rect(mapX + 2 * colWidth, infoY, colWidth, 28);
+
+      doc.setTextColor(40, 40, 40);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text('PROJECT AUDIT TRAIL', mapX + 2 * colWidth + 3, infoY + 5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.text(`Project Ref: ${pdfProjectRef}`, mapX + 2 * colWidth + 3, infoY + 10);
+      doc.text(`Lead Surveyor: ${pdfSurveyorName}`, mapX + 2 * colWidth + 3, infoY + 14.5);
+      doc.text(`Agency: ${pdfOrgName}`, mapX + 2 * colWidth + 3, infoY + 19);
+      doc.text(`Issued On: ${new Date().toLocaleDateString()}`, mapX + 2 * colWidth + 3, infoY + 23.5);
+
+      // 5. Signatures Block at Bottom
+      if (exportIncludeSignatures) {
+        const sigY = pageH - margin - 12;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(100, 100, 100);
+
+        const sigW = (pageW - 2 * margin) / 3;
+        doc.text('_____________________________', margin + sigW * 0.2, sigY);
+        doc.text('Lead Geomatics Surveyor', margin + sigW * 0.2, sigY + 4);
+
+        doc.text('_____________________________', margin + sigW * 1.2, sigY);
+        doc.text('Exploration Manager / QA', margin + sigW * 1.2, sigY + 4);
+
+        doc.text('_____________________________', margin + sigW * 2.2, sigY);
+        doc.text('Statutory DGMS Compliance Officer', margin + sigW * 2.2, sigY + 4);
+      }
+
+      doc.save(`GIS_Map_Sheet_${workingZone}_${new Date().toISOString().slice(0, 10)}.pdf`);
+      setExportSuccessMsg('Successfully generated and downloaded high-resolution PDF map sheet.');
+      toast.showSuccess('Generated and downloaded high-resolution Cartographic PDF map sheet.');
+      setTimeout(() => setExportSuccessMsg(null), 4000);
+    } catch (err: any) {
+      toast.showError(`PDF export failed: ${err.message}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // Layer File Upload (GeoJSON, KML, KMZ, Shapefile, DXF, CSV, ZIP)
   const handleImportLayerFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1429,6 +1869,14 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
               >
                 <Maximize2 className="w-4 h-4" />
               </button>
+
+              <button
+                onClick={() => setShowMapComposerModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs rounded-xl shadow-md"
+                title="Export High-Resolution Static Map (PDF / PNG)"
+              >
+                <FileDown className="w-3.5 h-3.5" /> Export Map
+              </button>
             </div>
           </div>
 
@@ -1593,9 +2041,18 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
                 />
               </div>
 
-              <span className="text-xs text-white/40 font-mono">
-                Active Layer: <strong className="text-[#c9a063]">{activeLayer.name}</strong>
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDeduplicateActiveLayer}
+                  className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all"
+                  title="Detect and remove duplicate geometry/features in this layer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> Clean Duplicates
+                </button>
+                <span className="text-xs text-white/40 font-mono hidden sm:inline">
+                  Active: <strong className="text-[#c9a063]">{activeLayer.name}</strong>
+                </span>
+              </div>
             </div>
 
             <div className="max-h-64 overflow-y-auto rounded-xl border border-white/10 bg-[#141414]">
@@ -1651,32 +2108,34 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
 
         {/* Tab 2: Deep Spatial Analysis & Buffer Settings */}
         {activeWorkspaceTab === 'analysis' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
             {/* 1. Buffer Configuration */}
-            <div className="p-4 bg-[#141414] rounded-xl border border-white/5 space-y-3">
-              <h5 className="text-xs font-bold text-white uppercase font-mono flex items-center gap-1.5">
-                <Spline className="w-4 h-4 text-rose-400" /> Buffer Zone Generator
-              </h5>
-              <p className="text-xs text-white/50">
-                Generate statutory safety corridors, DGMS 7.5m barrier zones, or 500m eco-sensitive rings.
-              </p>
-              <div>
-                <label className="text-[10px] text-white/40 block mb-1">Buffer Radius (Distance)</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    value={bufferDistance}
-                    onChange={e => setBufferDistance(parseFloat(e.target.value) || 0)}
-                    className="w-full px-3 py-1.5 bg-[#181818] border border-white/10 rounded-xl text-xs text-white font-mono"
-                  />
-                  <select
-                    value={bufferUnit}
-                    onChange={e => setBufferUnit(e.target.value as any)}
-                    className="px-3 py-1.5 bg-[#181818] border border-white/10 rounded-xl text-xs text-white"
-                  >
-                    <option value="m">Meters</option>
-                    <option value="ft">Feet</option>
-                  </select>
+            <div className="p-4 bg-[#141414] rounded-xl border border-white/5 space-y-3 flex flex-col justify-between">
+              <div className="space-y-2">
+                <h5 className="text-xs font-bold text-white uppercase font-mono flex items-center gap-1.5">
+                  <Spline className="w-4 h-4 text-rose-400" /> Buffer Zone Generator
+                </h5>
+                <p className="text-xs text-white/50">
+                  Generate statutory safety corridors, DGMS 7.5m barrier zones, or 500m eco-sensitive rings.
+                </p>
+                <div>
+                  <label className="text-[10px] text-white/40 block mb-1">Buffer Radius (Distance)</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={bufferDistance}
+                      onChange={e => setBufferDistance(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3 py-1.5 bg-[#181818] border border-white/10 rounded-xl text-xs text-white font-mono"
+                    />
+                    <select
+                      value={bufferUnit}
+                      onChange={e => setBufferUnit(e.target.value as any)}
+                      className="px-3 py-1.5 bg-[#181818] border border-white/10 rounded-xl text-xs text-white"
+                    >
+                      <option value="m">Meters</option>
+                      <option value="ft">Feet</option>
+                    </select>
+                  </div>
                 </div>
               </div>
               <button
@@ -1688,47 +2147,81 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
             </div>
 
             {/* 2. Boundary Enclosures & Geometry */}
-            <div className="p-4 bg-[#141414] rounded-xl border border-white/5 space-y-3">
-              <h5 className="text-xs font-bold text-white uppercase font-mono flex items-center gap-1.5">
-                <Maximize2 className="w-4 h-4 text-amber-400" /> Convex Hull & Enclosures
-              </h5>
-              <p className="text-xs text-white/50">
-                Compute the minimum bounding polygon encompassing all vertices in the active layer.
-              </p>
-              <button
-                onClick={handleRunConvexHull}
-                className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs rounded-xl"
-              >
-                Extract Minimum Convex Hull
-              </button>
-              <button
-                onClick={handleRunCentroids}
-                className="w-full py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-xl"
-              >
-                Extract All Feature Centroids
-              </button>
+            <div className="p-4 bg-[#141414] rounded-xl border border-white/5 space-y-3 flex flex-col justify-between">
+              <div className="space-y-2">
+                <h5 className="text-xs font-bold text-white uppercase font-mono flex items-center gap-1.5">
+                  <Maximize2 className="w-4 h-4 text-amber-400" /> Convex Hull & Enclosures
+                </h5>
+                <p className="text-xs text-white/50">
+                  Compute the minimum bounding polygon encompassing all vertices in the active layer.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <button
+                  onClick={handleRunConvexHull}
+                  className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs rounded-xl"
+                >
+                  Extract Convex Hull
+                </button>
+                <button
+                  onClick={handleRunCentroids}
+                  className="w-full py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-xl"
+                >
+                  Extract Feature Centroids
+                </button>
+              </div>
             </div>
 
             {/* 3. Voronoi Influence Cells */}
-            <div className="p-4 bg-[#141414] rounded-xl border border-white/5 space-y-3">
-              <h5 className="text-xs font-bold text-white uppercase font-mono flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-purple-400" /> Voronoi / Thiessen Polygons
-              </h5>
-              <p className="text-xs text-white/50">
-                Construct area-of-influence tessellations around borehole collars or sample survey points.
-              </p>
-              <button
-                onClick={handleRunVoronoi}
-                className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl"
-              >
-                Compute Voronoi Influence Cells
-              </button>
-              <button
-                onClick={handleRunTopologyAudit}
-                className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl"
-              >
-                Run Topology QA Audit
-              </button>
+            <div className="p-4 bg-[#141414] rounded-xl border border-white/5 space-y-3 flex flex-col justify-between">
+              <div className="space-y-2">
+                <h5 className="text-xs font-bold text-white uppercase font-mono flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-purple-400" /> Voronoi / Thiessen
+                </h5>
+                <p className="text-xs text-white/50">
+                  Construct area-of-influence tessellations around borehole collars or sample survey points.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <button
+                  onClick={handleRunVoronoi}
+                  className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl"
+                >
+                  Compute Voronoi Cells
+                </button>
+                <button
+                  onClick={handleRunTopologyAudit}
+                  className="w-full py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl"
+                >
+                  Run Topology QA Audit
+                </button>
+              </div>
+            </div>
+
+            {/* 4. Deduplication & Geometry Sanitizer */}
+            <div className="p-4 bg-[#141414] rounded-xl border border-white/5 space-y-3 flex flex-col justify-between">
+              <div className="space-y-2">
+                <h5 className="text-xs font-bold text-white uppercase font-mono flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-emerald-400" /> Deduplication & Cleansing
+                </h5>
+                <p className="text-xs text-white/50">
+                  Detect and eliminate duplicate features, redundant co-linear nodes, and zero-area spikes.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <button
+                  onClick={handleDeduplicateActiveLayer}
+                  className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl"
+                >
+                  Clean Active Layer
+                </button>
+                <button
+                  onClick={handleDeduplicateAllLayers}
+                  className="w-full py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/40 font-bold text-xs rounded-xl"
+                >
+                  Clean All Layers ({layers.length})
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1791,48 +2284,212 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
         )}
       </div>
 
-      {/* 4. Official Cartographic Map Composer Modal */}
+      {/* 4. Official Cartographic Map Composer & High-Res Export Studio */}
       {showMapComposerModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-[#141414] border border-white/10 rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fadeIn">
+          <div className="bg-[#141414] border border-white/15 rounded-2xl max-w-5xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
             <div className="p-4 border-b border-white/10 flex items-center justify-between bg-[#181818]">
-              <div className="flex items-center gap-2">
-                <Printer className="w-5 h-5 text-[#c9a063]" />
-                <h3 className="font-serif italic text-white text-base">
-                  Cartographic GIS Map Layout & Print Composer
-                </h3>
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-[#c9a063]/10 border border-[#c9a063]/30">
+                  <FileDown className="w-5 h-5 text-[#c9a063]" />
+                </div>
+                <div>
+                  <h3 className="font-serif italic text-white text-base font-semibold">
+                    Cartographic Map Composer & High-Resolution Export
+                  </h3>
+                  <p className="text-[11px] text-white/50">
+                    Generate publication-grade PDF field sheets & ultra-HD static raster imagery
+                  </p>
+                </div>
               </div>
+
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs rounded-xl"
+                  onClick={handleExportMapPDF}
+                  disabled={isExporting}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#c9a063] hover:bg-[#d6b074] disabled:opacity-50 text-black font-bold text-xs rounded-xl shadow-lg transition-all"
                 >
-                  <Printer className="w-3.5 h-3.5" /> Print / Save PDF
+                  <FileDown className="w-4 h-4" /> {isExporting ? 'Generating PDF...' : 'Download Map PDF'}
                 </button>
                 <button
                   onClick={() => setShowMapComposerModal(false)}
-                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs rounded-xl"
+                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs rounded-xl transition-all"
                 >
                   Close
                 </button>
               </div>
             </div>
 
+            {exportSuccessMsg && (
+              <div className="px-4 py-2 bg-emerald-500/20 border-b border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
+                <Check className="w-4 h-4" /> {exportSuccessMsg}
+              </div>
+            )}
+
             <div className="p-6 overflow-y-auto space-y-6 bg-[#0f0f0f] text-white">
-              {/* Map Title Block */}
-              <div className="text-center border-b border-white/10 pb-4 space-y-1">
-                <input
-                  type="text"
-                  value={composerTitle}
-                  onChange={e => setComposerTitle(e.target.value)}
-                  className="text-xl font-serif font-bold text-white bg-transparent text-center border-b border-dashed border-white/20 w-full focus:outline-none"
-                />
-                <input
-                  type="text"
-                  value={composerSubTitle}
-                  onChange={e => setComposerSubTitle(e.target.value)}
-                  className="text-xs text-white/50 italic bg-transparent text-center border-b border-dashed border-white/20 w-full focus:outline-none"
-                />
+              {/* Configuration Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-[#141414] p-4 rounded-xl border border-white/5">
+                {/* PDF & Map Metadata */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-mono uppercase font-bold text-[#c9a063] flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5" /> Cartographic Metadata
+                  </h4>
+                  <div>
+                    <label className="text-[11px] text-white/60 block mb-1">Map Sheet Title</label>
+                    <input
+                      type="text"
+                      value={composerTitle}
+                      onChange={e => setComposerTitle(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-black/50 border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-[#c9a063]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-white/60 block mb-1">Subtitle / Lease / Location</label>
+                    <input
+                      type="text"
+                      value={composerSubTitle}
+                      onChange={e => setComposerSubTitle(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-black/50 border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-[#c9a063]"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[11px] text-white/60 block mb-1">Project Ref ID</label>
+                      <input
+                        type="text"
+                        value={pdfProjectRef}
+                        onChange={e => setPdfProjectRef(e.target.value)}
+                        className="w-full px-3 py-1.5 bg-black/50 border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-[#c9a063]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-white/60 block mb-1">Lead Surveyor Name</label>
+                      <input
+                        type="text"
+                        value={pdfSurveyorName}
+                        onChange={e => setPdfSurveyorName(e.target.value)}
+                        className="w-full px-3 py-1.5 bg-black/50 border border-white/10 rounded-lg text-xs text-white focus:outline-none focus:border-[#c9a063]"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Export Options & DPI */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-mono uppercase font-bold text-[#c9a063] flex items-center gap-1.5">
+                    <Settings2 className="w-3.5 h-3.5" /> Output Format & Overlays
+                  </h4>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[11px] text-white/60 block mb-1">PDF Page Size</label>
+                      <select
+                        value={pdfPageFormat}
+                        onChange={e => setPdfPageFormat(e.target.value as any)}
+                        className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-xs text-white"
+                      >
+                        <option value="a4">A4 Standard Sheet</option>
+                        <option value="a3">A3 Engineering Plan</option>
+                        <option value="letter">US Letter Sheet</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-white/60 block mb-1">Orientation</label>
+                      <select
+                        value={pdfOrientation}
+                        onChange={e => setPdfOrientation(e.target.value as any)}
+                        className="w-full px-2.5 py-1.5 bg-black/50 border border-white/10 rounded-lg text-xs text-white"
+                      >
+                        <option value="landscape">Landscape (Recommended)</option>
+                        <option value="portrait">Portrait</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <label className="flex items-center gap-2 text-xs text-white/80 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={exportIncludeGrid}
+                        onChange={e => setExportIncludeGrid(e.target.checked)}
+                        className="accent-[#c9a063] rounded"
+                      />
+                      UTM Graticule Grid
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-white/80 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={exportIncludeLegend}
+                        onChange={e => setExportIncludeLegend(e.target.checked)}
+                        className="accent-[#c9a063] rounded"
+                      />
+                      Symbology Legend
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-white/80 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={exportIncludeNorth}
+                        onChange={e => setExportIncludeNorth(e.target.checked)}
+                        className="accent-[#c9a063] rounded"
+                      />
+                      True North Arrow
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-white/80 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={exportIncludeScale}
+                        onChange={e => setExportIncludeScale(e.target.checked)}
+                        className="accent-[#c9a063] rounded"
+                      />
+                      Geodetic Scale Bar
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Export Bar for High-Resolution PNG */}
+              <div className="p-4 bg-[#141414] rounded-xl border border-white/5 flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="space-y-1 text-left">
+                  <div className="flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-sky-400" />
+                    <span className="text-xs font-bold text-white font-mono uppercase">Direct High-Resolution PNG Export</span>
+                  </div>
+                  <p className="text-[11px] text-white/50">
+                    Export pixel-perfect georeferenced raster viewports ready for AutoCAD, GIS layers, or field logs.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => handleExportHighResPNG(1)}
+                    disabled={isExporting}
+                    className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-xs rounded-xl"
+                  >
+                    1x (800x450)
+                  </button>
+                  <button
+                    onClick={() => handleExportHighResPNG(2)}
+                    disabled={isExporting}
+                    className="px-3 py-1.5 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/30 text-sky-300 font-bold text-xs rounded-xl"
+                  >
+                    2x (1600x900)
+                  </button>
+                  <button
+                    onClick={() => handleExportHighResPNG(3)}
+                    disabled={isExporting}
+                    className="px-3 py-1.5 bg-[#c9a063]/20 hover:bg-[#c9a063]/30 border border-[#c9a063]/30 text-[#c9a063] font-bold text-xs rounded-xl"
+                  >
+                    3x Print (2400x1350)
+                  </button>
+                  <button
+                    onClick={() => handleExportHighResPNG(4)}
+                    disabled={isExporting}
+                    className="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 font-bold text-xs rounded-xl"
+                  >
+                    4x Ultra HD (3200x1800)
+                  </button>
+                </div>
               </div>
 
               {/* Layer Summary Table in Map Composer */}
@@ -1867,9 +2524,9 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
               </div>
 
               {/* Signatures & Certification Block */}
-              <div className="pt-8 grid grid-cols-3 gap-6 text-center text-xs text-white/60 border-t border-white/10">
+              <div className="pt-6 grid grid-cols-3 gap-6 text-center text-xs text-white/60 border-t border-white/10">
                 <div className="border-t border-dashed border-white/20 pt-2">
-                  <p className="font-bold text-white">Senior Geomatics Engineer</p>
+                  <p className="font-bold text-white">{pdfSurveyorName}</p>
                   <p className="text-[10px] opacity-50">Map Datum & Projection Verified</p>
                 </div>
                 <div className="border-t border-dashed border-white/20 pt-2">

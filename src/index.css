@@ -6,9 +6,18 @@
     color-scheme: dark;
   }
 
+  :root.light,
+  :root:not(.dark),
+  html.light,
+  html:not(.dark),
+  html[data-theme="light"] {
+    color-scheme: light;
+  }
+
   body {
     background-color: #0a0a0a;
     color: #d4d4d4;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .font-serif {
@@ -20,7 +29,432 @@
   }
 }
 
-/* Custom Sophisticated Dark Scrollbars */
+/* =========================================================
+   LIGHT THEME OVERRIDES (Comprehensive, High-Contrast Support)
+   ========================================================= */
+
+/* Root & Base Canvas */
+html:not(.dark) body,
+html.light body,
+html[data-theme="light"] body,
+html:not(.dark) .min-h-screen,
+html.light .min-h-screen,
+html[data-theme="light"] .min-h-screen {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Surfaces, Panels, Cards, Sidebars, Modals & Headers */
+html:not(.dark) header,
+html.light header,
+html:not(.dark) aside,
+html.light aside,
+html:not(.dark) nav,
+html.light nav,
+html:not(.dark) footer,
+html.light footer,
+html:not(.dark) .bg-\[\#000000\],
+html.light .bg-\[\#000000\],
+html:not(.dark) .bg-\[\#050505\],
+html.light .bg-\[\#050505\],
+html:not(.dark) .bg-\[\#080808\],
+html.light .bg-\[\#080808\],
+html:not(.dark) .bg-\[\#090909\],
+html.light .bg-\[\#090909\],
+html:not(.dark) .bg-\[\#0a0a0a\],
+html.light .bg-\[\#0a0a0a\],
+html:not(.dark) .bg-\[\#0b0b0b\],
+html.light .bg-\[\#0b0b0b\],
+html:not(.dark) .bg-\[\#0c0c0c\],
+html.light .bg-\[\#0c0c0c\],
+html:not(.dark) .bg-\[\#0d0d0d\],
+html.light .bg-\[\#0d0d0d\],
+html:not(.dark) .bg-\[\#0e0e0e\],
+html.light .bg-\[\#0e0e0e\],
+html:not(.dark) .bg-\[\#0f0f0f\],
+html.light .bg-\[\#0f0f0f\],
+html:not(.dark) .bg-\[\#101010\],
+html.light .bg-\[\#101010\],
+html:not(.dark) .bg-\[\#111111\],
+html.light .bg-\[\#111111\],
+html:not(.dark) .bg-\[\#121212\],
+html.light .bg-\[\#121212\],
+html:not(.dark) .bg-\[\#131313\],
+html.light .bg-\[\#131313\],
+html:not(.dark) .bg-\[\#141414\],
+html.light .bg-\[\#141414\],
+html:not(.dark) .bg-\[\#151515\],
+html.light .bg-\[\#151515\],
+html:not(.dark) .bg-\[\#161616\],
+html.light .bg-\[\#161616\],
+html:not(.dark) .bg-\[\#171717\],
+html.light .bg-\[\#171717\],
+html:not(.dark) .bg-\[\#181818\],
+html.light .bg-\[\#181818\],
+html:not(.dark) .bg-\[\#191919\],
+html.light .bg-\[\#191919\],
+html:not(.dark) .bg-\[\#1a1a1a\],
+html.light .bg-\[\#1a1a1a\],
+html:not(.dark) .bg-\[\#1b1b1b\],
+html.light .bg-\[\#1b1b1b\],
+html:not(.dark) .bg-\[\#1c1c1c\],
+html.light .bg-\[\#1c1c1c\],
+html:not(.dark) .bg-\[\#1d1d1d\],
+html.light .bg-\[\#1d1d1d\],
+html:not(.dark) .bg-\[\#1e1e1e\],
+html.light .bg-\[\#1e1e1e\],
+html:not(.dark) .bg-\[\#1f1f1f\],
+html.light .bg-\[\#1f1f1f\],
+html:not(.dark) .bg-\[\#202020\],
+html.light .bg-\[\#202020\],
+html:not(.dark) .bg-\[\#222222\],
+html.light .bg-\[\#222222\],
+html:not(.dark) .bg-\[\#242424\],
+html.light .bg-\[\#242424\],
+html:not(.dark) .bg-\[\#252525\],
+html.light .bg-\[\#252525\],
+html:not(.dark) .bg-\[\#282828\],
+html.light .bg-\[\#282828\],
+html:not(.dark) .bg-\[\#2a2a2a\],
+html.light .bg-\[\#2a2a2a\],
+html:not(.dark) .bg-\[\#333333\],
+html.light .bg-\[\#333333\],
+html:not(.dark) .bg-neutral-800,
+html.light .bg-neutral-800,
+html:not(.dark) .bg-neutral-900,
+html.light .bg-neutral-900,
+html:not(.dark) .bg-neutral-950,
+html.light .bg-neutral-950,
+html:not(.dark) .bg-zinc-800,
+html.light .bg-zinc-800,
+html:not(.dark) .bg-zinc-900,
+html.light .bg-zinc-900,
+html:not(.dark) .bg-zinc-950,
+html.light .bg-zinc-950,
+html:not(.dark) .bg-slate-800,
+html.light .bg-slate-800,
+html:not(.dark) .bg-slate-900,
+html.light .bg-slate-900,
+html:not(.dark) .bg-slate-950,
+html.light .bg-slate-950,
+html:not(.dark) .bg-gray-800,
+html.light .bg-gray-800,
+html:not(.dark) .bg-gray-900,
+html.light .bg-gray-900,
+html:not(.dark) .bg-gray-950,
+html.light .bg-gray-950,
+html:not(.dark) .bg-stone-800,
+html.light .bg-stone-800,
+html:not(.dark) .bg-stone-900,
+html.light .bg-stone-900,
+html:not(.dark) .bg-stone-950,
+html.light .bg-stone-950 {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Semi-transparent Backdrop Surfaces & Navbars */
+html:not(.dark) .bg-\[\#0a0a0a\]\/90,
+html.light .bg-\[\#0a0a0a\]\/90,
+html:not(.dark) .bg-\[\#0a0a0a\]\/95,
+html.light .bg-\[\#0a0a0a\]\/95,
+html:not(.dark) .bg-\[\#0c0c0c\]\/95,
+html.light .bg-\[\#0c0c0c\]\/95,
+html:not(.dark) .bg-\[\#0f0f0f\]\/90,
+html.light .bg-\[\#0f0f0f\]\/90,
+html:not(.dark) .bg-\[\#0f0f0f\]\/95,
+html.light .bg-\[\#0f0f0f\]\/95,
+html:not(.dark) .bg-\[\#141414\]\/90,
+html.light .bg-\[\#141414\]\/90,
+html:not(.dark) .bg-\[\#141414\]\/95,
+html.light .bg-\[\#141414\]\/95,
+html:not(.dark) .bg-black\/90,
+html.light .bg-black\/90,
+html:not(.dark) .bg-black\/95,
+html.light .bg-black\/95 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+  backdrop-filter: blur(12px);
+}
+
+/* Dark Fallback Gradients */
+html:not(.dark) .from-\[\#161c28\],
+html.light .from-\[\#161c28\],
+html:not(.dark) .via-\[\#0f141d\],
+html.light .via-\[\#0f141d\],
+html:not(.dark) .to-\[\#0a0d14\],
+html.light .to-\[\#0a0d14\] {
+  --tw-gradient-from: #f8fafc var(--tw-gradient-from-position) !important;
+  --tw-gradient-via: #f1f5f9 var(--tw-gradient-via-position) !important;
+  --tw-gradient-to: #e2e8f0 var(--tw-gradient-to-position) !important;
+}
+
+/* Subtle Cards, Chips, Tabs, Badges & Inner Containers */
+html:not(.dark) .bg-white\/\[0\.02\],
+html.light .bg-white\/\[0\.02\],
+html:not(.dark) .bg-white\/\[0\.03\],
+html.light .bg-white\/\[0\.03\],
+html:not(.dark) .bg-white\/\[0\.04\],
+html.light .bg-white\/\[0\.04\],
+html:not(.dark) .bg-white\/\[0\.05\],
+html.light .bg-white\/\[0\.05\],
+html:not(.dark) .bg-white\/\[0\.06\],
+html.light .bg-white\/\[0\.06\],
+html:not(.dark) .bg-white\/\[0\.08\],
+html.light .bg-white\/\[0\.08\],
+html:not(.dark) .bg-white\/\[0\.1\],
+html.light .bg-white\/\[0\.1\],
+html:not(.dark) .bg-white\/\[0\.12\],
+html.light .bg-white\/\[0\.12\],
+html:not(.dark) .bg-white\/5,
+html.light .bg-white\/5,
+html:not(.dark) .bg-white\/10,
+html.light .bg-white\/10,
+html:not(.dark) .bg-white\/15,
+html.light .bg-white\/15,
+html:not(.dark) .bg-white\/20,
+html.light .bg-white\/20 {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Hover States for Buttons, Tabs and Rows */
+html:not(.dark) .hover\:bg-\[\#141414\]:hover,
+html.light .hover\:bg-\[\#141414\]:hover,
+html:not(.dark) .hover\:bg-\[\#151515\]:hover,
+html.light .hover\:bg-\[\#151515\]:hover,
+html:not(.dark) .hover\:bg-\[\#161616\]:hover,
+html.light .hover\:bg-\[\#161616\]:hover,
+html:not(.dark) .hover\:bg-\[\#181818\]:hover,
+html.light .hover\:bg-\[\#181818\]:hover,
+html:not(.dark) .hover\:bg-\[\#1a1a1a\]:hover,
+html.light .hover\:bg-\[\#1a1a1a\]:hover,
+html:not(.dark) .hover\:bg-\[\#202020\]:hover,
+html.light .hover\:bg-\[\#202020\]:hover,
+html:not(.dark) .hover\:bg-\[\#252525\]:hover,
+html.light .hover\:bg-\[\#252525\]:hover,
+html:not(.dark) .hover\:bg-\[\#282828\]:hover,
+html.light .hover\:bg-\[\#282828\]:hover,
+html:not(.dark) .hover\:bg-white\/\[0\.04\]:hover,
+html.light .hover\:bg-white\/\[0\.04\]:hover,
+html:not(.dark) .hover\:bg-white\/\[0\.06\]:hover,
+html.light .hover\:bg-white\/\[0\.06\]:hover,
+html:not(.dark) .hover\:bg-white\/\[0\.08\]:hover,
+html.light .hover\:bg-white\/\[0\.08\]:hover,
+html:not(.dark) .hover\:bg-white\/\[0\.1\]:hover,
+html.light .hover\:bg-white\/\[0\.1\]:hover,
+html:not(.dark) .hover\:bg-white\/\[0\.12\]:hover,
+html.light .hover\:bg-white\/\[0\.12\]:hover,
+html:not(.dark) .hover\:bg-white\/5:hover,
+html.light .hover\:bg-white\/5:hover,
+html:not(.dark) .hover\:bg-white\/10:hover,
+html.light .hover\:bg-white\/10:hover,
+html:not(.dark) .hover\:bg-white\/15:hover,
+html.light .hover\:bg-white\/15:hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* High Contrast Typography */
+html:not(.dark) .text-white,
+html.light .text-white {
+  color: #0f172a !important;
+}
+
+html:not(.dark) .text-white\/90,
+html.light .text-white\/90,
+html:not(.dark) .text-white\/80,
+html.light .text-white\/80 {
+  color: #1e293b !important;
+}
+
+html:not(.dark) .text-white\/70,
+html.light .text-white\/70,
+html:not(.dark) .text-white\/60,
+html.light .text-white\/60 {
+  color: #334155 !important;
+}
+
+html:not(.dark) .text-white\/50,
+html.light .text-white\/50,
+html:not(.dark) .text-white\/40,
+html.light .text-white\/40 {
+  color: #64748b !important;
+}
+
+html:not(.dark) .text-white\/30,
+html.light .text-white\/30,
+html:not(.dark) .text-white\/20,
+html.light .text-white\/20 {
+  color: #94a3b8 !important;
+}
+
+html:not(.dark) .text-\[\#d4d4d4\],
+html.light .text-\[\#d4d4d4\],
+html:not(.dark) .text-\[\#e5e5e5\],
+html.light .text-\[\#e5e5e5\],
+html:not(.dark) .text-\[\#cccccc\],
+html.light .text-\[\#cccccc\],
+html:not(.dark) .text-\[\#f5f5f5\],
+html.light .text-\[\#f5f5f5\] {
+  color: #0f172a !important;
+}
+
+html:not(.dark) .hover\:text-white:hover,
+html.light .hover\:text-white:hover {
+  color: #0f172a !important;
+}
+
+/* Gold Surveyor Brand Contrast in Light Mode */
+html:not(.dark) .text-\[\#c9a063\],
+html.light .text-\[\#c9a063\] {
+  color: #b07d2b !important;
+}
+
+/* High Contrast Borders & Dividers */
+html:not(.dark) .border-white\/5,
+html.light .border-white\/5,
+html:not(.dark) .border-white\/10,
+html.light .border-white\/10,
+html:not(.dark) .border-white\/15,
+html.light .border-white\/15,
+html:not(.dark) .border-white\/20,
+html.light .border-white\/20,
+html:not(.dark) .border-white\/25,
+html.light .border-white\/25,
+html:not(.dark) .border-white\/30,
+html.light .border-white\/30,
+html:not(.dark) .border-white\/\[0\.04\],
+html.light .border-white\/\[0\.04\],
+html:not(.dark) .border-white\/\[0\.05\],
+html.light .border-white\/\[0\.05\],
+html:not(.dark) .border-white\/\[0\.06\],
+html.light .border-white\/\[0\.06\],
+html:not(.dark) .border-white\/\[0\.08\],
+html.light .border-white\/\[0\.08\],
+html:not(.dark) .border-white\/\[0\.1\],
+html.light .border-white\/\[0\.1\],
+html:not(.dark) .border-white\/\[0\.12\],
+html.light .border-white\/\[0\.12\],
+html:not(.dark) .border-white\/\[0\.15\],
+html.light .border-white\/\[0\.15\],
+html:not(.dark) .border-neutral-800,
+html.light .border-neutral-800,
+html:not(.dark) .border-neutral-700,
+html.light .border-neutral-700,
+html:not(.dark) .border-zinc-800,
+html.light .border-zinc-800,
+html:not(.dark) .border-zinc-700,
+html.light .border-zinc-700,
+html:not(.dark) .border-slate-800,
+html.light .border-slate-800,
+html:not(.dark) .border-slate-700,
+html.light .border-slate-700,
+html:not(.dark) .divide-white\/5,
+html.light .divide-white\/5,
+html:not(.dark) .divide-white\/10,
+html.light .divide-white\/10,
+html:not(.dark) .divide-white\/\[0\.06\],
+html.light .divide-white\/\[0\.06\],
+html:not(.dark) .divide-white\/\[0\.08\],
+html.light .divide-white\/\[0\.08\] {
+  border-color: #e2e8f0 !important;
+}
+
+/* Form Controls */
+html:not(.dark) input:not([type="checkbox"]):not([type="radio"]),
+html.light input:not([type="checkbox"]):not([type="radio"]),
+html:not(.dark) select,
+html.light select,
+html:not(.dark) textarea,
+html.light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html:not(.dark) input::placeholder,
+html.light input::placeholder,
+html:not(.dark) textarea::placeholder,
+html.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+html:not(.dark) option,
+html.light option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Table Elements */
+html:not(.dark) table,
+html.light table {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+html:not(.dark) th,
+html.light th {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+  border-color: #e2e8f0 !important;
+}
+
+html:not(.dark) td,
+html.light td {
+  border-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+html:not(.dark) tr:hover,
+html.light tr:hover {
+  background-color: #f8fafc !important;
+}
+
+/* Modal Backdrops */
+html:not(.dark) .fixed.inset-0.bg-black\/80,
+html.light .fixed.inset-0.bg-black\/80,
+html:not(.dark) .fixed.inset-0.bg-black\/60,
+html.light .fixed.inset-0.bg-black\/60,
+html:not(.dark) .fixed.inset-0.bg-black\/70,
+html.light .fixed.inset-0.bg-black\/70 {
+  background-color: rgba(15, 23, 42, 0.6) !important;
+  backdrop-filter: blur(6px);
+}
+
+/* Camera Viewfinder Protection (Preserve Dark HUD over Live Camera Video Stream) */
+.camera-viewfinder,
+.camera-viewfinder-container,
+[data-camera-hud="true"],
+.camera-live-stream {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+.camera-viewfinder .text-white,
+.camera-viewfinder-container .text-white,
+[data-camera-hud="true"] .text-white,
+.camera-live-stream .text-white {
+  color: #ffffff !important;
+}
+
+.camera-viewfinder .text-white\/40,
+.camera-viewfinder-container .text-white\/40,
+[data-camera-hud="true"] .text-white\/40 {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.camera-viewfinder .bg-black\/80,
+.camera-viewfinder-container .bg-black\/80,
+[data-camera-hud="true"] .bg-black\/80 {
+  background-color: rgba(0, 0, 0, 0.8) !important;
+  color: #ffffff !important;
+}
+
+/* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -40,6 +474,17 @@
   background: #c9a063;
 }
 
+html:not(.dark) ::-webkit-scrollbar-track,
+html.light ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb,
+html.light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
@@ -56,3 +501,10 @@
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #c9a063;
 }
+
+html:not(.dark) .custom-scrollbar::-webkit-scrollbar-thumb,
+html.light .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+

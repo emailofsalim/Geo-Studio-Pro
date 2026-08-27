@@ -39,6 +39,8 @@ import {
 } from '../lib/formats';
 import { downloadBlob } from '../lib/zip';
 import { VectorRadarMap } from './VectorRadarMap';
+import { deduplicateCadastralParcels } from '../lib/deduplication';
+import { useToast } from '../context/ToastContext';
 
 export const CAD_PRESETS: Record<string, CadastralProfile> = {
   jharkhand: {
@@ -235,6 +237,7 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [showParchhaModal, setShowParchhaModal] = useState(false);
+  const toast = useToast();
 
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
@@ -515,8 +518,30 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
     downloadBlob(new TextEncoder().encode(res.dxf), 'Cadastral_Plots.dxf', 'application/dxf');
   };
 
+  // Deduplicate Cadastral Parcels
+  const handleDeduplicateParcels = () => {
+    if (parcels.length === 0) {
+      toast.showWarning('No cadastral parcels to deduplicate.');
+      return;
+    }
+    const { cleanParcels, summary } = deduplicateCadastralParcels(parcels, 0.2);
+
+    setParcels(cleanParcels);
+    if (summary.removedCount > 0) {
+      toast.showSuccess(`Deduplication complete: Removed ${summary.removedCount} duplicate parcel polygon(s).`);
+      setStatusMsg(`Removed ${summary.removedCount} duplicate parcel polygon(s). (${cleanParcels.length} active plots)`);
+    } else {
+      toast.showInfo('Cadastral dataset is clean. Zero duplicate parcels found.');
+      setStatusMsg('Zero duplicate parcels found in current dataset.');
+    }
+  };
+
   // Export GeoJSON
   const handleExportGeoJSON = () => {
+    if (parcels.length === 0) {
+      toast.showWarning('No cadastral parcels to export.');
+      return;
+    }
     const feats: GeoFeature[] = parcels.map(p => ({
       name: `Plot ${p.khasra}`,
       geom: 'polygon',
@@ -532,10 +557,15 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
     }));
     const jsonStr = geoJsonBuild(feats, zNum, isSouth);
     downloadBlob(new TextEncoder().encode(jsonStr), 'Cadastral_Parcels.geojson', 'application/geo+json');
+    toast.showSuccess(`Exported ${parcels.length} parcels to GeoJSON`);
   };
 
   // Export ESRI Shapefile Bundle (.zip)
   const handleExportShapefile = () => {
+    if (parcels.length === 0) {
+      toast.showWarning('No cadastral parcels to export.');
+      return;
+    }
     const feats: GeoFeature[] = parcels.map(p => ({
       name: `Plot_${p.khasra}`,
       geom: 'polygon',
@@ -552,6 +582,7 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
     }));
     const zipBytes = buildShapefileZip(feats, 'Cadastral_Parcels', zNum, isSouth);
     downloadBlob(zipBytes, 'Cadastral_Parcels_shp.zip', 'application/zip');
+    toast.showSuccess(`Exported ESRI Shapefile bundle with ${parcels.length} parcel polygons!`);
     setStatusMsg(`Exported ESRI Shapefile bundle with ${parcels.length} parcel polygons!`);
   };
 
@@ -683,6 +714,15 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={handleDeduplicateParcels}
+              disabled={parcels.length === 0}
+              className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl text-xs font-semibold border border-emerald-500/30 flex items-center gap-1.5 disabled:opacity-40 transition-all"
+              title="Remove duplicate cadastral parcel polygons and overlapping Khasra plots"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Clean Duplicates
+            </button>
             <button
               onClick={handleExportShapefile}
               className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-[#c9a063] hover:text-[#d6b074] rounded-xl text-xs font-semibold border border-[#c9a063]/30"

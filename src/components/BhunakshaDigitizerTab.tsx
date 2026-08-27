@@ -59,6 +59,7 @@ import {
 } from '../lib/formats';
 import { downloadBlob } from '../lib/zip';
 import { VectorRadarMap } from './VectorRadarMap';
+import { useToast } from '../context/ToastContext';
 
 interface BhunakshaDigitizerTabProps {
   workingZone: string;
@@ -125,6 +126,7 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
   customBighaM2,
   customKathaPerBigha
 }) => {
+  const toast = useToast();
   // Map Image & Sheet Metadata
   const [mapImageSrc, setMapImageSrc] = useState<string | null>(null);
   const [imageName, setImageName] = useState<string>('village_bhunaksha_sheet_01');
@@ -738,7 +740,7 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
     const p = partitionTargetPoly;
     const pts = p.pixelPoints;
     if (pts.length < 4) {
-      alert('Parcel must have at least 4 vertices for geometric partition');
+      toast.showWarning('Parcel must have at least 4 vertices for geometric partition');
       return;
     }
 
@@ -830,7 +832,7 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
       });
 
       setImportedKhatian(records);
-      alert(`Loaded ${records.length} Khatian RoR records successfully!`);
+      toast.showSuccess(`Loaded ${records.length} Khatian RoR records successfully!`);
     };
     reader.readAsText(file);
   };
@@ -864,6 +866,7 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
 
     const jsonStr = JSON.stringify(projectData, null, 2);
     downloadBlob(jsonStr, `${imageName || 'bhunaksha_project'}.bhunaksha`, 'application/json');
+    toast.showSuccess(`Saved project session (${polygons.length} parcels, ${gcps.length} GCPs)`);
   };
 
   // Load Full Project Session (.bhunaksha JSON)
@@ -893,9 +896,9 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
         if (data.scaleCalib) setScaleCalib(data.scaleCalib);
         if (Array.isArray(data.polygons)) setPolygons(data.polygons);
 
-        alert('BhuNaksha Cadastral Project Session restored successfully!');
+        toast.showSuccess('BhuNaksha Cadastral Project Session restored successfully!');
       } catch (err) {
-        alert('Invalid .bhunaksha project session file.');
+        toast.showError('Invalid .bhunaksha project session file.');
       }
     };
     reader.readAsText(file);
@@ -1222,12 +1225,13 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
   // Export ESRI World File (.tfw / .jgw)
   const handleExportWorldFile = () => {
     if (!affineMatrix) {
-      alert('At least 3 Ground Control Points (GCPs) required to compute transformation matrix');
+      toast.showWarning('At least 3 Ground Control Points (GCPs) required to compute transformation matrix');
       return;
     }
     const { a, b, c, d, tx, ty } = affineMatrix;
     const content = buildWorldFile(a, b, c, d, tx, ty);
     downloadBlob(new TextEncoder().encode(content), `${imageName}.tfw`, 'text/plain');
+    toast.showSuccess(`Exported ESRI World File (${imageName}.tfw)`);
   };
 
   // Export QGIS GCP Points (.points)

@@ -1221,6 +1221,11 @@ export interface GpsAveragingStats {
   avgZ: number;
   avgLat: number;
   avgLon: number;
+  meanE: number;
+  meanN: number;
+  meanZ: number;
+  meanLat: number;
+  meanLon: number;
   stdDevE: number;
   stdDevN: number;
   stdDevZ: number;
@@ -1279,13 +1284,24 @@ export function computeGpsAveragingStats(samples: GpsSample[]): GpsAveragingStat
   else if (cep95 < 5.0) qualityGrade = 'Recreational';
   else qualityGrade = 'Coarse';
 
+  const roundedE = parseFloat(avgE.toFixed(4));
+  const roundedN = parseFloat(avgN.toFixed(4));
+  const roundedZ = parseFloat(avgZ.toFixed(3));
+  const roundedLat = parseFloat(avgLat.toFixed(8));
+  const roundedLon = parseFloat(avgLon.toFixed(8));
+
   return {
     sampleCount: n,
-    avgE: parseFloat(avgE.toFixed(4)),
-    avgN: parseFloat(avgN.toFixed(4)),
-    avgZ: parseFloat(avgZ.toFixed(3)),
-    avgLat: parseFloat(avgLat.toFixed(8)),
-    avgLon: parseFloat(avgLon.toFixed(8)),
+    avgE: roundedE,
+    avgN: roundedN,
+    avgZ: roundedZ,
+    avgLat: roundedLat,
+    avgLon: roundedLon,
+    meanE: roundedE,
+    meanN: roundedN,
+    meanZ: roundedZ,
+    meanLat: roundedLat,
+    meanLon: roundedLon,
     stdDevE: parseFloat(stdDevE.toFixed(4)),
     stdDevN: parseFloat(stdDevN.toFixed(4)),
     stdDevZ: parseFloat(stdDevZ.toFixed(4)),

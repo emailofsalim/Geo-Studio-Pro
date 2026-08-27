@@ -1,34 +1,16 @@
 import React, { useState } from 'react';
 import {
   Download,
-  FileSpreadsheet,
-  Sparkles,
   FolderArchive,
-  BookOpen,
-  Layers,
-  CheckCircle2,
-  ArrowRight,
   Upload,
   FileText,
   Eye,
-  Compass,
-  Calculator,
-  Camera,
-  Globe,
-  Scan,
-  MapPin,
-  Spline,
-  FileCode,
-  Layers2,
-  Crosshair,
-  ShieldAlert,
-  Radio
+  FileSpreadsheet
 } from 'lucide-react';
 import { TEMPLATES, DATA_DICTIONARY, buildAllTemplatesZip } from '../lib/templates';
 import { downloadBlob, readZip } from '../lib/zip';
-import { toCSVtext, csvEnc, stripBOM, parseCSV, csvToFeatures, kmlParse, geoJsonParse, dxfParse, extractAllFeaturesFromZip } from '../lib/formats';
+import { toCSVtext, csvEnc, extractAllFeaturesFromZip } from '../lib/formats';
 import { AppTabId } from './Navigation';
-import { GeoFeature } from '../types';
 
 interface HomeTemplatesTabProps {
   setActiveTab?: (tab: AppTabId) => void;
@@ -38,85 +20,29 @@ interface HomeTemplatesTabProps {
   customKathaPerBigha?: number;
 }
 
-export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({ setActiveTab, workingZone = '45N' }) => {
-  const [customColumns, setCustomColumns] = useState<string[]>(['BH_ID', 'Longitude', 'Latitude', 'From_m', 'To_m', 'Lithology', 'Al2O3', 'SiO2']);
+export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({
+  setActiveTab,
+  workingZone = '45N'
+}) => {
+  const [activeSection, setActiveSection] = useState<'templates' | 'archive' | 'custom'>('templates');
+  const [customColumns, setCustomColumns] = useState<string[]>([
+    'Point_ID',
+    'Longitude',
+    'Latitude',
+    'Elevation_m',
+    'Feature_Code',
+    'Remarks'
+  ]);
   const [newColInput, setNewColInput] = useState('');
   const [includeSamples, setIncludeSamples] = useState(true);
 
-  // Quick Zip Unpack State
+  // Archive inspector state
   const [zipFilesList, setZipFilesList] = useState<{ name: string; size: number; bytes: Uint8Array; featCount: number }[]>([]);
   const [zipStatus, setZipStatus] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState<{ name: string; text: string } | null>(null);
 
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
-
-  const surveyStations: { id: AppTabId; title: string; subtitle: string; icon: any; color: string; badge: string }[] = [
-    {
-      id: 'gps',
-      title: 'GNSS RTK Rover',
-      subtitle: 'Epoch Stacking, Vector Radar & Proximity Sentinel',
-      icon: Compass,
-      color: 'text-[#c9a063] bg-[#c9a063]/10 border-[#c9a063]/30',
-      badge: 'Field Station'
-    },
-    {
-      id: 'gis',
-      title: 'GIS Map Studio',
-      subtitle: 'Multi-layer CAD/GIS Vector Analysis & Drawing',
-      icon: Layers,
-      color: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
-      badge: 'CAD / GIS'
-    },
-    {
-      id: 'camera',
-      title: 'GPS Field Camera',
-      subtitle: 'Live Inclinometer, Bearing & Geostamp HUD',
-      icon: Camera,
-      color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
-      badge: 'Photogrammetry'
-    },
-    {
-      id: 'calc',
-      title: 'Survey Calculator',
-      subtitle: 'Leveling Sheet, Bowditch Traverse & Curve COGO',
-      icon: Calculator,
-      color: 'text-sky-400 bg-sky-500/10 border-sky-500/30',
-      badge: 'COGO / Geodesy'
-    },
-    {
-      id: 'convert',
-      title: 'Coordinate Converter',
-      subtitle: 'UTM, WGS84, Cassini & Scale Factor k₀',
-      icon: Globe,
-      color: 'text-purple-400 bg-purple-500/10 border-purple-500/30',
-      badge: 'Transform'
-    },
-    {
-      id: 'bhunaksha',
-      title: 'BhuNaksha Digitizer',
-      subtitle: 'Village Map 4-Point Affine Georeferencing',
-      icon: Scan,
-      color: 'text-teal-400 bg-teal-500/10 border-teal-500/30',
-      badge: 'Cadastre'
-    },
-    {
-      id: 'bore',
-      title: 'Borehole & Mine',
-      subtitle: 'IBM/JORC Assay Compositing & 2D Profiles',
-      icon: MapPin,
-      color: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
-      badge: 'Mining Log'
-    },
-    {
-      id: 'studio',
-      title: 'Universal Converter',
-      subtitle: 'DXF, SHP, KML, CSV, GeoJSON & GPX Engine',
-      icon: FileCode,
-      color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/30',
-      badge: 'Interop'
-    }
-  ];
 
   const handleDownloadSingle = (key: string) => {
     const t = TEMPLATES[key];
@@ -127,11 +53,11 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({ setActiveTab
 
   const handleDownloadAllZip = () => {
     const zip = buildAllTemplatesZip();
-    downloadBlob(zip, 'GeoStudio_All_Templates.zip', 'application/zip');
+    downloadBlob(zip, 'GeoStudio_Templates.zip', 'application/zip');
   };
 
   const handleDownloadDataDictionary = () => {
-    const cols = ['Template_Category', 'Field_Column_Name', 'Technical_Description'];
+    const cols = ['Template_Category', 'Column_Name', 'Description'];
     const rows = DATA_DICTIONARY.map(d => [d.template, d.col, d.desc]);
     downloadBlob(csvEnc(toCSVtext(cols, rows)), 'GeoStudio_Data_Dictionary.csv', 'text/csv;charset=utf-8');
   };
@@ -152,16 +78,14 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({ setActiveTab
     const sampleRow = customColumns.map(c => {
       if (c.toLowerCase().includes('lon')) return '84.601550';
       if (c.toLowerCase().includes('lat')) return '23.541200';
-      if (c.toLowerCase().includes('from')) return '0.00';
-      if (c.toLowerCase().includes('to')) return '3.50';
-      if (c.toLowerCase().includes('id')) return 'P-01';
+      if (c.toLowerCase().includes('elev') || c.toLowerCase().includes('z')) return '142.50';
+      if (c.toLowerCase().includes('id')) return 'PT-101';
       return 'Sample';
     });
     const rows = includeSamples ? [sampleRow, sampleRow] : [];
-    downloadBlob(csvEnc(toCSVtext(customColumns, rows)), 'custom_geostudio_template.csv', 'text/csv;charset=utf-8');
+    downloadBlob(csvEnc(toCSVtext(customColumns, rows)), 'custom_survey_template.csv', 'text/csv;charset=utf-8');
   };
 
-  // Inspect any uploaded ZIP/KMZ
   const handleZipInspectUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -185,336 +109,299 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({ setActiveTab
 
       setZipFilesList(list);
       const totalFeats = extractedDs.reduce((acc, d) => acc + d.features.length, 0);
-      setZipStatus(`Successfully extracted ${list.length} archive items (${extractedDs.length} geospatial datasets, ${totalFeats} features) from ${file.name}`);
+      setZipStatus(`Extracted ${list.length} files (${totalFeats} total features) from ${file.name}`);
     } catch (err: any) {
       setZipStatus(`Failed to extract archive: ${err.message}`);
     }
   };
 
   return (
-    <div className="space-y-8">
-      {/* Welcome Banner */}
-      <div className="bg-gradient-to-br from-[#c9a063]/15 via-[#0f0f0f] to-[#0a0a0a] border border-[#c9a063]/20 rounded-2xl p-8 sm:p-10 shadow-2xl relative overflow-hidden">
-        <div className="relative z-10 max-w-3xl space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] uppercase tracking-[0.2em] font-medium bg-[#c9a063]/10 text-[#c9a063] border border-[#c9a063]/30">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#c9a063]"></span>
-            Geomatics Intelligence Engine
-          </div>
-          <h1 className="text-3xl sm:text-4xl font-serif italic text-white tracking-tight">
-            Precision Survey & Geodesy Workspace
-          </h1>
-          <p className="text-sm sm:text-base text-[#d4d4d4]/70 leading-relaxed font-light">
-            Engineered for high-order geodesy, bidirectional Bursa-Wolf transformations, IBM/JORC borehole compositing, Bowditch traverse balancing, revenue cadastral partition mapping, and offline GIS conversions.
-          </p>
-          <div className="flex items-center gap-4 pt-4 flex-wrap">
-            {setActiveTab && (
-              <>
-                <button
-                  onClick={() => setActiveTab('gps')}
-                  className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-[#c9a063]/10"
-                >
-                  <Compass className="w-4 h-4" /> Open GNSS Field Rover
-                </button>
-                <button
-                  onClick={() => setActiveTab('gis')}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-white font-bold text-xs uppercase tracking-widest transition-all border border-white/10"
-                >
-                  <Layers className="w-4 h-4 text-[#c9a063]" /> GIS Map Studio
-                </button>
-              </>
-            )}
-            <button
-              onClick={handleDownloadAllZip}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/5 hover:bg-white/10 text-white font-semibold text-xs uppercase tracking-wider transition-all border border-white/10"
-            >
-              <FolderArchive className="w-4 h-4 text-[#c9a063]" /> Download All Templates (.zip)
-            </button>
-          </div>
-        </div>
+    <div className="max-w-6xl mx-auto space-y-6 pb-12">
+      {/* Minimal Header */}
+      <div className="pt-2 pb-2 space-y-1">
+        <h1 className="text-2xl sm:text-3xl font-serif italic text-white tracking-tight">
+          Precision Geodesy & Survey Workspace
+        </h1>
+        <p className="text-xs sm:text-sm text-white/50">
+          Standardized geodetic CSV templates, ZIP archive inspection, and custom survey schema generation.
+        </p>
       </div>
 
-      {/* Survey Technology Stations & Instrument Quick-Launch Grid */}
-      <div className="bg-[#0f0f0f] rounded-2xl p-6 sm:p-8 border border-white/5 space-y-5">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-[#c9a063] mb-1 font-medium font-mono">
-              Field & Lab Instrumentation
+      {/* Navigation Tabs */}
+      <div className="flex items-center gap-1 border-b border-white/[0.06] pb-1">
+        <button
+          onClick={() => setActiveSection('templates')}
+          className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+            activeSection === 'templates'
+              ? 'border-[#c9a063] text-white'
+              : 'border-transparent text-white/40 hover:text-white/70'
+          }`}
+        >
+          Templates
+        </button>
+        <button
+          onClick={() => setActiveSection('archive')}
+          className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+            activeSection === 'archive'
+              ? 'border-[#c9a063] text-white'
+              : 'border-transparent text-white/40 hover:text-white/70'
+          }`}
+        >
+          Archive Inspector
+        </button>
+        <button
+          onClick={() => setActiveSection('custom')}
+          className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+            activeSection === 'custom'
+              ? 'border-[#c9a063] text-white'
+              : 'border-transparent text-white/40 hover:text-white/70'
+          }`}
+        >
+          Schema Builder
+        </button>
+      </div>
+
+      {/* SECTION 2: TEMPLATES */}
+      {activeSection === 'templates' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <p className="text-xs text-white/50">
+              Standardized CSV templates for cadastral surveys, drilling logs, GNSS benchmarks, and leveling sheets.
             </p>
-            <h2 className="text-xl font-serif italic text-white flex items-center gap-2">
-              <Crosshair className="w-5 h-5 text-[#c9a063]" />
-              Geomatics Survey Workstations
-            </h2>
-          </div>
-          <div className="text-xs text-white/50 font-mono flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>All 8 Instrument Engines Online (100% Offline Ready)</span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-          {surveyStations.map(st => {
-            const Icon = st.icon;
-            return (
+            <div className="flex items-center gap-2">
               <button
-                key={st.id}
-                onClick={() => setActiveTab && setActiveTab(st.id)}
-                className="p-4 rounded-xl border border-white/5 hover:border-[#c9a063]/50 bg-[#141414] hover:bg-[#181818] transition-all text-left flex flex-col justify-between group relative overflow-hidden"
+                onClick={handleDownloadDataDictionary}
+                className="px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/70 hover:text-white text-xs border border-white/[0.06] transition-colors"
               >
-                <div className="flex items-center justify-between mb-3">
-                  <div className={`p-2.5 rounded-xl border ${st.color}`}>
-                    <Icon className="w-5 h-5" />
-                  </div>
-                  <span className="text-[9px] uppercase font-mono px-2 py-0.5 rounded-full bg-white/5 text-white/50 border border-white/10">
-                    {st.badge}
-                  </span>
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white group-hover:text-[#c9a063] transition-colors flex items-center justify-between">
-                    <span>{st.title}</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-white/30 group-hover:text-[#c9a063] group-hover:translate-x-0.5 transition-all" />
-                  </h3>
-                  <p className="text-[11px] text-white/50 mt-1 line-clamp-2 leading-relaxed">
-                    {st.subtitle}
-                  </p>
-                </div>
+                Data Dictionary
               </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Quick Archive Dropzone & Extractor */}
-      <div className="bg-[#0f0f0f] rounded-2xl p-6 sm:p-8 border border-white/5 space-y-6">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-[#c9a063] mb-1 font-medium">Archive Inspector</p>
-          <h3 className="text-xl font-serif italic text-white flex items-center gap-2">
-            ZIP & KMZ Archive Decompressor & Extractor
-          </h3>
-          <p className="text-xs text-white/40 mt-1">
-            Drop any survey ZIP or KMZ package to inspect individual sub-files, examine raw data, and extract layers.
-          </p>
-        </div>
-
-        <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-white/10 hover:border-[#c9a063]/50 rounded-2xl cursor-pointer bg-[#141414]/60 transition-colors">
-          <Upload className="w-6 h-6 text-[#c9a063] mb-2" />
-          <span className="text-xs font-semibold text-white">
-            Upload ZIP or KMZ Archive to Inspect and Extract
-          </span>
-          <span className="text-[11px] text-white/40 mt-0.5">Decompresses in-memory without uploading to any remote server</span>
-          <input
-            type="file"
-            accept=".zip,.kmz"
-            onChange={handleZipInspectUpload}
-            className="hidden"
-          />
-        </label>
-
-        {zipStatus && (
-          <div className="p-3 bg-white/5 border border-white/10 text-xs text-white/80 rounded-xl flex items-center justify-between">
-            <span>{zipStatus}</span>
+              <button
+                onClick={handleDownloadAllZip}
+                className="px-3 py-1.5 rounded-lg bg-[#c9a063]/10 hover:bg-[#c9a063]/20 text-[#c9a063] text-xs font-medium border border-[#c9a063]/25 transition-colors flex items-center gap-1.5"
+              >
+                <FolderArchive className="w-3.5 h-3.5" />
+                Download All (.zip)
+              </button>
+            </div>
           </div>
-        )}
 
-        {zipFilesList.length > 0 && (
-          <div className="space-y-3 pt-2">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-white/60">
-              Contained Archive Files ({zipFilesList.length})
-            </h4>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse font-mono">
-                <thead>
-                  <tr className="border-b border-white/10 text-white/40 text-[10px] uppercase">
-                    <th className="py-2 px-3">File Name</th>
-                    <th className="py-2 px-3">Size</th>
-                    <th className="py-2 px-3">Features</th>
-                    <th className="py-2 px-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {zipFilesList.map((f, i) => (
-                    <tr key={i} className="hover:bg-white/5">
-                      <td className="py-2 px-3 text-white/90 font-sans flex items-center gap-1.5">
-                        <FileText className="w-3.5 h-3.5 text-[#c9a063]" />
-                        {f.name}
-                      </td>
-                      <td className="py-2 px-3 text-white/50">{(f.size / 1024).toFixed(1)} KB</td>
-                      <td className="py-2 px-3">
-                        {f.featCount > 0 ? (
-                          <span className="text-emerald-400 font-semibold">{f.featCount} parsed</span>
-                        ) : (
-                          <span className="text-white/30">0</span>
-                        )}
-                      </td>
-                      <td className="py-2 px-3 text-right space-x-2">
-                        <button
-                          onClick={() => {
-                            const dec = new TextDecoder();
-                            setPreviewContent({ name: f.name, text: dec.decode(f.bytes) });
-                          }}
-                          className="px-2 py-1 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white rounded text-[10px] transition-colors inline-flex items-center gap-1"
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {Object.keys(TEMPLATES).map(key => {
+              const t = TEMPLATES[key];
+              return (
+                <div
+                  key={key}
+                  className="p-4 rounded-xl border border-white/[0.06] bg-[#111111] flex flex-col justify-between"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-semibold text-white capitalize">
+                        {key.replace(/_/g, ' ')}
+                      </h4>
+                      <span className="text-[10px] text-white/40 font-mono">
+                        {t.cols.length} fields
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-white/40 line-clamp-2">
+                      {t.description}
+                    </p>
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {t.cols.slice(0, 3).map(c => (
+                        <span
+                          key={c}
+                          className="text-[10px] bg-white/[0.04] px-1.5 py-0.5 rounded text-white/50 font-mono"
                         >
-                          <Eye className="w-3 h-3" /> View
-                        </button>
-                        <button
-                          onClick={() => downloadBlob(f.bytes, f.name.split('/').pop() || f.name)}
-                          className="px-2 py-1 bg-[#c9a063]/10 hover:bg-[#c9a063]/20 text-[#c9a063] rounded text-[10px] transition-colors inline-flex items-center gap-1"
-                        >
-                          <Download className="w-3 h-3" /> Save
-                        </button>
-                      </td>
+                          {c}
+                        </span>
+                      ))}
+                      {t.cols.length > 3 && (
+                        <span className="text-[10px] text-white/30 font-mono py-0.5">
+                          +{t.cols.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-3 mt-3 border-t border-white/[0.06]">
+                    <button
+                      onClick={() => handleDownloadSingle(key)}
+                      className="text-xs text-[#c9a063] hover:text-[#e0ba7e] flex items-center gap-1.5 transition-colors"
+                    >
+                      <Download className="w-3 h-3" />
+                      Download CSV
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* SECTION 3: ARCHIVE INSPECTOR */}
+      {activeSection === 'archive' && (
+        <div className="space-y-4">
+          <label className="flex flex-col items-center justify-center p-8 border border-dashed border-white/[0.12] hover:border-[#c9a063]/50 rounded-xl cursor-pointer bg-[#111111] transition-colors">
+            <Upload className="w-6 h-6 text-[#c9a063] mb-2" />
+            <span className="text-xs font-medium text-white">
+              Upload ZIP or KMZ Archive
+            </span>
+            <span className="text-[11px] text-white/40 mt-0.5">
+              Client-side in-memory decompressor for geospatial shapefiles, KML, and tables
+            </span>
+            <input
+              type="file"
+              accept=".zip,.kmz"
+              onChange={handleZipInspectUpload}
+              className="hidden"
+            />
+          </label>
+
+          {zipStatus && (
+            <div className="p-3 bg-white/[0.04] border border-white/[0.06] text-xs text-white/70 rounded-lg">
+              {zipStatus}
+            </div>
+          )}
+
+          {zipFilesList.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-white/70">
+                Contained Files ({zipFilesList.length})
+              </div>
+              <div className="border border-white/[0.06] rounded-lg overflow-hidden bg-[#111111]">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead>
+                    <tr className="border-b border-white/[0.06] text-white/40 text-[10px]">
+                      <th className="py-2 px-3">File Name</th>
+                      <th className="py-2 px-3">Size</th>
+                      <th className="py-2 px-3">Features</th>
+                      <th className="py-2 px-3 text-right">Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.04]">
+                    {zipFilesList.map((f, i) => (
+                      <tr key={i} className="hover:bg-white/[0.02]">
+                        <td className="py-2 px-3 text-white/80 font-sans flex items-center gap-2">
+                          <FileText className="w-3.5 h-3.5 text-[#c9a063]" />
+                          {f.name}
+                        </td>
+                        <td className="py-2 px-3 text-white/40">{(f.size / 1024).toFixed(1)} KB</td>
+                        <td className="py-2 px-3 text-white/60">
+                          {f.featCount > 0 ? `${f.featCount} parsed` : '-'}
+                        </td>
+                        <td className="py-2 px-3 text-right space-x-2">
+                          <button
+                            onClick={() => {
+                              const dec = new TextDecoder();
+                              setPreviewContent({ name: f.name, text: dec.decode(f.bytes) });
+                            }}
+                            className="px-2 py-0.5 bg-white/[0.04] hover:bg-white/[0.08] text-white/70 rounded text-[10px] transition-colors inline-flex items-center gap-1"
+                          >
+                            <Eye className="w-3 h-3" /> View
+                          </button>
+                          <button
+                            onClick={() => downloadBlob(f.bytes, f.name.split('/').pop() || f.name)}
+                            className="px-2 py-0.5 bg-[#c9a063]/10 hover:bg-[#c9a063]/20 text-[#c9a063] rounded text-[10px] transition-colors inline-flex items-center gap-1"
+                          >
+                            <Download className="w-3 h-3" /> Save
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {previewContent && (
+                <div className="p-4 bg-[#111111] rounded-xl border border-white/[0.06] space-y-2 mt-2">
+                  <div className="flex items-center justify-between border-b border-white/[0.06] pb-1">
+                    <span className="text-xs font-mono text-[#c9a063]">{previewContent.name}</span>
+                    <button
+                      onClick={() => setPreviewContent(null)}
+                      className="text-white/40 hover:text-white text-xs"
+                    >
+                      &times; Close
+                    </button>
+                  </div>
+                  <pre className="text-[11px] font-mono text-white/70 max-h-40 overflow-y-auto custom-scrollbar whitespace-pre-wrap">
+                    {previewContent.text.slice(0, 2000)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SECTION 4: SCHEMA BUILDER */}
+      {activeSection === 'custom' && (
+        <div className="space-y-4 max-w-2xl bg-[#111111] p-6 rounded-xl border border-white/[0.06]">
+          <div>
+            <h3 className="text-sm font-semibold text-white">
+              Custom Survey Schema Builder
+            </h3>
+            <p className="text-xs text-white/40 mt-0.5">
+              Define column headers for custom field instruments, geological logs, or cadastral registers.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newColInput}
+                onChange={e => setNewColInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddCustomColumn()}
+                placeholder="Enter column name (e.g. Soil_Type, Owner_Name)..."
+                className="flex-1 py-1.5 px-3 rounded-lg border border-white/[0.08] bg-white/[0.02] text-white placeholder-white/30 text-xs focus:outline-none focus:border-[#c9a063]"
+              />
+              <button
+                onClick={handleAddCustomColumn}
+                className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.12] text-white text-xs font-medium transition-colors border border-white/[0.08]"
+              >
+                Add Field
+              </button>
             </div>
 
-            {previewContent && (
-              <div className="p-4 bg-[#141414] rounded-xl border border-white/10 space-y-2 mt-2">
-                <div className="flex items-center justify-between border-b border-white/5 pb-1">
-                  <span className="text-xs font-mono text-[#c9a063]">{previewContent.name}</span>
-                  <button onClick={() => setPreviewContent(null)} className="text-white/40 hover:text-white text-xs">
-                    &times; Close
-                  </button>
-                </div>
-                <pre className="text-[11px] font-mono text-white/70 max-h-40 overflow-y-auto custom-scrollbar whitespace-pre-wrap">
-                  {previewContent.text.slice(0, 2000)}
-                </pre>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Template Grid */}
-      <div className="bg-[#0f0f0f] rounded-2xl p-6 sm:p-8 border border-white/5 space-y-6">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-[#c9a063] mb-1 font-medium">Standard Libraries</p>
-            <h3 className="text-xl font-serif italic text-white flex items-center gap-2">
-              Verified Schema Templates
-            </h3>
-            <p className="text-xs text-white/40 mt-1">
-              Engineered with calibrated headers, data dictionaries, and field coordinates.
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {Object.keys(TEMPLATES).map(key => {
-            const t = TEMPLATES[key];
-            return (
-              <div
-                key={key}
-                className="p-5 rounded-2xl border border-white/5 hover:border-[#c9a063]/40 bg-[#141414]/60 transition-all flex flex-col justify-between group"
-              >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-serif italic text-base text-white capitalize group-hover:text-[#c9a063] transition-colors">
-                      {key.replace('_', ' ')}
-                    </h4>
-                    <span className="text-[10px] font-mono text-[#c9a063] px-2 py-0.5 bg-[#c9a063]/10 rounded-full border border-[#c9a063]/25">
-                      {t.cols.length} cols
-                    </span>
-                  </div>
-                  <p className="text-xs text-white/50 leading-relaxed line-clamp-2 font-light">
-                    {t.description}
-                  </p>
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {t.cols.slice(0, 4).map(c => (
-                      <span key={c} className="text-[10px] bg-white/5 px-2 py-0.5 rounded border border-white/5 text-white/60 font-mono">
-                        {c}
-                      </span>
-                    ))}
-                    {t.cols.length > 4 && (
-                      <span className="text-[10px] text-white/30 px-1 font-mono">
-                        +{t.cols.length - 4} more
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="pt-4 flex items-center justify-between border-t border-white/5 mt-4">
-                  <button
-                    onClick={() => handleDownloadSingle(key)}
-                    className="flex items-center gap-2 text-xs font-serif italic text-[#c9a063] hover:text-[#e0ba7e] transition-colors"
-                  >
-                    <Download className="w-3.5 h-3.5" /> Download CSV
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Smart Template Builder */}
-      <div className="bg-[#0f0f0f] rounded-2xl p-6 sm:p-8 border border-white/5 space-y-6">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-[#c9a063] mb-1 font-medium">Custom Generator</p>
-          <h3 className="text-xl font-serif italic text-white flex items-center gap-2">
-            Dynamic Schema Builder
-          </h3>
-          <p className="text-xs text-white/40 mt-1">
-            Synthesize survey schema tailored to proprietary field receivers or laboratory assay suites.
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <input
-              type="text"
-              value={newColInput}
-              onChange={e => setNewColInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAddCustomColumn()}
-              placeholder="Enter attribute column name (e.g. Specific_Gravity, Soil_Type, Owner_Phone)..."
-              className="flex-1 min-w-[260px] py-2.5 px-4 rounded-xl border border-white/10 bg-[#141414] text-white placeholder-white/30 text-sm focus:outline-none focus:border-[#c9a063] focus:ring-1 focus:ring-[#c9a063]/30 transition-all"
-            />
-            <button
-              onClick={handleAddCustomColumn}
-              className="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold uppercase tracking-wider transition-colors border border-white/10"
-            >
-              + Add Column
-            </button>
-          </div>
-
-          {/* Active Columns */}
-          <div className="flex flex-wrap gap-2 p-4 bg-[#141414]/80 rounded-xl border border-white/5 min-h-14 items-center">
-            {customColumns.map(col => (
-              <span
-                key={col}
-                className="inline-flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-lg text-xs font-mono text-white/90 shadow-xs"
-              >
-                {col}
-                <button
-                  onClick={() => handleRemoveCustomColumn(col)}
-                  className="text-white/40 hover:text-rose-400 font-bold ml-1 transition-colors"
+            <div className="flex flex-wrap gap-1.5 p-3 bg-white/[0.02] rounded-lg border border-white/[0.04] min-h-12 items-center">
+              {customColumns.map(col => (
+                <span
+                  key={col}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/[0.04] border border-white/[0.06] rounded-md text-xs font-mono text-white/80"
                 >
-                  &times;
-                </button>
-              </span>
-            ))}
-          </div>
+                  {col}
+                  <button
+                    onClick={() => handleRemoveCustomColumn(col)}
+                    className="text-white/40 hover:text-rose-400 ml-1"
+                  >
+                    &times;
+                  </button>
+                </span>
+              ))}
+            </div>
 
-          <div className="flex items-center justify-between flex-wrap gap-4 pt-3">
-            <label className="flex items-center gap-2.5 text-xs font-medium text-white/60 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={includeSamples}
-                onChange={e => setIncludeSamples(e.target.checked)}
-                className="rounded border-white/20 bg-[#141414] text-[#c9a063] focus:ring-[#c9a063]/30"
-              />
-              Include mock record rows in generated CSV
-            </label>
+            <div className="flex items-center justify-between pt-2">
+              <label className="flex items-center gap-2 text-xs text-white/50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeSamples}
+                  onChange={e => setIncludeSamples(e.target.checked)}
+                  className="rounded border-white/20 bg-[#141414] text-[#c9a063]"
+                />
+                Include sample rows
+              </label>
 
-            <button
-              onClick={handleDownloadCustomTemplate}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#c9a063] hover:bg-[#d6b074] text-black text-xs font-bold uppercase tracking-widest shadow-lg shadow-[#c9a063]/10 transition-all"
-            >
-              <Download className="w-4 h-4" /> Download Configured Schema ({customColumns.length} cols)
-            </button>
+              <button
+                onClick={handleDownloadCustomTemplate}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#c9a063] hover:bg-[#d6b074] text-black text-xs font-semibold transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download CSV ({customColumns.length} fields)
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

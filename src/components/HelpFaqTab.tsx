@@ -6,8 +6,8 @@ export const HelpFaqTab: React.FC = () => {
 
   const faqs = [
     {
-      q: 'Does Geo Studio require an active internet connection to work in remote field sites?',
-      a: 'No. Geo Studio is architected with a 100% offline-first engine. All coordinate conversions (UTM, Indian Grid, Bursa-Wolf 7-parameter), CAD DXF generation, KML rendering, borehole core log composite calculations, and GPS radar rendering run entirely in your local browser memory with zero server telemetry.'
+      q: 'Does BhuNex require an active internet connection to work in remote field sites?',
+      a: 'No. BhuNex is architected with a 100% offline-first engine. All coordinate conversions (UTM, Indian Grid, Bursa-Wolf 7-parameter), CAD DXF generation, KML rendering, borehole core log composite calculations, and GPS radar rendering run entirely in your local browser memory with zero server telemetry.'
     },
     {
       q: 'How do I determine the correct UTM zone for my project in India?',
@@ -19,7 +19,7 @@ export const HelpFaqTab: React.FC = () => {
     },
     {
       q: 'What is the Indian Grid (Kalianpur 1975) LCC system?',
-      a: 'The Survey of India employs Lambert Conformal Conic (LCC 1SP) projections referenced to the Everest 1830 ellipsoid with central origin at Kalianpur. Geo Studio includes verified mathematical parameters for Indian Zones 0, I, IIa, IIb, IIIa, IIIb, IVa, and IVb (EPSG:24375 to 24383), enabling seamless cross-conversion with modern WGS84 GPS measurements.'
+      a: 'The Survey of India employs Lambert Conformal Conic (LCC 1SP) projections referenced to the Everest 1830 ellipsoid with central origin at Kalianpur. BhuNex includes verified mathematical parameters for Indian Zones 0, I, IIa, IIb, IIIa, IIIb, IVa, and IVb (EPSG:24375 to 24383), enabling seamless cross-conversion with modern WGS84 GPS measurements.'
     },
     {
       q: 'How does the Borehole Compositor calculate ore vs. waste intercepts?',
@@ -27,7 +27,7 @@ export const HelpFaqTab: React.FC = () => {
     },
     {
       q: 'How do Regional Land Units work (Bigha, Katha, Dhur, Dismil)?',
-      a: 'In India, traditional revenue records express parcel areas in local units. In Bihar and Jharkhand, 1 Bigha equals 20 Katha (27,225 sq ft = 2,529.29 m²), and 1 Dismil equals 435.6 sq ft. In West Bengal and Assam, 1 Bigha equals 14,400 sq ft (1,337.80 m²). Geo Studio supports automatic conversion into these regional units simultaneously with standard Hectares and Acres.'
+      a: 'In India, traditional revenue records express parcel areas in local units. In Bihar and Jharkhand, 1 Bigha equals 20 Katha (27,225 sq ft = 2,529.29 m²), and 1 Dismil equals 435.6 sq ft. In West Bengal and Assam, 1 Bigha equals 14,400 sq ft (1,337.80 m²). BhuNex supports automatic conversion into these regional units simultaneously with standard Hectares and Acres.'
     }
   ];
 

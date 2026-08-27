@@ -35,7 +35,14 @@ import {
   Building2,
   UserCheck,
   Map as MapIcon,
-  Navigation as NavArrow
+  Navigation as NavArrow,
+  Wifi,
+  WifiOff,
+  Globe,
+  Radio,
+  Sparkles,
+  Activity,
+  AlertCircle
 } from 'lucide-react';
 import { PhotoLandmark, LandmarkMeasurement, GeoFeature } from '../types';
 import { lonLatToUtm, utmToLonLat, mgrsFromLonLat, encodePlusCode } from '../lib/geodesy';
@@ -45,6 +52,14 @@ import {
   buildPhotoLandmarksZip,
   toCSVtext
 } from '../lib/formats';
+import {
+  fetchLiveEnvironmentalReport,
+  calculateEdmAtmosphericCorrection,
+  calculateSolarEphemeris,
+  FullEnvironmentalReport
+} from '../lib/openSurveyData';
+import { calculateMagneticDeclination } from '../lib/geomagnetism';
+import { CameraPipMap } from './CameraPipMap';
 
 interface CameraLandmarkStudioProps {
   workingZone: string;
@@ -96,6 +111,7 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const logoImgRef = useRef<HTMLImageElement | null>(null);
+  const pipCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Camera State
   const [cameraActive, setCameraActive] = useState<boolean>(false);
@@ -121,6 +137,19 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
   const [roll, setRoll] = useState<number>(-0.5);
   const [gpsActive, setGpsActive] = useState<boolean>(false);
   const [sensorActive, setSensorActive] = useState<boolean>(false);
+
+  // Online / Offline & Open Internet Data State
+  const [isOnline, setIsOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [autoFetchOnline, setAutoFetchOnline] = useState<boolean>(true);
+  const [isFetchingOnline, setIsFetchingOnline] = useState<boolean>(false);
+  const [lastOnlineFetchTime, setLastOnlineFetchTime] = useState<string | null>(null);
+  const [addressLocality, setAddressLocality] = useState<string>('Khunti District, Jharkhand, India');
+  const [solarAzimuth, setSolarAzimuth] = useState<number>(128.4);
+  const [solarElevation, setSolarElevation] = useState<number>(54.2);
+  const [kpIndex, setKpIndex] = useState<number>(2.1);
+  const [kpCategory, setKpCategory] = useState<string>('Quiet (Nominal RTK)');
+  const [edmPpm, setEdmPpm] = useState<number>(-12.4);
+  const [isLiveTelemetryActive, setIsLiveTelemetryActive] = useState<boolean>(true);
 
   // Environmental & Weather State (GPS Map Camera Feature)
   const [weatherCondition, setWeatherCondition] = useState<string>('Clear / Sunny');
@@ -301,7 +330,73 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
     }
   };
 
-  // 2. Real-time GPS & Orientation Sensors
+  // 2. Real-time GPS, Orientation Sensors & Environmental Telemetry
+  const syncEnvironmentalTelemetry = async (targetLat = lat, targetLon = lon, targetAlt = altitude, force = false) => {
+    const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    setIsOnline(online);
+
+    if (!online || (!autoFetchOnline && !force)) {
+      // Offline fallback: Use standard geodetic & geomagnetic models
+      const mag = calculateMagneticDeclination(targetLat, targetLon, targetAlt);
+      setMagneticDeclination(mag.declinationDegrees);
+      setMagneticFieldUt(mag.totalIntensityNanoTesla / 1000);
+
+      const stdTemp = 20 - (targetAlt / 1000) * 6.5;
+      const stdPress = 1013.25 * Math.pow(1 - 0.0065 * (targetAlt / 288.15), 5.255);
+      const edm = calculateEdmAtmosphericCorrection(stdTemp, stdPress, 50);
+      const solar = calculateSolarEphemeris(targetLat, targetLon, targetAlt);
+
+      setTempC(Math.round(stdTemp * 10) / 10);
+      setPressureHpa(Math.round(stdPress * 10) / 10);
+      setHumidity(50);
+      setSolarAzimuth(solar.solarAzimuthDeg);
+      setSolarElevation(solar.solarElevationDeg);
+      setEdmPpm(edm.ppmCorrection);
+      setKpIndex(2.0);
+      setKpCategory('Nominal (Offline Geomagnetic Model)');
+      setIsLiveTelemetryActive(false);
+      return;
+    }
+
+    setIsFetchingOnline(true);
+    try {
+      const mag = calculateMagneticDeclination(targetLat, targetLon, targetAlt);
+      setMagneticDeclination(mag.declinationDegrees);
+      setMagneticFieldUt(mag.totalIntensityNanoTesla / 1000);
+
+      const report = await fetchLiveEnvironmentalReport(targetLat, targetLon, targetAlt);
+      if (report) {
+        setWeatherCondition(report.atmosphere.weatherDescription);
+        setTempC(report.atmosphere.temperatureC);
+        setHumidity(report.atmosphere.relativeHumidityPercent);
+        setWindKmh(report.atmosphere.windSpeedKmh);
+        setWindDir(report.atmosphere.windCardinal);
+        setPressureHpa(report.atmosphere.surfacePressureHpa);
+        setSolarAzimuth(report.solar.solarAzimuthDeg);
+        setSolarElevation(report.solar.solarElevationDeg);
+        setKpIndex(report.spaceWeather.kpIndex);
+        setKpCategory(`${report.spaceWeather.stormCategory} (${report.spaceWeather.gnssImpactLevel})`);
+        setEdmPpm(report.edmCorrection.ppmCorrection);
+        if (report.location) {
+          const locStr = [
+            report.location.villageOrSubdistrict,
+            report.location.district,
+            report.location.state,
+            report.location.country
+          ].filter(Boolean).join(', ');
+          if (locStr) setAddressLocality(locStr);
+        }
+        setIsLiveTelemetryActive(report.isLive);
+        setLastOnlineFetchTime(new Date().toLocaleTimeString());
+      }
+    } catch (err) {
+      console.warn('Live telemetry fetch error:', err);
+      setIsLiveTelemetryActive(false);
+    } finally {
+      setIsFetchingOnline(false);
+    }
+  };
+
   useEffect(() => {
     let watchId: number | null = null;
     if (navigator.geolocation) {
@@ -338,14 +433,43 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
       setSensorActive(true);
     };
 
+    const handleOnline = () => {
+      setIsOnline(true);
+      if (autoFetchOnline) {
+        syncEnvironmentalTelemetry(lat, lon, altitude, true);
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setIsLiveTelemetryActive(false);
+    };
+
     window.addEventListener('deviceorientation', handleOrientation, true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Initial environmental telemetry calculation
+    syncEnvironmentalTelemetry(lat, lon, altitude);
 
     return () => {
       if (watchId != null) navigator.geolocation.clearWatch(watchId);
       window.removeEventListener('deviceorientation', handleOrientation, true);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       stopCamera();
     };
   }, []);
+
+  // Debounced auto-fetch on significant location changes
+  useEffect(() => {
+    if (autoFetchOnline && isOnline) {
+      const timer = setTimeout(() => {
+        syncEnvironmentalTelemetry(lat, lon, altitude);
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [lat, lon, autoFetchOnline, isOnline]);
 
   // Calculate UTM, MGRS, Plus Code on the fly
   const currentUtm = useMemo(() => {
@@ -455,52 +579,8 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
       ctx.fillText('Multi-Sensor Watermarking • Tamper-Evident Geodetic Integrity Stamp • PIP Vector Map Inset', width / 2, height / 2 + 15);
     }
 
-    // Render Reticle
-    if (reticleMode === 'crosshair' || reticleMode === 'stadia') {
-      const cx = width / 2;
-      const cy = height / 2;
-      ctx.strokeStyle = '#c9a063';
-      ctx.lineWidth = 2.5;
-
-      ctx.beginPath();
-      ctx.arc(cx, cy, 60, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(cx - 100, cy);
-      ctx.lineTo(cx - 20, cy);
-      ctx.moveTo(cx + 20, cy);
-      ctx.lineTo(cx + 100, cy);
-      ctx.moveTo(cx, cy - 100);
-      ctx.lineTo(cx, cy - 20);
-      ctx.moveTo(cx, cy + 20);
-      ctx.lineTo(cx, cy + 100);
-      ctx.stroke();
-
-      if (reticleMode === 'stadia') {
-        ctx.lineWidth = 2;
-        [-40, 40].forEach(dy => {
-          ctx.beginPath();
-          ctx.moveTo(cx - 30, cy + dy);
-          ctx.lineTo(cx + 30, cy + dy);
-          ctx.stroke();
-        });
-      }
-    } else if (reticleMode === 'horizon') {
-      const cx = width / 2;
-      const cy = height / 2;
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate((-roll * Math.PI) / 180);
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = 3;
-      ctx.setLineDash([12, 8]);
-      ctx.beginPath();
-      ctx.moveTo(-width / 3, 0);
-      ctx.lineTo(width / 3, 0);
-      ctx.stroke();
-      ctx.restore();
-    }
+    // Note: Live Viewfinder displays reticle/horizon for surveyor alignment,
+    // but crosshairs are intentionally bypassed in the captured image as requested.
 
     // Render Measurements
     activeMeasurements.forEach(m => {
@@ -535,83 +615,67 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
       ctx.fillText(m.valueLabel, midX, midY);
     });
 
-    // Draw PIP Thumbnail Map Inset in Corner (Avenza / GPS Map Camera feature)
+    // Draw PIP Thumbnail Map Inset in Corner (Slippy Map Tiles / Geodetic Radar)
     if (showMapInset) {
-      const mapW = 240;
-      const mapH = 160;
+      const mapW = 260;
+      const mapH = 180;
       const mapX = width - mapW - 32;
       const mapY = 32;
 
       ctx.save();
-      // Map container box
-      ctx.fillStyle = mapInsetStyle === 'satellite' ? 'rgba(10, 15, 25, 0.92)' : 'rgba(240, 243, 246, 0.95)';
-      ctx.fillRect(mapX, mapY, mapW, mapH);
-      ctx.strokeStyle = '#c9a063';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(mapX, mapY, mapW, mapH);
+      if (pipCanvasRef.current && pipCanvasRef.current.width > 0) {
+        // Draw real live slippy map tile / tactical PiP snapshot
+        ctx.drawImage(pipCanvasRef.current, mapX, mapY, mapW, mapH);
+        ctx.strokeStyle = '#c9a063';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(mapX, mapY, mapW, mapH);
+      } else {
+        // Fallback geodetic radar box
+        ctx.fillStyle = mapInsetStyle === 'satellite' ? 'rgba(10, 15, 25, 0.92)' : 'rgba(240, 243, 246, 0.95)';
+        ctx.fillRect(mapX, mapY, mapW, mapH);
+        ctx.strokeStyle = '#c9a063';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(mapX, mapY, mapW, mapH);
 
-      // Simulated roads and terrain contours
-      ctx.beginPath();
-      ctx.strokeStyle = mapInsetStyle === 'satellite' ? '#1e293b' : '#cbd5e1';
-      ctx.lineWidth = 1.5;
-      for (let i = 20; i < mapW; i += 35) {
-        ctx.moveTo(mapX + i, mapY);
-        ctx.lineTo(mapX + i, mapY + mapH);
+        // Vector grid lines
+        ctx.beginPath();
+        ctx.strokeStyle = mapInsetStyle === 'satellite' ? '#1e293b' : '#cbd5e1';
+        ctx.lineWidth = 1.5;
+        for (let i = 20; i < mapW; i += 35) {
+          ctx.moveTo(mapX + i, mapY);
+          ctx.lineTo(mapX + i, mapY + mapH);
+        }
+        for (let j = 20; j < mapH; j += 35) {
+          ctx.moveTo(mapX, mapY + j);
+          ctx.lineTo(mapX + mapW, mapY + j);
+        }
+        ctx.stroke();
+
+        const mapCx = mapX + mapW / 2;
+        const mapCy = mapY + mapH / 2;
+
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.3)';
+        ctx.beginPath();
+        ctx.arc(mapCx, mapCy, 16, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#3b82f6';
+        ctx.beginPath();
+        ctx.arc(mapCx, mapCy, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        const hdgRad = ((azimuth - 90) * Math.PI) / 180;
+        ctx.strokeStyle = '#c9a063';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(mapCx, mapCy);
+        ctx.lineTo(mapCx + Math.cos(hdgRad) * 22, mapCy + Math.sin(hdgRad) * 22);
+        ctx.stroke();
+
+        ctx.fillStyle = '#c9a063';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillText('N ▲', mapX + mapW - 24, mapY + 18);
       }
-      for (let j = 20; j < mapH; j += 35) {
-        ctx.moveTo(mapX, mapY + j);
-        ctx.lineTo(mapX + mapW, mapY + j);
-      }
-      ctx.stroke();
-
-      // Road lines
-      ctx.beginPath();
-      ctx.strokeStyle = mapInsetStyle === 'satellite' ? '#475569' : '#94a3b8';
-      ctx.lineWidth = 3;
-      ctx.moveTo(mapX, mapY + mapH * 0.4);
-      ctx.bezierCurveTo(mapX + 80, mapY + 30, mapX + 160, mapY + 120, mapX + mapW, mapY + 90);
-      ctx.stroke();
-
-      // Center crosshair / blue dot
-      const mapCx = mapX + mapW / 2;
-      const mapCy = mapY + mapH / 2;
-
-      // Pulsing blue dot
-      ctx.fillStyle = 'rgba(59, 130, 246, 0.3)';
-      ctx.beginPath();
-      ctx.arc(mapCx, mapCy, 16, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#3b82f6';
-      ctx.beginPath();
-      ctx.arc(mapCx, mapCy, 6, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      // Heading vector arrow on map
-      const hdgRad = ((azimuth - 90) * Math.PI) / 180;
-      ctx.strokeStyle = '#c9a063';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(mapCx, mapCy);
-      ctx.lineTo(mapCx + Math.cos(hdgRad) * 22, mapCy + Math.sin(hdgRad) * 22);
-      ctx.stroke();
-
-      // North indicator on map
-      ctx.fillStyle = '#c9a063';
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillText('N ▲', mapX + mapW - 24, mapY + 18);
-
-      // Map scale badge
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(mapX + 6, mapY + mapH - 22, 90, 16);
-      ctx.fillStyle = '#fff';
-      ctx.font = '9px monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText('SCALE 1:5,000', mapX + 10, mapY + mapH - 10);
       ctx.restore();
     }
 
@@ -683,7 +747,7 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
         // Col 3: Environmental & Weather Sensors (GPS Map Camera feature)
         ctx.fillStyle = '#c9a063';
         ctx.font = 'bold 13px sans-serif';
-        ctx.fillText('WEATHER & SENSORS', col3, height - hudH + 62);
+        ctx.fillText(`WEATHER & SENSORS [${isLiveTelemetryActive ? 'LIVE ONLINE' : 'OFFLINE ISA'}]`, col3, height - hudH + 62);
         ctx.fillStyle = '#ffffff';
         ctx.font = '13px monospace';
         ctx.fillText(`WEATHER: ${weatherCondition} | TEMP: ${tempC.toFixed(1)}°C (${((tempC * 9/5) + 32).toFixed(1)}°F)`, col3, height - hudH + 86);
@@ -691,19 +755,19 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
         ctx.fillText(`WIND: ${windKmh} km/h ${windDir} | MAG FIELD: ${magneticFieldUt.toFixed(1)} μT`, col3, height - hudH + 134);
         ctx.fillStyle = '#94a3b8';
         ctx.font = '12px sans-serif';
-        ctx.fillText(`MAG DECLINATION: ${magneticDeclination >= 0 ? '+' : ''}${magneticDeclination.toFixed(2)}° E | COMPASS: ${azimuth.toFixed(1)}° ${card}`, col3, height - hudH + 156);
+        ctx.fillText(`MAG DECL: ${magneticDeclination >= 0 ? '+' : ''}${magneticDeclination.toFixed(2)}° E | COMPASS: ${azimuth.toFixed(1)}° ${card}`, col3, height - hudH + 156);
 
-        // Col 4: Photogrammetry Rangefinder & Notes
+        // Col 4: Photogrammetry Rangefinder, Solar & Space Weather
         ctx.fillStyle = '#c9a063';
         ctx.font = 'bold 13px sans-serif';
-        ctx.fillText('PHOTOGRAMMETRY & NOTES', col4, height - hudH + 62);
+        ctx.fillText('SPACE WEATHER, SOLAR & NOTES', col4, height - hudH + 62);
         ctx.fillStyle = '#ffffff';
         ctx.font = '13px monospace';
-        ctx.fillText(`TARGET DIST: ${targetDistance}m | SLOPE: ${(Math.tan((pitch * Math.PI) / 180) * 100).toFixed(1)}%`, col4, height - hudH + 86);
-        ctx.fillText(`CALC HEIGHT: ${calcTrigHeight.totalH.toFixed(2)}m (Δh: ${calcTrigHeight.deltaH.toFixed(2)}m)`, col4, height - hudH + 110);
+        ctx.fillText(`SUN: Az ${solarAzimuth.toFixed(1)}° El ${solarElevation.toFixed(1)}° | Kp: ${kpIndex.toFixed(1)}`, col4, height - hudH + 86);
+        ctx.fillText(`EDM PPM: ${edmPpm.toFixed(1)} ppm | TARGET DIST: ${targetDistance}m`, col4, height - hudH + 110);
         ctx.fillStyle = '#cbd5e1';
         ctx.font = '12px sans-serif';
-        ctx.fillText(`NOTE: ${(notes || 'Survey inspection').slice(0, 38)}`, col4, height - hudH + 134);
+        ctx.fillText(`LOC: ${addressLocality.slice(0, 36)}`, col4, height - hudH + 134);
         ctx.fillStyle = '#38bdf8';
         ctx.fillText(`${hashtags.slice(0, 42)}`, col4, height - hudH + 156);
       } else if (stampTemplate === 'corner_stamp') {
@@ -787,6 +851,12 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
       windKmh,
       pressureHpa,
       magneticDeclination,
+      addressLocality,
+      solarAzimuthDeg: solarAzimuth,
+      solarElevationDeg: solarElevation,
+      kpIndex,
+      edmPpmCorrection: edmPpm,
+      isOnlineSync: isLiveTelemetryActive,
       integrityHash: currentIntegrityHash,
       brandLogoUrl: brandLogoUrl || undefined
     };
@@ -960,7 +1030,7 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Viewfinder Frame (Col 1 & 2) */}
           <div className="lg:col-span-2 space-y-4">
-            <div className="relative aspect-[16/9] sm:aspect-[4/3] bg-black rounded-2xl overflow-hidden border border-white/10 shadow-2xl flex items-center justify-center">
+            <div className="camera-viewfinder-container relative aspect-[16/9] sm:aspect-[4/3] bg-black rounded-2xl overflow-hidden border border-white/10 shadow-2xl flex items-center justify-center">
               <video
                 ref={videoRef}
                 autoPlay
@@ -997,7 +1067,7 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
 
               {/* Viewfinder Overlays */}
               <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 sm:p-6">
-                {/* Top Badges */}
+                {/* Live Top Badges & Heading */}
                 <div className="flex items-start justify-between">
                   <div className="bg-black/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 text-[11px] font-mono text-white flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -1015,6 +1085,24 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
                     <span className="text-amber-400">{tempC}°C {weatherCondition}</span>
                   </div>
                 </div>
+
+                {/* Interactive Live PiP Map Inset (when enabled) */}
+                {showMapInset && (
+                  <div className="self-end my-2 pointer-events-auto z-20">
+                    <CameraPipMap
+                      lat={lat}
+                      lon={lon}
+                      azimuth={azimuth}
+                      accuracy={accuracy}
+                      isOnline={isOnline}
+                      workingZone={workingZone}
+                      onClose={() => setShowMapInset(false)}
+                      onCanvasReady={cv => {
+                        pipCanvasRef.current = cv;
+                      }}
+                    />
+                  </div>
+                )}
 
                 {/* Reticles */}
                 {reticleMode === 'crosshair' && (
@@ -1235,12 +1323,75 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
               </div>
             </div>
 
-            {/* Weather & Environmental Sensors */}
+            {/* Weather & Environmental Sensors with Online/Offline Telemetry */}
             <div className="bg-[#0f0f0f] p-4 sm:p-5 rounded-2xl border border-white/5 space-y-3">
-              <h4 className="text-xs font-serif italic text-white flex items-center gap-1.5">
-                <Sun className="w-4 h-4 text-amber-400" />
-                Weather & Sensor Overlays
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-serif italic text-white flex items-center gap-1.5">
+                  <Sun className="w-4 h-4 text-amber-400" />
+                  Live Open Weather & Space Sensors
+                </h4>
+                <div className="flex items-center gap-2">
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono ${
+                    isOnline && isLiveTelemetryActive
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                  }`}>
+                    {isOnline && isLiveTelemetryActive ? (
+                      <>
+                        <Wifi className="w-3 h-3 text-emerald-400" />
+                        Live Online
+                      </>
+                    ) : (
+                      <>
+                        <WifiOff className="w-3 h-3 text-amber-400" />
+                        Offline Fallback
+                      </>
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* Online Fetch Action Bar */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#141414] border border-white/10">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => syncEnvironmentalTelemetry(lat, lon, altitude, true)}
+                    disabled={isFetchingOnline}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#c9a063] text-black font-semibold text-xs hover:bg-[#dfb67a] disabled:opacity-50 transition-colors"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isFetchingOnline ? 'animate-spin' : ''}`} />
+                    {isFetchingOnline ? 'Fetching...' : 'Fetch Live Geodata'}
+                  </button>
+                  <label className="flex items-center gap-1.5 text-white/70 text-[11px] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoFetchOnline}
+                      onChange={e => setAutoFetchOnline(e.target.checked)}
+                      className="rounded bg-black border-white/20 text-[#c9a063] focus:ring-0"
+                    />
+                    Auto-Sync
+                  </label>
+                </div>
+                {lastOnlineFetchTime && (
+                  <span className="text-[10px] text-white/40 font-mono">
+                    Synced: {lastOnlineFetchTime}
+                  </span>
+                )}
+              </div>
+
+              {/* Address Locality (Reverse Geocoded) */}
+              <div>
+                <label className="block text-white/50 text-[11px] mb-1">Locality (Reverse Geocoded)</label>
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 bg-[#141414] text-white/90 text-xs">
+                  <Globe className="w-3.5 h-3.5 text-[#c9a063] shrink-0" />
+                  <input
+                    type="text"
+                    value={addressLocality}
+                    onChange={e => setAddressLocality(e.target.value)}
+                    className="w-full bg-transparent outline-none text-xs text-white"
+                  />
+                </div>
+              </div>
 
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
@@ -1278,6 +1429,43 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
                     onChange={e => setWindKmh(parseFloat(e.target.value) || 0)}
                     className="w-full py-1.5 px-2.5 rounded-lg border border-white/10 bg-[#141414] text-white text-xs"
                   />
+                </div>
+                <div>
+                  <label className="block text-white/50 text-[11px] mb-1">Barometer (hPa)</label>
+                  <input
+                    type="number"
+                    value={pressureHpa}
+                    onChange={e => setPressureHpa(parseFloat(e.target.value) || 1013.25)}
+                    className="w-full py-1.5 px-2.5 rounded-lg border border-white/10 bg-[#141414] text-white text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-white/50 text-[11px] mb-1">EDM PPM Correction</label>
+                  <div className="w-full py-1.5 px-2.5 rounded-lg border border-white/10 bg-[#141414] text-[#c9a063] font-mono text-xs">
+                    {edmPpm.toFixed(1)} ppm
+                  </div>
+                </div>
+              </div>
+
+              {/* Space Weather & Solar Position Telemetry Cards */}
+              <div className="grid grid-cols-2 gap-2 pt-1 text-[11px]">
+                <div className="p-2 rounded-xl bg-[#141414] border border-white/5">
+                  <div className="text-white/40 text-[10px] flex items-center gap-1">
+                    <Sun className="w-3 h-3 text-amber-400" />
+                    Solar Ephemeris
+                  </div>
+                  <div className="font-mono text-white text-xs mt-0.5">
+                    Az: {solarAzimuth.toFixed(1)}° | El: {solarElevation.toFixed(1)}°
+                  </div>
+                </div>
+                <div className="p-2 rounded-xl bg-[#141414] border border-white/5">
+                  <div className="text-white/40 text-[10px] flex items-center gap-1">
+                    <Activity className="w-3 h-3 text-cyan-400" />
+                    Space Weather (NOAA)
+                  </div>
+                  <div className="font-mono text-cyan-300 text-xs mt-0.5">
+                    Kp: {kpIndex.toFixed(1)} • {kpCategory.slice(0, 14)}
+                  </div>
                 </div>
               </div>
 

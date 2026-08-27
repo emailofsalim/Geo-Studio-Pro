@@ -53,6 +53,15 @@ import {
 import { downloadBlob } from '../lib/zip';
 import { toCSVtext, csvEnc, dxfBuild } from '../lib/formats';
 import { proximityAudio, ProximitySoundProfile } from '../lib/audioAlerts';
+import {
+  triggerWaypointAddedHaptic,
+  triggerProximityAlertHaptic,
+  isVibrationSupported,
+  triggerHaptic,
+  HAPTIC_PATTERNS
+} from '../lib/haptics';
+import { deduplicateSurveyWaypoints } from '../lib/deduplication';
+import { useToast } from '../context/ToastContext';
 
 interface GpsSurveyorTabProps {
   workingZone: string;
@@ -172,6 +181,8 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   onSendToCalculator,
   onSendToOffset
 }) => {
+  const toast = useToast();
+
   // Active Tab: 'cockpit' | 'averaging' | 'navigation' | 'trip' | 'satellites' | 'waypoints'
   const [subTab, setSubTab] = useState<'cockpit' | 'averaging' | 'navigation' | 'trip' | 'satellites' | 'waypoints'>('cockpit');
 
@@ -324,7 +335,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     setTestSoundPlaying(true);
     proximityAudio.playProximityChime(proximitySettings.soundProfile, proximitySettings.volume);
     if (proximitySettings.vibrate) {
-      proximityAudio.triggerHaptic([120, 50, 120]);
+      triggerProximityAlertHaptic('critical');
     }
     setTimeout(() => setTestSoundPlaying(false), 700);
   };
@@ -526,7 +537,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
               lastAlarmTimeMapRef.current[wp.id] = now;
               proximityAudio.playProximityChime(proximitySettings.soundProfile, proximitySettings.volume);
               if (proximitySettings.vibrate) {
-                proximityAudio.triggerHaptic([150, 60, 150]);
+                triggerProximityAlertHaptic('warning');
               }
             }
           }
@@ -593,7 +604,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
         if (!insideWpIdsRef.current.has(navTargetId)) {
           proximityAudio.playProximityChime(proximitySettings.soundProfile, proximitySettings.volume);
           if (proximitySettings.vibrate) {
-            proximityAudio.triggerHaptic([200, 100, 200]);
+            triggerHaptic(HAPTIC_PATTERNS.TARGET_LOCKED);
           }
         }
       }
@@ -974,6 +985,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     };
 
     setWaypoints(prev => [...prev, newWp]);
+    triggerWaypointAddedHaptic();
     setSubTab('waypoints');
     const m = ptId.match(/^(.*?)(\d+)$/);
     if (m) {
@@ -990,21 +1002,55 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     if (!isStreaming) toggleStream();
   };
 
+  // Deduplicate Waypoints Engine
+  const handleDeduplicateWaypoints = () => {
+    if (waypoints.length === 0) {
+      toast.showWarning('No waypoints in registry to deduplicate.');
+      return;
+    }
+    const { cleanWaypoints, summary } = deduplicateSurveyWaypoints(waypoints, 0.1);
+
+    setWaypoints(cleanWaypoints);
+    try {
+      localStorage.setItem('gs_waypoints_v2', JSON.stringify(cleanWaypoints));
+    } catch {}
+
+    if (summary.removedCount > 0) {
+      toast.showSuccess(
+        `Deduplication complete: Removed ${summary.removedCount} duplicate waypoint(s). (${cleanWaypoints.length} active in registry)`
+      );
+    } else {
+      toast.showInfo('Waypoint registry is clean. Zero duplicate waypoints found.');
+    }
+  };
+
   // Export handlers
   const handleExportCSV = () => {
-    if (!waypoints.length) return;
+    if (!waypoints.length) {
+      toast.showWarning('No waypoints in registry to export.');
+      return;
+    }
     const cols = ['Point_ID', 'Feature_Code', 'Easting', 'Northing', 'Elevation_Z', 'Latitude', 'Longitude', 'Accuracy_CEP95_m', 'Zone', 'Remarks'];
     const rows = waypoints.map(w => [w.id, w.code, w.E.toFixed(3), w.N.toFixed(3), w.Z.toFixed(2), w.lat.toFixed(8), w.lon.toFixed(8), (w.acc || 0).toFixed(2), w.zone, w.remarks || '']);
     downloadBlob(csvEnc(toCSVtext(cols, rows)), 'gps_survey_waypoints.csv', 'text/csv;charset=utf-8');
+    toast.showSuccess(`Exported ${waypoints.length} waypoints to CSV`);
   };
 
   const handleExportGPX = () => {
+    if (!waypoints.length && !trackPoints.length) {
+      toast.showWarning('No waypoints or tracks recorded to export.');
+      return;
+    }
     const gpx = exportToGPX(waypoints, trackName, trackPoints);
     downloadBlob(new TextEncoder().encode(gpx), `${trackName || 'GeoStudio'}.gpx`, 'application/gpx+xml');
+    toast.showSuccess(`Exported GPX file with ${waypoints.length} waypoints & ${trackPoints.length} track points`);
   };
 
   const handleExportDXF = () => {
-    if (!waypoints.length) return;
+    if (!waypoints.length) {
+      toast.showWarning('No waypoints in registry to export.');
+      return;
+    }
     const feats = waypoints.map(w => ({
       name: `${w.id} (${w.code})`,
       geom: 'point' as const,
@@ -1014,10 +1060,14 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     }));
     const res = dxfBuild(feats, 'utm', zNum, isSouth, true);
     downloadBlob(new TextEncoder().encode(res.dxf), 'gps_survey_points.dxf', 'application/dxf');
+    toast.showSuccess(`Exported ${waypoints.length} waypoints to DXF CAD format`);
   };
 
   const handleSendToGisAction = () => {
-    if (!waypoints.length) return;
+    if (!waypoints.length) {
+      toast.showWarning('No waypoints in registry to send to GIS.');
+      return;
+    }
     const features: GeoFeature[] = waypoints.map(wp => ({
       name: wp.id,
       geom: 'point',
@@ -1050,19 +1100,28 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
         };
         const existing = JSON.parse(localStorage.getItem('gis_studio_layers') || '[]');
         localStorage.setItem('gis_studio_layers', JSON.stringify([newLayer, ...existing]));
-      } catch {}
+        toast.showSuccess(`Transferred ${waypoints.length} waypoints into GIS Map Studio layers`);
+      } catch (e: any) {
+        toast.showError(`Failed to transfer layer: ${e.message}`);
+      }
     }
   };
 
   const handleSendToCalcAction = () => {
-    if (!waypoints.length) return;
+    if (!waypoints.length) {
+      toast.showWarning('No waypoints in registry to send.');
+      return;
+    }
     const csv = waypoints.map(w => `${w.id}, ${w.E.toFixed(3)}, ${w.N.toFixed(3)}, ${w.Z.toFixed(2)}`).join('\n');
     if (onSendToCalculator) {
       onSendToCalculator(csv);
     } else {
       try {
         localStorage.setItem('calc_import_csv', csv);
-      } catch {}
+        toast.showSuccess(`Transferred ${waypoints.length} coordinates to Survey Calculator`);
+      } catch (e: any) {
+        toast.showError(`Failed to transfer to calculator: ${e.message}`);
+      }
     }
   };
 
@@ -1363,7 +1422,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                 <button
                   onClick={() => {
                     if (!currentPos) {
-                      alert('Take a GPS fix or live stream first!');
+                      toast.showWarning('Please take a GPS fix or start live streaming first!');
                       return;
                     }
                     const newWp: SurveyWaypoint = {
@@ -1382,6 +1441,8 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                       alarmDisabled: false
                     };
                     setWaypoints(prev => [...prev, newWp]);
+                    triggerWaypointAddedHaptic();
+                    toast.showSuccess(`Logged waypoint ${newWp.id} (${newWp.code}) to registry`);
                     const m = wpId.match(/^(.*?)(\d+)$/);
                     if (m) {
                       const nextNum = parseInt(m[2], 10) + 1;
@@ -1999,7 +2060,18 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
 
                   <div className="space-y-2 pt-1">
                     <label className="flex items-center justify-between cursor-pointer">
-                      <span className="text-white/70 text-[11px]">Haptic Vibration Pulse</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-white/70 text-[11px]">Haptic Vibration Pulse</span>
+                        {isVibrationSupported() ? (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-mono">
+                            Mobile Active
+                          </span>
+                        ) : (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-white/5 text-white/40 font-mono">
+                            Device Emulated
+                          </span>
+                        )}
+                      </div>
                       <input
                         type="checkbox"
                         checked={proximitySettings.vibrate}
@@ -2007,6 +2079,19 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                         className="accent-[#c9a063] rounded"
                       />
                     </label>
+
+                    {proximitySettings.vibrate && (
+                      <div className="flex items-center justify-end">
+                        <button
+                          type="button"
+                          onClick={() => triggerProximityAlertHaptic('critical')}
+                          className="px-2 py-1 rounded bg-[#c9a063]/10 hover:bg-[#c9a063]/20 text-[#c9a063] text-[10px] font-medium border border-[#c9a063]/30 transition-all flex items-center gap-1 active:scale-95"
+                        >
+                          <Activity className="w-3 h-3" />
+                          Test Haptic Pulse
+                        </button>
+                      </div>
+                    )}
 
                     <label className="flex items-center justify-between cursor-pointer">
                       <span className="text-white/70 text-[11px]">Floating Banner HUD</span>
@@ -2252,6 +2337,15 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleDeduplicateWaypoints}
+                disabled={waypoints.length === 0}
+                className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-semibold rounded-xl border border-emerald-500/30 flex items-center gap-1.5 disabled:opacity-40 transition-all"
+                title="Remove duplicate waypoints by spatial tolerance and ID"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Clean Duplicates
+              </button>
               <button
                 onClick={handleSendToGisAction}
                 disabled={waypoints.length === 0}

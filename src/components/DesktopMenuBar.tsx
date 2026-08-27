@@ -15,8 +15,6 @@ import {
   Search,
   Moon,
   Sun,
-  ShieldCheck,
-  Compass,
   Sparkles,
   Maximize2,
   Minimize2,
@@ -28,9 +26,8 @@ import {
   ShieldAlert,
   ChevronDown,
   Crosshair,
-  Radio,
-  Sliders,
-  Check
+  Check,
+  Info
 } from 'lucide-react';
 import { AppTabId, APPS_CONFIG } from './Navigation';
 
@@ -48,6 +45,7 @@ interface DesktopMenuBarProps {
   openShortcuts: () => void;
   openTour: () => void;
   openAiModal: () => void;
+  openAbout?: () => void;
   onExportProject: () => void;
   onImportProject: (file: File) => void;
   onClearAllData: () => void;
@@ -68,17 +66,17 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
   openShortcuts,
   openTour,
   openAiModal,
+  openAbout,
   onExportProject,
   onImportProject,
-  onClearAllData,
-  hasGpsFix = false
+  onClearAllData
 }) => {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuBarRef = useRef<HTMLDivElement>(null);
 
-  // Close menus when clicking outside
+  // Close menus on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuBarRef.current && !menuBarRef.current.contains(e.target as Node)) {
@@ -109,68 +107,74 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
   ];
 
   return (
-    <div ref={menuBarRef} className="hidden md:flex flex-col bg-[#0d0d0d] border-b border-white/10 select-none z-30">
-      {/* 1. Desktop Window Top Bar & Dropdown Menu */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#080808] border-b border-white/5 text-xs text-white/80">
-        {/* Left: App Brand & Desktop Menu Items */}
-        <div className="flex items-center gap-1">
-          <div className="flex items-center gap-2 px-2.5 py-1 mr-2 rounded bg-white/5 border border-white/10">
-            <Crosshair className="w-3.5 h-3.5 text-[#c9a063] animate-pulse" />
-            <span className="font-serif italic font-bold text-white tracking-tight">GeoStudio Pro</span>
-            <span className="text-[9px] font-mono uppercase px-1.5 py-0.2 bg-[#c9a063]/20 text-[#c9a063] rounded border border-[#c9a063]/40">
-              v4.8.2 Geomatics
-            </span>
+    <header
+      ref={menuBarRef}
+      className="hidden md:flex items-center justify-between h-12 px-4 bg-[#0a0a0a]/90 backdrop-blur-md border-b border-white/[0.08] select-none z-30 sticky top-0"
+    >
+      {/* Left: Brand & Menu Links */}
+      <div className="flex items-center gap-4">
+        {/* Brand */}
+        <button
+          onClick={() => setActiveTab('templates')}
+          className="flex items-center gap-2 text-left group"
+        >
+          <div className="w-6 h-6 rounded-lg bg-[#c9a063]/10 border border-[#c9a063]/30 flex items-center justify-center text-[#c9a063] group-hover:bg-[#c9a063]/20 transition-colors">
+            <Crosshair className="w-3.5 h-3.5" />
           </div>
+          <span className="font-serif italic font-semibold text-sm text-white tracking-tight">
+            BhuNex
+          </span>
+        </button>
 
-          {/* [FILE] Menu */}
+        <div className="h-4 w-px bg-white/[0.08]" />
+
+        {/* Minimal Navigation Menus */}
+        <nav className="flex items-center gap-0.5 text-xs text-white/70">
+          {/* File Menu */}
           <div className="relative">
             <button
               onClick={() => setOpenMenu(openMenu === 'file' ? null : 'file')}
-              className={`px-2.5 py-1 rounded hover:bg-white/10 font-medium text-xs flex items-center gap-1 transition-colors ${
-                openMenu === 'file' ? 'bg-white/10 text-white' : 'text-white/70'
+              className={`px-2.5 py-1 rounded-md hover:text-white hover:bg-white/[0.06] transition-colors flex items-center gap-1 ${
+                openMenu === 'file' ? 'bg-white/[0.08] text-white' : ''
               }`}
             >
-              File <ChevronDown className="w-3 h-3 opacity-50" />
+              File <ChevronDown className="w-3 h-3 opacity-40" />
             </button>
 
             {openMenu === 'file' && (
-              <div className="absolute left-0 top-full mt-1 w-56 bg-[#141414] border border-white/10 rounded-xl shadow-2xl py-1.5 z-50 text-xs text-white">
+              <div className="absolute left-0 top-full mt-1.5 w-52 bg-[#121212] border border-white/[0.08] rounded-xl shadow-xl py-1 z-50 text-xs text-white/90">
                 <button
                   onClick={() => {
                     setActiveTab('templates');
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center justify-between"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center justify-between"
                 >
                   <span className="flex items-center gap-2">
                     <FileSpreadsheet className="w-3.5 h-3.5 text-[#c9a063]" />
-                    New Project / Template
+                    Projects & Templates
                   </span>
-                  <span className="text-[10px] text-white/40 font-mono">Ctrl+1</span>
+                  <span className="text-[10px] text-white/30 font-mono">⌘1</span>
                 </button>
                 <button
                   onClick={() => {
                     onExportProject();
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center justify-between"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2"
                 >
-                  <span className="flex items-center gap-2">
-                    <Download className="w-3.5 h-3.5 text-emerald-400" />
-                    Export Project Backup (.json)
-                  </span>
+                  <Download className="w-3.5 h-3.5 text-white/60" />
+                  Export Project Backup (.json)
                 </button>
                 <button
                   onClick={() => {
                     fileInputRef.current?.click();
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center justify-between"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2"
                 >
-                  <span className="flex items-center gap-2">
-                    <Upload className="w-3.5 h-3.5 text-sky-400" />
-                    Import Project Backup
-                  </span>
+                  <Upload className="w-3.5 h-3.5 text-white/60" />
+                  Import Project Backup
                 </button>
                 <input
                   type="file"
@@ -183,19 +187,19 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
                   accept=".json"
                   className="hidden"
                 />
-                <div className="my-1 border-t border-white/10" />
+                <div className="my-1 border-t border-white/[0.06]" />
                 <button
                   onClick={() => {
                     openSettings();
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center justify-between"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center justify-between"
                 >
                   <span className="flex items-center gap-2">
-                    <Settings className="w-3.5 h-3.5 text-amber-400" />
-                    Preferences & Units...
+                    <Settings className="w-3.5 h-3.5 text-white/60" />
+                    Preferences
                   </span>
-                  <span className="text-[10px] text-white/40 font-mono">Ctrl+,</span>
+                  <span className="text-[10px] text-white/30 font-mono">⌘,</span>
                 </button>
                 <button
                   onClick={() => {
@@ -204,402 +208,321 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
                     }
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-red-950/40 text-red-300 flex items-center gap-2"
+                  className="w-full px-3 py-1.5 text-left hover:bg-red-500/10 text-red-400 flex items-center gap-2"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  Reset Workspace Storage
+                  Reset Workspace
                 </button>
               </div>
             )}
           </div>
 
-          {/* [DATUM & GEODESY] Menu */}
+          {/* Tools Menu */}
           <div className="relative">
             <button
-              onClick={() => setOpenMenu(openMenu === 'geodesy' ? null : 'geodesy')}
-              className={`px-2.5 py-1 rounded hover:bg-white/10 font-medium text-xs flex items-center gap-1 transition-colors ${
-                openMenu === 'geodesy' ? 'bg-white/10 text-white' : 'text-white/70'
+              onClick={() => setOpenMenu(openMenu === 'tools' ? null : 'tools')}
+              className={`px-2.5 py-1 rounded-md hover:text-white hover:bg-white/[0.06] transition-colors flex items-center gap-1 ${
+                openMenu === 'tools' ? 'bg-white/[0.08] text-white' : ''
               }`}
             >
-              Geodesy & Datum <ChevronDown className="w-3 h-3 opacity-50" />
+              Tools <ChevronDown className="w-3 h-3 opacity-40" />
             </button>
 
-            {openMenu === 'geodesy' && (
-              <div className="absolute left-0 top-full mt-1 w-64 bg-[#141414] border border-white/10 rounded-xl shadow-2xl py-1.5 z-50 text-xs text-white">
-                <div className="px-3.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#c9a063]">
-                  Active UTM Grid Zone
-                </div>
-                {utmZones.map(z => (
-                  <button
-                    key={z.zone}
-                    onClick={() => {
-                      setWorkingZone(z.zone);
-                      setOpenMenu(null);
-                    }}
-                    className="w-full px-3.5 py-1.5 text-left hover:bg-white/10 flex items-center justify-between text-xs"
-                  >
-                    <span>{z.label}</span>
-                    {workingZone === z.zone && <Check className="w-3.5 h-3.5 text-[#c9a063]" />}
-                  </button>
-                ))}
-                <div className="my-1 border-t border-white/10" />
-                <div className="px-3.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#c9a063]">
-                  Distance & Dimension Unit
-                </div>
+            {openMenu === 'tools' && (
+              <div className="absolute left-0 top-full mt-1.5 w-56 bg-[#121212] border border-white/[0.08] rounded-xl shadow-xl py-1 z-50 text-xs text-white/90">
                 <button
                   onClick={() => {
-                    setDistanceUnit('m');
+                    setActiveTab('sensors');
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-1.5 text-left hover:bg-white/10 flex items-center justify-between"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2.5"
                 >
-                  <span>Meters [m] (SI Standard)</span>
-                  {distanceUnit === 'm' && <Check className="w-3.5 h-3.5 text-[#c9a063]" />}
+                  <Crosshair className="w-3.5 h-3.5 text-[#c9a063]" />
+                  <span>Field Sensors & Theodolite</span>
                 </button>
                 <button
                   onClick={() => {
-                    setDistanceUnit('ft');
+                    setActiveTab('gis');
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-1.5 text-left hover:bg-white/10 flex items-center justify-between"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2.5"
                 >
-                  <span>Feet [ft] (Imperial / US Survey)</span>
-                  {distanceUnit === 'ft' && <Check className="w-3.5 h-3.5 text-[#c9a063]" />}
+                  <Layers className="w-3.5 h-3.5 text-white/60" />
+                  <span>GIS Map Studio</span>
                 </button>
-              </div>
-            )}
-          </div>
-
-          {/* [FIELD INSTRUMENTS] Menu */}
-          <div className="relative">
-            <button
-              onClick={() => setOpenMenu(openMenu === 'instruments' ? null : 'instruments')}
-              className={`px-2.5 py-1 rounded hover:bg-white/10 font-medium text-xs flex items-center gap-1 transition-colors ${
-                openMenu === 'instruments' ? 'bg-white/10 text-white' : 'text-white/70'
-              }`}
-            >
-              Field Instruments <ChevronDown className="w-3 h-3 opacity-50" />
-            </button>
-
-            {openMenu === 'instruments' && (
-              <div className="absolute left-0 top-full mt-1 w-64 bg-[#141414] border border-white/10 rounded-xl shadow-2xl py-1.5 z-50 text-xs text-white">
                 <button
                   onClick={() => {
                     setActiveTab('gps');
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center gap-2.5"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2.5"
                 >
-                  <CompassIcon className="w-4 h-4 text-[#c9a063]" />
-                  <div>
-                    <div className="font-semibold">GNSS Field Surveyor</div>
-                    <div className="text-[10px] text-white/50">RTK/Cockpit • Stakeout • Proximity Alarms</div>
-                  </div>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab('camera');
-                    setOpenMenu(null);
-                  }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center gap-2.5"
-                >
-                  <Camera className="w-4 h-4 text-emerald-400" />
-                  <div>
-                    <div className="font-semibold">GPS Map Field Camera</div>
-                    <div className="text-[10px] text-white/50">Geostamped Photogrammetry HUD</div>
-                  </div>
+                  <CompassIcon className="w-3.5 h-3.5 text-white/60" />
+                  <span>GNSS Field Surveyor</span>
                 </button>
                 <button
                   onClick={() => {
                     setActiveTab('calc');
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center gap-2.5"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2.5"
                 >
-                  <Calculator className="w-4 h-4 text-sky-400" />
-                  <div>
-                    <div className="font-semibold">Survey Calculator & COGO</div>
-                    <div className="text-[10px] text-white/50">Leveling • Bowditch Traverse • Resection</div>
-                  </div>
+                  <Calculator className="w-3.5 h-3.5 text-white/60" />
+                  <span>Survey Calculator</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('convert');
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2.5"
+                >
+                  <Globe className="w-3.5 h-3.5 text-white/60" />
+                  <span>Coordinate Converter</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('camera');
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3.5 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2.5"
+                >
+                  <Camera className="w-3.5 h-3.5 text-white/60" />
+                  <span>GPS Map Camera</span>
                 </button>
                 <button
                   onClick={() => {
                     setActiveTab('geofence');
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center gap-2.5"
+                  className="w-full px-3.5 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2.5"
                 >
-                  <ShieldAlert className="w-4 h-4 text-rose-400" />
-                  <div>
-                    <div className="font-semibold">Geofence Sentinel</div>
-                    <div className="text-[10px] text-white/50">Polygon & Corridor Breach Monitoring</div>
-                  </div>
+                  <ShieldAlert className="w-3.5 h-3.5 text-white/60" />
+                  <span>Geofence Sentinel</span>
                 </button>
               </div>
             )}
           </div>
 
-          {/* [CADASTRE & GIS] Menu */}
+          {/* Cadastre & Explorations */}
           <div className="relative">
             <button
               onClick={() => setOpenMenu(openMenu === 'cadastre' ? null : 'cadastre')}
-              className={`px-2.5 py-1 rounded hover:bg-white/10 font-medium text-xs flex items-center gap-1 transition-colors ${
-                openMenu === 'cadastre' ? 'bg-white/10 text-white' : 'text-white/70'
+              className={`px-2.5 py-1 rounded-md hover:text-white hover:bg-white/[0.06] transition-colors flex items-center gap-1 ${
+                openMenu === 'cadastre' ? 'bg-white/[0.08] text-white' : ''
               }`}
             >
-              Cadastre & GIS <ChevronDown className="w-3 h-3 opacity-50" />
+              Cadastre <ChevronDown className="w-3 h-3 opacity-40" />
             </button>
 
             {openMenu === 'cadastre' && (
-              <div className="absolute left-0 top-full mt-1 w-64 bg-[#141414] border border-white/10 rounded-xl shadow-2xl py-1.5 z-50 text-xs text-white">
-                <button
-                  onClick={() => {
-                    setActiveTab('gis');
-                    setOpenMenu(null);
-                  }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center gap-2.5"
-                >
-                  <Layers className="w-4 h-4 text-[#c9a063]" />
-                  <div>
-                    <div className="font-semibold">GIS Map Studio</div>
-                    <div className="text-[10px] text-white/50">Multi-layer Vector CAD / GIS Workstation</div>
-                  </div>
-                </button>
+              <div className="absolute left-0 top-full mt-1.5 w-56 bg-[#121212] border border-white/[0.08] rounded-xl shadow-xl py-1 z-50 text-xs text-white/90">
                 <button
                   onClick={() => {
                     setActiveTab('bhunaksha');
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center gap-2.5"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2.5"
                 >
-                  <Scan className="w-4 h-4 text-amber-400" />
-                  <div>
-                    <div className="font-semibold">BhuNaksha Digitizer</div>
-                    <div className="text-[10px] text-white/50">Affine Georeferencing & Vectorization</div>
-                  </div>
+                  <Scan className="w-3.5 h-3.5 text-white/60" />
+                  <span>BhuNaksha Digitizer</span>
                 </button>
                 <button
                   onClick={() => {
                     setActiveTab('cad');
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center gap-2.5"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2.5"
                 >
-                  <Layers2 className="w-4 h-4 text-indigo-400" />
-                  <div>
-                    <div className="font-semibold">Cadastral Mapper</div>
-                    <div className="text-[10px] text-white/50">Khasra Jamabandi & Metes/Bounds</div>
-                  </div>
+                  <Layers2 className="w-3.5 h-3.5 text-white/60" />
+                  <span>Cadastral Mapper</span>
                 </button>
                 <button
                   onClick={() => {
                     setActiveTab('bore');
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center gap-2.5"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2.5"
                 >
-                  <MapPin className="w-4 h-4 text-emerald-400" />
-                  <div>
-                    <div className="font-semibold">Borehole & Mine Stratigraphy</div>
-                    <div className="text-[10px] text-white/50">Assay Compositing & Cross-Sections</div>
-                  </div>
+                  <MapPin className="w-3.5 h-3.5 text-white/60" />
+                  <span>Borehole Stratigraphy</span>
                 </button>
                 <button
                   onClick={() => {
                     setActiveTab('studio');
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center gap-2.5"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2.5"
                 >
-                  <FileCode className="w-4 h-4 text-teal-400" />
-                  <div>
-                    <div className="font-semibold">Universal Format Converter</div>
-                    <div className="text-[10px] text-white/50">DXF • SHP • KML • CSV • GeoJSON</div>
-                  </div>
+                  <FileCode className="w-3.5 h-3.5 text-white/60" />
+                  <span>Universal Converter</span>
                 </button>
               </div>
             )}
           </div>
 
-          {/* [HELP & AI] Menu */}
+          {/* Help */}
           <div className="relative">
             <button
               onClick={() => setOpenMenu(openMenu === 'help' ? null : 'help')}
-              className={`px-2.5 py-1 rounded hover:bg-white/10 font-medium text-xs flex items-center gap-1 transition-colors ${
-                openMenu === 'help' ? 'bg-white/10 text-white' : 'text-white/70'
+              className={`px-2.5 py-1 rounded-md hover:text-white hover:bg-white/[0.06] transition-colors flex items-center gap-1 ${
+                openMenu === 'help' ? 'bg-white/[0.08] text-white' : ''
               }`}
             >
-              Help & AI <ChevronDown className="w-3 h-3 opacity-50" />
+              Help <ChevronDown className="w-3 h-3 opacity-40" />
             </button>
 
             {openMenu === 'help' && (
-              <div className="absolute left-0 top-full mt-1 w-56 bg-[#141414] border border-white/10 rounded-xl shadow-2xl py-1.5 z-50 text-xs text-white">
+              <div className="absolute left-0 top-full mt-1.5 w-52 bg-[#121212] border border-white/[0.08] rounded-xl shadow-xl py-1 z-50 text-xs text-white/90">
                 <button
                   onClick={() => {
                     openAiModal();
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center justify-between"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center justify-between"
                 >
                   <span className="flex items-center gap-2">
                     <Sparkles className="w-3.5 h-3.5 text-[#c9a063]" />
-                    AI Geomatics Consultant
+                    AI Consultant
                   </span>
-                  <span className="text-[10px] text-white/40 font-mono">Ctrl+G</span>
+                  <span className="text-[10px] text-white/30 font-mono">⌘G</span>
                 </button>
                 <button
                   onClick={() => {
                     openCommandPalette();
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center justify-between"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center justify-between"
                 >
                   <span className="flex items-center gap-2">
-                    <Search className="w-3.5 h-3.5 text-white/70" />
+                    <Search className="w-3.5 h-3.5 text-white/60" />
                     Command Palette
                   </span>
-                  <span className="text-[10px] text-white/40 font-mono">Ctrl+K</span>
+                  <span className="text-[10px] text-white/30 font-mono">⌘K</span>
                 </button>
                 <button
                   onClick={() => {
                     openShortcuts();
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center justify-between"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center justify-between"
                 >
                   <span className="flex items-center gap-2">
-                    <BookOpen className="w-3.5 h-3.5 text-white/70" />
-                    Keyboard Shortcuts
+                    <BookOpen className="w-3.5 h-3.5 text-white/60" />
+                    Shortcuts
                   </span>
-                  <span className="text-[10px] text-white/40 font-mono">Ctrl+/</span>
+                  <span className="text-[10px] text-white/30 font-mono">⌘/</span>
                 </button>
                 <button
                   onClick={() => {
                     openTour();
                     setOpenMenu(null);
                   }}
-                  className="w-full px-3.5 py-2 text-left hover:bg-white/10 flex items-center gap-2"
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center gap-2"
                 >
-                  <HelpCircle className="w-3.5 h-3.5 text-white/70" />
-                  Interactive Guided Tour
+                  <HelpCircle className="w-3.5 h-3.5 text-white/60" />
+                  Guided Tour
+                </button>
+                <div className="my-1 border-t border-white/[0.06]" />
+                <button
+                  onClick={() => {
+                    if (openAbout) openAbout();
+                    else openSettings();
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center justify-between text-[#c9a063]"
+                >
+                  <span className="flex items-center gap-2">
+                    <Info className="w-3.5 h-3.5" />
+                    About BhuNex
+                  </span>
+                  <span className="text-[10px] text-[#c9a063]/60 font-mono">v2.4</span>
                 </button>
               </div>
             )}
           </div>
-        </div>
-
-        {/* Right: Quick Action Desktop Utilities */}
-        <div className="flex items-center gap-2">
-          {/* Quick AI Consultant button */}
-          <button
-            onClick={openAiModal}
-            className="px-2.5 py-1 rounded bg-[#c9a063]/10 hover:bg-[#c9a063]/20 border border-[#c9a063]/30 text-[#c9a063] font-medium flex items-center gap-1.5 transition-all text-xs"
-            title="Ask AI Geomatics Consultant (Ctrl+G)"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>AI Consultant</span>
-            <kbd className="text-[9px] bg-[#c9a063]/20 px-1 rounded font-mono">⌘G</kbd>
-          </button>
-
-          {/* Quick Search */}
-          <button
-            onClick={openCommandPalette}
-            className="px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white flex items-center gap-1.5 transition-all text-xs"
-            title="Command Palette (Ctrl+K)"
-          >
-            <Search className="w-3.5 h-3.5 text-white/40" />
-            <span className="text-white/60">Quick Search</span>
-            <kbd className="text-[9px] bg-white/10 px-1 rounded font-mono">⌘K</kbd>
-          </button>
-
-          {/* Fullscreen Toggle */}
-          <button
-            onClick={toggleFullscreen}
-            className="p-1 rounded text-white/60 hover:text-white hover:bg-white/10 transition-colors"
-            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen Workstation Mode'}
-          >
-            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-          </button>
-
-          {/* Theme Toggle */}
-          <button
-            onClick={() => setIsDark(!isDark)}
-            className="p-1 rounded text-white/60 hover:text-white hover:bg-white/10 transition-colors"
-            title={isDark ? 'Light Theme' : 'Dark Theme'}
-          >
-            {isDark ? <Sun className="w-3.5 h-3.5 text-[#c9a063]" /> : <Moon className="w-3.5 h-3.5" />}
-          </button>
-
-          {/* Settings */}
-          <button
-            onClick={openSettings}
-            className="p-1 rounded text-white/60 hover:text-white hover:bg-white/10 transition-colors"
-            title="Settings (Ctrl+,)"
-          >
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-        </div>
+        </nav>
       </div>
 
-      {/* 2. Desktop Quick Ribbon Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[#111111] border-b border-white/5 text-xs">
-        {/* Left: Active Module Quick Switcher & Geodetic Parameters */}
-        <div className="flex items-center gap-3 overflow-x-auto custom-scrollbar py-0.5">
-          <div className="flex items-center gap-2 pr-3 border-r border-white/10">
-            <span className="text-white/40 text-[10px] uppercase tracking-wider font-semibold">Active Datum:</span>
-            <select
-              value={workingZone}
-              onChange={e => setWorkingZone(e.target.value)}
-              className="bg-[#181818] text-[#c9a063] font-mono font-bold text-xs py-1 px-2.5 rounded-lg border border-[#c9a063]/30 cursor-pointer focus:outline-none"
-            >
-              {utmZones.map(z => (
-                <option key={z.zone} value={z.zone}>
-                  UTM {z.zone} (EPSG:{z.epsg})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-center gap-1.5 pr-3 border-r border-white/10 text-white/60 font-mono text-[11px]">
-            <span className="text-white/40">Ellipsoid:</span>
-            <span className="text-white font-medium">WGS84</span>
-            <span className="text-white/30">•</span>
-            <span className="text-white/40">Scale Factor $k_0$:</span>
-            <span className="text-emerald-400 font-bold">0.999600</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 pr-3 border-r border-white/10 text-white/60 font-mono text-[11px]">
-            <span className="text-white/40">Unit:</span>
-            <button
-              onClick={() => setDistanceUnit(distanceUnit === 'm' ? 'ft' : 'm')}
-              className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 border border-white/10 text-[#c9a063] font-bold"
-              title="Click to toggle Meters / Feet"
-            >
-              {distanceUnit === 'm' ? 'Meters [m]' : 'Feet [ft]'}
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-white/40 text-[10px] uppercase font-semibold">Field Station:</span>
-            <span className="px-2.5 py-0.5 rounded-md bg-[#181818] text-white font-serif italic border border-white/10 text-xs">
-              {APPS_CONFIG.find(a => a.id === activeTab)?.name || 'Geomatics Station'}
-            </span>
-          </div>
+      {/* Center: Datum & Units Quick Config */}
+      <div className="flex items-center gap-2">
+        {/* Zone Selector */}
+        <div className="relative flex items-center">
+          <select
+            value={workingZone}
+            onChange={e => setWorkingZone(e.target.value)}
+            className="appearance-none bg-white/[0.04] hover:bg-white/[0.07] text-white/90 font-mono text-xs py-1 pl-2.5 pr-6 rounded-md border border-white/[0.08] cursor-pointer focus:outline-none focus:border-[#c9a063]/40 transition-colors"
+            title="Active Coordinate Datum"
+          >
+            {utmZones.map(z => (
+              <option key={z.zone} value={z.zone} className="bg-[#141414] text-white">
+                UTM {z.zone}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="w-3 h-3 text-white/40 absolute right-2 pointer-events-none" />
         </div>
 
-        {/* Right: GNSS Quality Status & Security Badge */}
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 text-xs font-mono">
-            <Radio className="w-3.5 h-3.5 animate-pulse" />
-            <span className="font-bold">{hasGpsFix ? 'RTK FIX (0.01m)' : 'GNSS READY (STANDBY)'}</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-white/70 text-xs font-medium">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#c9a063]" />
-            <span className="text-[11px]">100% Offline Secured</span>
-          </div>
-        </div>
+        {/* Distance Unit Pill */}
+        <button
+          onClick={() => setDistanceUnit(distanceUnit === 'm' ? 'ft' : 'm')}
+          className="px-2 py-1 rounded-md bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.08] text-xs font-mono text-white/70 hover:text-white transition-colors"
+          title="Toggle Unit (Meters / Feet)"
+        >
+          {distanceUnit === 'm' ? 'Meters' : 'Feet'}
+        </button>
       </div>
-    </div>
+
+      {/* Right: Search, AI & Preferences */}
+      <div className="flex items-center gap-1.5 text-white/70">
+        {/* Search / Command Palette */}
+        <button
+          onClick={openCommandPalette}
+          className="h-8 px-2.5 rounded-md bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white/60 hover:text-white flex items-center gap-2 transition-colors text-xs"
+          title="Command Palette (Ctrl+K)"
+        >
+          <Search className="w-3.5 h-3.5 text-white/40" />
+          <span className="hidden lg:inline text-white/50 font-normal">Search tools...</span>
+          <kbd className="text-[10px] bg-white/[0.08] text-white/50 px-1.5 py-0.2 rounded font-mono">⌘K</kbd>
+        </button>
+
+        {/* AI Geomatics Consultant */}
+        <button
+          onClick={openAiModal}
+          className="h-8 px-2.5 rounded-md bg-[#c9a063]/10 hover:bg-[#c9a063]/20 border border-[#c9a063]/25 text-[#c9a063] font-medium flex items-center gap-1.5 transition-colors text-xs"
+          title="AI Geomatics Consultant (Ctrl+G)"
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">AI Help</span>
+        </button>
+
+        {/* Theme Toggle */}
+        <button
+          onClick={() => setIsDark(!isDark)}
+          className="w-8 h-8 rounded-md flex items-center justify-center hover:bg-white/[0.08] text-white/60 hover:text-white transition-colors"
+          title={isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+        >
+          {isDark ? <Sun className="w-4 h-4 text-[#c9a063]" /> : <Moon className="w-4 h-4" />}
+        </button>
+
+        {/* Fullscreen */}
+        <button
+          onClick={toggleFullscreen}
+          className="w-8 h-8 rounded-md flex items-center justify-center hover:bg-white/[0.08] text-white/60 hover:text-white transition-colors"
+          title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+        >
+          {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+        </button>
+
+        {/* Settings */}
+        <button
+          onClick={openSettings}
+          className="w-8 h-8 rounded-md flex items-center justify-center hover:bg-white/[0.08] text-white/60 hover:text-white transition-colors"
+          title="Settings (Ctrl+,)"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+      </div>
+    </header>
   );
 };
