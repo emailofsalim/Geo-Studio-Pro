@@ -1,9 +1,35 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, Ruler, Download, Trash2, Type, MapPin, Undo2, Redo2, RefreshCw, Layers } from 'lucide-react';
+import {
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Ruler,
+  Download,
+  Trash2,
+  Type,
+  MapPin,
+  Undo2,
+  Redo2,
+  RefreshCw,
+  Layers,
+  Check,
+  Globe,
+  Wifi,
+  WifiOff
+} from 'lucide-react';
 import { GeoFeature, LatLon } from '../types';
 import { lonLatToUtm, utmToLonLat, pointInPoly } from '../lib/geodesy';
 import { downloadBlob } from '../lib/zip';
 import { useIsDarkMode } from '../hooks/useIsDarkMode';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import {
+  getTileUrl,
+  lonLatToTile,
+  tileToBBox,
+  globalTileCache,
+  getOptimalZoomLevel,
+  ImageryProvider
+} from '../lib/tileManager';
 
 interface VectorRadarMapProps {
   features: GeoFeature[];
@@ -21,6 +47,7 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
   title = 'Interactive Vector Map'
 }) => {
   const isDark = useIsDarkMode();
+  const isOnline = useOnlineStatus();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [features, setFeatures] = useState<GeoFeature[]>(initialFeatures);
   const [history, setHistory] = useState<GeoFeature[][]>([]);
@@ -31,6 +58,12 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [lastMouse, setLastMouse] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
+  // Map Imagery State
+  const [showBasemap, setShowBasemap] = useState<boolean>(false);
+  const [basemapProvider, setBasemapProvider] = useState<ImageryProvider>('google_satellite');
+  const [basemapOpacity, setBasemapOpacity] = useState<number>(0.85);
+  const [, setRenderTick] = useState(0);
+
   const [hoveredIdx, setHoveredIdx] = useState<number>(-1);
   const [selectedIdx, setSelectedIdx] = useState<number>(-1);
   const [hoverTooltip, setHoverTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
@@ -39,6 +72,27 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
   const [isRulerActive, setIsRulerActive] = useState(false);
   const [rulerPoints, setRulerPoints] = useState<{ E: number; N: number }[]>([]);
   const [colorBy, setColorBy] = useState<string>('none');
+
+  // Touch Gesture Ref for Mobile Phones (no page zoom)
+  const touchStateRef = useRef<{
+    isPinching: boolean;
+    startDist: number;
+    startScale: number;
+    startMid: { x: number; y: number };
+    startOffset: { x: number; y: number };
+    startTouch: { x: number; y: number };
+    startTime: number;
+    hasMoved: boolean;
+  }>({
+    isPinching: false,
+    startDist: 0,
+    startScale: 1,
+    startMid: { x: 0, y: 0 },
+    startOffset: { x: 0, y: 0 },
+    startTouch: { x: 0, y: 0 },
+    startTime: 0,
+    hasMoved: false
+  });
 
   // Sync with prop updates
   useEffect(() => {
@@ -119,6 +173,61 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
     // Dynamic background for dark vs light mode
     ctx.fillStyle = isDark ? '#0f172a' : '#f8fafc';
     ctx.fillRect(0, 0, cv.width, cv.height);
+
+    // 1. Satellite / Street Imagery Layer Background
+    if (showBasemap && bbox) {
+      const tl = screenToWorld(0, 0, cv.height);
+      const br = screenToWorld(cv.width, cv.height, cv.height);
+      const minE = Math.min(tl.E, br.E);
+      const maxE = Math.max(tl.E, br.E);
+      const minN = Math.min(tl.N, br.N);
+      const maxN = Math.max(tl.N, br.N);
+
+      const swLL = utmToLonLat(minE, minN, zone, south);
+      const neLL = utmToLonLat(maxE, maxN, zone, south);
+
+      const centerLat = (swLL.lat + neLL.lat) / 2;
+      const zoom = getOptimalZoomLevel(scale, centerLat);
+
+      const minTile = lonLatToTile(swLL.lon, neLL.lat, zoom);
+      const maxTile = lonLatToTile(neLL.lon, swLL.lat, zoom);
+
+      ctx.save();
+      ctx.globalAlpha = basemapOpacity;
+
+      const minX = Math.max(0, Math.min(minTile.x, maxTile.x) - 1);
+      const maxX = Math.min(Math.pow(2, zoom) - 1, Math.max(minTile.x, maxTile.x) + 1);
+      const minY = Math.max(0, Math.min(minTile.y, maxTile.y) - 1);
+      const maxY = Math.min(Math.pow(2, zoom) - 1, Math.max(minTile.y, maxTile.y) + 1);
+
+      if ((maxX - minX + 1) * (maxY - minY + 1) <= 100) {
+        for (let tx = minX; tx <= maxX; tx++) {
+          for (let ty = minY; ty <= maxY; ty++) {
+            const tileBBox = tileToBBox(tx, ty, zoom);
+            const tileSW_utm = lonLatToUtm(tileBBox.west, tileBBox.south, zone, south);
+            const tileNE_utm = lonLatToUtm(tileBBox.east, tileBBox.north, zone, south);
+
+            const pTL = worldToScreen(tileSW_utm.E, tileNE_utm.N, cv.height);
+            const pBR = worldToScreen(tileNE_utm.E, tileSW_utm.N, cv.height);
+
+            const tileWidth = pBR.x - pTL.x;
+            const tileHeight = pBR.y - pTL.y;
+
+            const url = getTileUrl(basemapProvider, tx, ty, zoom);
+            const cached = globalTileCache.get(url);
+
+            if (cached && cached.loaded && cached.img) {
+              ctx.drawImage(cached.img, pTL.x, pTL.y, tileWidth, tileHeight);
+            } else {
+              globalTileCache.load(url, () => {
+                setRenderTick(t => t + 1);
+              });
+            }
+          }
+        }
+      }
+      ctx.restore();
+    }
 
     if (!bbox) {
       ctx.fillStyle = isDark ? '#64748b' : '#94a3b8';
@@ -432,12 +541,170 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
     downloadBlob(arr, 'vector_map_snapshot.png', 'image/png');
   };
 
+  // Touch Event Handlers for Mobile Phones
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      const rect = cv.getBoundingClientRect();
+
+      if (e.touches.length === 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const midX = (t1.clientX + t2.clientX) / 2 - rect.left;
+        const midY = (t1.clientY + t2.clientY) / 2 - rect.top;
+
+        touchStateRef.current = {
+          isPinching: true,
+          startDist: Math.max(10, dist),
+          startScale: scale,
+          startMid: { x: midX, y: midY },
+          startOffset: { ...offset },
+          startTouch: { x: midX, y: midY },
+          startTime: Date.now(),
+          hasMoved: false
+        };
+        setIsDragging(false);
+        return;
+      }
+
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        const sx = t.clientX - rect.left;
+        const sy = t.clientY - rect.top;
+
+        touchStateRef.current = {
+          isPinching: false,
+          startDist: 0,
+          startScale: scale,
+          startMid: { x: sx, y: sy },
+          startOffset: { ...offset },
+          startTouch: { x: sx, y: sy },
+          startTime: Date.now(),
+          hasMoved: false
+        };
+        setIsDragging(true);
+        setLastMouse({ x: t.clientX, y: t.clientY });
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const rect = cv.getBoundingClientRect();
+
+      if (e.touches.length === 2 && touchStateRef.current.isPinching) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const curMidX = (t1.clientX + t2.clientX) / 2 - rect.left;
+        const curMidY = (t1.clientY + t2.clientY) / 2 - rect.top;
+
+        const zoomRatio = dist / touchStateRef.current.startDist;
+        const newScale = Math.max(0.0001, Math.min(100, touchStateRef.current.startScale * zoomRatio));
+
+        const newOffsetX = curMidX - (touchStateRef.current.startMid.x - touchStateRef.current.startOffset.x) * (newScale / touchStateRef.current.startScale);
+        const newOffsetY = curMidY - (touchStateRef.current.startMid.y - touchStateRef.current.startOffset.y) * (newScale / touchStateRef.current.startScale);
+
+        setScale(newScale);
+        setOffset({ x: newOffsetX, y: newOffsetY });
+        touchStateRef.current.hasMoved = true;
+        return;
+      }
+
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        const sx = t.clientX - rect.left;
+        const sy = t.clientY - rect.top;
+
+        const distTouch = Math.hypot(sx - touchStateRef.current.startTouch.x, sy - touchStateRef.current.startTouch.y);
+        if (distTouch > 5) {
+          touchStateRef.current.hasMoved = true;
+        }
+
+        const dx = sx - touchStateRef.current.startTouch.x;
+        const dy = sy - touchStateRef.current.startTouch.y;
+        setOffset({
+          x: touchStateRef.current.startOffset.x + dx,
+          y: touchStateRef.current.startOffset.y - dy
+        });
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      const duration = Date.now() - touchStateRef.current.startTime;
+
+      if (!touchStateRef.current.hasMoved && duration < 300) {
+        const rect = cv.getBoundingClientRect();
+        const sx = touchStateRef.current.startTouch.x;
+        const sy = touchStateRef.current.startTouch.y;
+        const w = screenToWorld(sx, sy, cv.height);
+
+        if (isRulerActive) {
+          if (rulerPoints.length >= 2) setRulerPoints([w]);
+          else setRulerPoints(prev => [...prev, w]);
+        }
+      }
+
+      setIsDragging(false);
+      touchStateRef.current.isPinching = false;
+    };
+
+    const onTouchCancel = (e: TouchEvent) => {
+      e.preventDefault();
+      setIsDragging(false);
+      touchStateRef.current.isPinching = false;
+    };
+
+    cv.addEventListener('touchstart', onTouchStart, { passive: false });
+    cv.addEventListener('touchmove', onTouchMove, { passive: false });
+    cv.addEventListener('touchend', onTouchEnd, { passive: false });
+    cv.addEventListener('touchcancel', onTouchCancel, { passive: false });
+
+    return () => {
+      cv.removeEventListener('touchstart', onTouchStart);
+      cv.removeEventListener('touchmove', onTouchMove);
+      cv.removeEventListener('touchend', onTouchEnd);
+      cv.removeEventListener('touchcancel', onTouchCancel);
+    };
+  }, [scale, offset, isRulerActive, rulerPoints, screenToWorld]);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2 px-1">
-        <h4 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c9a063]">
-          {title} ({features.length} Features)
-        </h4>
+        <div className="flex items-center gap-2">
+          <h4 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c9a063]">
+            {title} ({features.length} Features)
+          </h4>
+          {/* Map Imagery Toggle Checkbox */}
+          <label className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-white/80 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showBasemap}
+              onChange={e => setShowBasemap(e.target.checked)}
+              className="rounded border-white/30 text-amber-500 focus:ring-0 focus:ring-offset-0 w-3.5 h-3.5 bg-black/40"
+            />
+            <Globe className="w-3 h-3 text-cyan-400" />
+            <span className="font-medium">Map Background</span>
+          </label>
+
+          {showBasemap && (
+            <select
+              value={basemapProvider}
+              onChange={e => setBasemapProvider(e.target.value as ImageryProvider)}
+              className="bg-black/60 text-white/90 border border-white/10 rounded px-1.5 py-0.5 text-[10px] font-mono"
+            >
+              <option value="google_satellite">Google Satellite</option>
+              <option value="google_hybrid">Google Hybrid</option>
+              <option value="google_streets">Google Streets</option>
+              <option value="osm_standard">OpenStreetMap</option>
+              <option value="opentopo">OpenTopoMap</option>
+            </select>
+          )}
+        </div>
 
         {/* Toolbar */}
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -528,7 +795,7 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
         </div>
       </div>
 
-      <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-white/10 shadow-2xl bg-slate-100 dark:bg-[#0a0a0a]">
+      <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-white/10 shadow-2xl bg-slate-100 dark:bg-[#0a0a0a] touch-none select-none overscroll-none">
         <canvas
           ref={canvasRef}
           width={720}
@@ -537,8 +804,27 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onWheel={handleWheel}
-          className="w-full h-80 bg-slate-50 dark:bg-[#0a0a0a] cursor-crosshair block"
+          style={{ touchAction: 'none' }}
+          className="w-full h-80 bg-slate-50 dark:bg-[#0a0a0a] cursor-crosshair block touch-none select-none"
         />
+
+        {/* Floating Touch Zoom Buttons */}
+        <div className="absolute bottom-3 left-3 flex flex-col gap-1 z-20">
+          <button
+            onClick={() => setScale(s => s * 1.25)}
+            className="w-7 h-7 rounded-lg bg-black/70 hover:bg-black/90 backdrop-blur-md border border-white/20 text-white flex items-center justify-center text-xs shadow-md active:scale-95 transition-transform"
+            title="Zoom In"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setScale(s => s * 0.8)}
+            className="w-7 h-7 rounded-lg bg-black/70 hover:bg-black/90 backdrop-blur-md border border-white/20 text-white flex items-center justify-center text-xs shadow-md active:scale-95 transition-transform"
+            title="Zoom Out"
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
         {/* Hover Tooltip */}
         {hoverTooltip && (

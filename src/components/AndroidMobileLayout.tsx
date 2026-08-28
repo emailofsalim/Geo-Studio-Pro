@@ -1,22 +1,20 @@
 import React, { useState } from 'react';
 import {
   FileSpreadsheet,
-  Layers,
-  Camera,
-  Navigation as CompassIcon,
-  Calculator,
+  Globe,
+  Scan,
+  MapPin,
+  Compass as CompassIcon,
+  Activity,
   Menu,
   Search,
   Settings,
-  Sparkles,
   X,
   Crosshair,
-  Activity,
   Sun,
   Moon
 } from 'lucide-react';
 import { AppTabId, APPS_CONFIG } from './Navigation';
-import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
 interface AndroidMobileLayoutProps {
   activeTab: AppTabId;
@@ -25,7 +23,7 @@ interface AndroidMobileLayoutProps {
   setWorkingZone: (zone: string) => void;
   openCommandPalette: () => void;
   openSettings: () => void;
-  openAiModal: () => void;
+  openAiModal?: () => void;
   hasGpsFix?: boolean;
   isDark?: boolean;
   setIsDark?: (dark: boolean) => void;
@@ -37,22 +35,22 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
   workingZone,
   openCommandPalette,
   openSettings,
-  openAiModal,
   isDark = true,
   setIsDark = () => {}
 }) => {
-  const isOnline = useOnlineStatus();
   const [isAppsDrawerOpen, setIsAppsDrawerOpen] = useState(false);
   const [drawerSearch, setDrawerSearch] = useState('');
 
   const currentApp = APPS_CONFIG.find(a => a.id === activeTab) || APPS_CONFIG[0];
 
+  // Essential Field Tools for Surveyors & Geologists on the Main Bar
   const primaryMobileNav: { id: AppTabId; label: string; icon: any }[] = [
     { id: 'templates', label: 'Home', icon: FileSpreadsheet },
-    { id: 'sensors', label: 'Sensors', icon: Activity },
-    { id: 'gis', label: 'GIS', icon: Layers },
     { id: 'gps', label: 'GNSS', icon: CompassIcon },
-    { id: 'camera', label: 'Camera', icon: Camera }
+    { id: 'convert', label: 'Convert', icon: Globe },
+    { id: 'bhunaksha', label: 'Cadastre', icon: Scan },
+    { id: 'bore', label: 'Borehole', icon: MapPin },
+    { id: 'sensors', label: 'Sensors', icon: Activity }
   ];
 
   const filteredApps = APPS_CONFIG.filter(
@@ -100,16 +98,6 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
           >
             {isDark ? <Sun className="w-4 h-4 text-[#c9a063]" /> : <Moon className="w-4 h-4" />}
           </button>
-
-          {isOnline && (
-            <button
-              onClick={openAiModal}
-              className="p-1.5 rounded-lg text-[#8ecbf8] bg-[#0d2640]/80 hover:bg-[#14365a] border border-[#377cb8]/40 transition-colors shadow-2xs"
-              title="AI Assistant (Online)"
-            >
-              <Sparkles className="w-4 h-4" />
-            </button>
-          )}
 
           <button
             onClick={openCommandPalette}

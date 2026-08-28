@@ -280,6 +280,37 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
 
+  // Sync canvas internal resolution with container size for 1:1 pixel accuracy
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+
+    let rAFId: number | null = null;
+
+    const observer = new ResizeObserver((entries) => {
+      if (rAFId !== null) cancelAnimationFrame(rAFId);
+      rAFId = requestAnimationFrame(() => {
+        if (!entries || entries.length === 0) return;
+        const entry = entries[0];
+        const width = Math.round(entry.contentRect.width);
+        const height = Math.round(entry.contentRect.height);
+        if (width > 0 && height > 0) {
+          if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+          }
+        }
+      });
+    });
+
+    observer.observe(container);
+    return () => {
+      if (rAFId !== null) cancelAnimationFrame(rAFId);
+      observer.disconnect();
+    };
+  }, []);
+
   // Compute 2D Affine Transformation Matrix from GCPs
   const affineMatrix = useMemo(() => {
     if (gcps.length < 3) return null;
@@ -602,6 +633,25 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
 
   const handleCanvasMouseUp = () => {
     setIsPanning(false);
+  };
+
+  // Wheel zoom handler centered at cursor
+  const handleCanvasWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+
+    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
+    const newZoom = Math.max(0.1, Math.min(15, zoom * zoomFactor));
+
+    setPan({
+      x: sx - (sx - pan.x) * (newZoom / zoom),
+      y: sy - (sy - pan.y) * (newZoom / zoom)
+    });
+    setZoom(newZoom);
   };
 
   // Keyboard Shortcuts (Ctrl+Z to undo vertex, Escape to clear)
@@ -938,20 +988,22 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
       ctx.restore();
     } else {
       // Cadastral Sheet grid canvas
+      const cw = canvas.width || 800;
+      const ch = canvas.height || 540;
       ctx.fillStyle = isDark ? '#141414' : '#f8fafc';
-      ctx.fillRect(0, 0, 800, 540);
+      ctx.fillRect(0, 0, Math.max(cw, 800), Math.max(ch, 540));
       ctx.strokeStyle = isDark ? '#262626' : '#e2e8f0';
       ctx.lineWidth = 1;
-      for (let x = 0; x < 800; x += 40) {
+      for (let x = 0; x < Math.max(cw, 800); x += 40) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
-        ctx.lineTo(x, 540);
+        ctx.lineTo(x, Math.max(ch, 540));
         ctx.stroke();
       }
-      for (let y = 0; y < 540; y += 40) {
+      for (let y = 0; y < Math.max(ch, 540); y += 40) {
         ctx.beginPath();
         ctx.moveTo(0, y);
-        ctx.lineTo(800, y);
+        ctx.lineTo(Math.max(cw, 800), y);
         ctx.stroke();
       }
       ctx.fillStyle = isDark ? '#c9a063' : '#b45309';
@@ -1643,16 +1695,15 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
           {/* Canvas Container with Crosshair HUD */}
           <div
             ref={containerRef}
-            className="w-full h-[540px] bg-slate-100 dark:bg-[#080808] rounded-xl overflow-hidden relative cursor-crosshair border border-slate-200 dark:border-white/10 flex items-center justify-center select-none"
+            className="w-full h-[540px] bg-slate-100 dark:bg-[#080808] rounded-xl overflow-hidden relative cursor-crosshair border border-slate-200 dark:border-white/10 select-none"
           >
             <canvas
               ref={canvasRef}
-              width={800}
-              height={540}
               onMouseDown={handleCanvasMouseDown}
               onMouseMove={handleCanvasMouseMove}
               onMouseUp={handleCanvasMouseUp}
-              className="w-full h-full object-contain"
+              onWheel={handleCanvasWheel}
+              className="w-full h-full block"
             />
 
             {/* Live Bottom HUD Bar */}

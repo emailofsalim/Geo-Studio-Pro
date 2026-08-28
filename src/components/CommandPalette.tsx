@@ -38,7 +38,6 @@ interface CommandPaletteProps {
   onOpenSettings?: () => void;
   onOpenShortcuts?: () => void;
   onOpenTour?: () => void;
-  onOpenAi?: () => void;
 }
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({
@@ -50,8 +49,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   openSettings,
   onOpenSettings,
   onOpenShortcuts,
-  onOpenTour,
-  onOpenAi
+  onOpenTour
 }) => {
   const isOnline = useOnlineStatus();
   const [query, setQuery] = useState('');
@@ -88,16 +86,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         onClose();
       }
     })),
-    ...(onOpenAi && isOnline ? [{
-      id: 'act-ai',
-      title: 'Open BhuNex AI Assistant',
-      category: 'AI Assistant',
-      icon: Sparkles,
-      run: () => {
-        onOpenAi();
-        onClose();
-      }
-    }] : []),
     ...(onOpenTour ? [{
       id: 'act-tour',
       title: 'Start Interactive Feature Tour & Workflow Guide',

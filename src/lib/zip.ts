@@ -328,8 +328,8 @@ export async function readZip(buf: ArrayBuffer): Promise<Record<string, Uint8Arr
   return files;
 }
 
-export function downloadBlob(data: Uint8Array | string, filename: string, mime: string = 'application/octet-stream') {
-  const blob = typeof data === 'string' ? new Blob([data], { type: mime }) : new Blob([data], { type: mime });
+export function downloadBlob(data: Uint8Array | string | Blob, filename: string, mime: string = 'application/octet-stream') {
+  const blob = data instanceof Blob ? data : (typeof data === 'string' ? new Blob([data], { type: mime }) : new Blob([data], { type: mime }));
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

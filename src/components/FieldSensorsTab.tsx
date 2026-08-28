@@ -29,7 +29,13 @@ import {
   VolumeX,
   Smartphone,
   HardDrive,
-  CloudSun
+  CloudSun,
+  Undo2,
+  Redo2,
+  Trash2,
+  Trash,
+  MicOff,
+  Sparkles
 } from 'lucide-react';
 import { triggerHaptic, isVibrationSupported } from '../lib/haptics';
 import { lonLatToUtm } from '../lib/geodesy';
@@ -39,6 +45,8 @@ import {
   NfcSurveyMonument,
   detectDeviceHardwareProfile
 } from '../lib/hardwareComms';
+import { useIsDarkMode } from '../hooks/useIsDarkMode';
+import { parseSurveyVoiceCommand, speakVoiceAnnouncement } from '../lib/voiceCommander';
 
 // Modular Hardware Sub-views
 import { TheodoliteView } from './hardware/TheodoliteView';
@@ -79,8 +87,9 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
   distanceUnit = 'm',
   onSendToGisLayers
 }) => {
+  const isDark = useIsDarkMode();
   const [activeSubTab, setActiveSubTab] = useState<
-    'theodolite' | 'level' | 'bluetooth' | 'nfc' | 'mesh' | 'desktop' | 'weather' | 'pedometer' | 'sound' | 'diagnostics'
+    'theodolite' | 'level' | 'weather' | 'bluetooth' | 'nfc' | 'mesh' | 'desktop' | 'pedometer' | 'sound' | 'diagnostics'
   >('theodolite');
 
   // 1. Orientation & Motion Sensors State
@@ -140,9 +149,74 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
   const [activePeers, setActivePeers] = useState<string[]>(['RODMAN-02', 'BASE-STATION-HOTSPOT']);
   const meshChannelRef = useRef<BroadcastChannel | null>(null);
 
-  // 8. Data Logging & Ledger
+  // 8. Data Logging & Ledger with Undo / Redo History
   const [readingsLog, setReadingsLog] = useState<SensorReading[]>([]);
+  const [readingsHistory, setReadingsHistory] = useState<SensorReading[][]>([[]]);
+  const [historyIndex, setHistoryIndex] = useState<number>(0);
   const [currentRemarks, setCurrentRemarks] = useState<string>('');
+
+  // 9. Voice Commander & Natural Language Recognition
+  const [isVoiceListening, setIsVoiceListening] = useState<boolean>(false);
+  const [voiceTranscript, setVoiceTranscript] = useState<string>('');
+  const [voiceActionFeedback, setVoiceActionFeedback] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
+
+  const commitReadingsWithHistory = useCallback((updater: SensorReading[] | ((prev: SensorReading[]) => SensorReading[])) => {
+    setReadingsLog(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      setReadingsHistory(hist => {
+        const sliced = hist.slice(0, historyIndex + 1);
+        sliced.push(next);
+        if (sliced.length > 50) sliced.shift();
+        return sliced;
+      });
+      setHistoryIndex(prevIdx => Math.min(prevIdx + 1, 49));
+      return next;
+    });
+  }, [historyIndex]);
+
+  const handleUndoReading = useCallback(() => {
+    if (historyIndex > 0) {
+      const targetIdx = historyIndex - 1;
+      const targetState = readingsHistory[targetIdx];
+      setReadingsLog(targetState);
+      setHistoryIndex(targetIdx);
+      speakVoiceAnnouncement('Observation undo applied.');
+      triggerHaptic([20, 20]);
+    }
+  }, [historyIndex, readingsHistory]);
+
+  const handleRedoReading = useCallback(() => {
+    if (historyIndex < readingsHistory.length - 1) {
+      const targetIdx = historyIndex + 1;
+      const targetState = readingsHistory[targetIdx];
+      setReadingsLog(targetState);
+      setHistoryIndex(targetIdx);
+      speakVoiceAnnouncement('Observation redo applied.');
+      triggerHaptic([20, 20]);
+    }
+  }, [historyIndex, readingsHistory]);
+
+  const handleDeleteReading = useCallback((id: string) => {
+    commitReadingsWithHistory(prev => prev.filter(r => r.id !== id));
+    speakVoiceAnnouncement(`Deleted observation ${id}`);
+    triggerHaptic([30, 20]);
+  }, [commitReadingsWithHistory]);
+
+  const handleDeleteLastReading = useCallback(() => {
+    if (readingsLog.length === 0) return;
+    const lastItem = readingsLog[0];
+    commitReadingsWithHistory(prev => prev.slice(1));
+    speakVoiceAnnouncement(`Deleted observation ${lastItem.id}`);
+    triggerHaptic([30, 20]);
+  }, [readingsLog, commitReadingsWithHistory]);
+
+  const handleClearReadings = useCallback(() => {
+    if (readingsLog.length === 0) return;
+    commitReadingsWithHistory([]);
+    speakVoiceAnnouncement('All observations cleared.');
+    triggerHaptic([40, 40, 60]);
+  }, [readingsLog, commitReadingsWithHistory]);
 
   // -------------------------------------------------------------
   // A. SENSOR LISTENERS
@@ -386,7 +460,7 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
   const pacingSpeedMps = paceElapsedTime > 0 ? totalPacingDistanceM / paceElapsedTime : 0;
   const pacingSpeedKmH = pacingSpeedMps * 3.6;
 
-  // Logging & Exports
+  // Logging & Exports with Undo/Redo tracking
   const handleLogReading = (customRemark?: string) => {
     const newReading: SensorReading = {
       id: `OBS-${Date.now().toString().slice(-4)}`,
@@ -406,10 +480,124 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
       remarks: customRemark || currentRemarks.trim() || 'Field Observation'
     };
 
-    setReadingsLog([newReading, ...readingsLog]);
+    commitReadingsWithHistory(prev => [newReading, ...prev]);
+    speakVoiceAnnouncement(`Observation ${newReading.id} recorded.`);
     setCurrentRemarks('');
     triggerHaptic([30, 40, 60]);
   };
+
+  // Web Speech Recognition Controller
+  const startVoiceCommander = useCallback(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setSensorError('Speech recognition is not supported in this browser. Use Chrome/Edge/Safari on desktop or mobile.');
+      speakVoiceAnnouncement('Voice commands not supported in this browser.');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        setIsVoiceListening(true);
+        setVoiceActionFeedback('Listening for survey commands (e.g., "Record point", "Undo", "Tare level", "Lock sight")...');
+        speakVoiceAnnouncement('Voice commands active.');
+        triggerHaptic([20, 30]);
+      };
+
+      recognition.onresult = (event: any) => {
+        const lastResultIndex = event.results.length - 1;
+        const transcript = event.results[lastResultIndex][0].transcript.trim();
+        setVoiceTranscript(transcript);
+
+        const action = parseSurveyVoiceCommand(transcript);
+        if (action) {
+          setVoiceActionFeedback(`Executed: "${transcript}"`);
+          switch (action.type) {
+            case 'RECORD_POINT':
+              handleLogReading(action.remark || 'Voice Observation');
+              break;
+            case 'UNDO':
+              handleUndoReading();
+              break;
+            case 'REDO':
+              handleRedoReading();
+              break;
+            case 'DELETE_LAST':
+              handleDeleteLastReading();
+              break;
+            case 'CLEAR_ALL':
+              handleClearReadings();
+              break;
+            case 'TARE_LEVEL':
+              setTarePitch(pitch);
+              setTareRoll(roll);
+              speakVoiceAnnouncement('Sensors tared to current horizon.');
+              break;
+            case 'LOCK_TARGET':
+              setTargetLocked(true);
+              setLockedReading({ heading, pitch, roll });
+              speakVoiceAnnouncement('Target sight locked.');
+              break;
+            case 'UNLOCK_TARGET':
+              setTargetLocked(false);
+              setLockedReading(null);
+              speakVoiceAnnouncement('Target sight unlocked.');
+              break;
+            case 'START_PACING':
+              setIsPacingActive(true);
+              setPaceStartTime(Date.now());
+              speakVoiceAnnouncement('Pedometer pacing started.');
+              break;
+            case 'STOP_PACING':
+              setIsPacingActive(false);
+              speakVoiceAnnouncement('Pedometer pacing paused.');
+              break;
+            case 'OPEN_AR':
+              setActiveSubTab('theodolite');
+              speakVoiceAnnouncement('Theodolite camera optical view opened.');
+              break;
+            default:
+              break;
+          }
+        } else {
+          setVoiceActionFeedback(`Heard: "${transcript}" (Unrecognized command)`);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        if (event.error !== 'no-speech') {
+          setVoiceActionFeedback(`Voice error: ${event.error}`);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsVoiceListening(false);
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (err: any) {
+      setSensorError(`Speech recognition start error: ${err.message}`);
+      setIsVoiceListening(false);
+    }
+  }, [pitch, roll, heading, handleLogReading, handleUndoReading, handleRedoReading, handleDeleteLastReading]);
+
+  const stopVoiceCommander = useCallback(() => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {}
+      recognitionRef.current = null;
+    }
+    setIsVoiceListening(false);
+    setVoiceActionFeedback(null);
+    speakVoiceAnnouncement('Voice commands paused.');
+    triggerHaptic([20]);
+  }, []);
 
   const handleExportCsv = () => {
     if (!readingsLog.length) return;
@@ -517,30 +705,41 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
     onSendToGisLayers([feature], 'NFC Cadastral Monuments');
   };
 
+  // Reusable theme class variables
+  const cardBg = isDark ? 'bg-[#111111] border-white/[0.08]' : 'bg-white border-slate-200 shadow-sm';
+  const subCardBg = isDark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-slate-50 border-slate-200/80';
+  const textPrimary = isDark ? 'text-white' : 'text-slate-900';
+  const textSecondary = isDark ? 'text-white/50' : 'text-slate-500';
+  const textMuted = isDark ? 'text-white/40' : 'text-slate-400';
+  const borderSubtle = isDark ? 'border-white/[0.06]' : 'border-slate-200';
+  const btnSecondary = isDark ? 'bg-white/[0.04] hover:bg-white/[0.08] text-white/80 hover:text-white border-white/[0.08]' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200';
+
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
       {/* Header & Quick Telemetry Badges */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-white/[0.08] pb-4">
+      <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b ${borderSubtle} pb-4`}>
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-serif italic text-white tracking-tight">
-              Hardware & Peripheral Command Station
+            <h1 className={`text-xl sm:text-2xl font-serif italic ${textPrimary} tracking-tight`}>
+              Field Hardware & Meteorology Station
             </h1>
             <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-[#c9a063]/10 text-[#c9a063] border border-[#c9a063]/25">
               Cross-Platform Drivers
             </span>
           </div>
-          <p className="text-xs text-white/50 mt-1">
-            Universal peripheral suite for Desktop, Laptop, Tablet & Mobile: Bluetooth LE RTK, NFC tags, Wi-Fi Direct Mesh, USB-OTG Total Stations, Optical HUD, 2D Spirit Level & Voice Surveyor.
+          <p className={`text-xs ${textSecondary} mt-1`}>
+            Universal peripheral suite: Bluetooth LE RTK, Atmospheric Meteorology, NFC tags, Wi-Fi Direct Mesh, USB-OTG Total Stations, Optical HUD, 2D Spirit Level & Voice Surveyor.
           </p>
         </div>
 
         {/* Quick System Badges */}
         <div className="flex items-center flex-wrap gap-2 text-xs font-mono">
           <div className={`px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${
-            networkInfo.online ? 'bg-white/[0.04] border-white/[0.08] text-white/80' : 'bg-red-500/10 border-red-500/30 text-red-400'
+            networkInfo.online
+              ? isDark ? 'bg-white/[0.04] border-white/[0.08] text-white/80' : 'bg-slate-100 border-slate-200 text-slate-700'
+              : 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
           }`}>
-            {networkInfo.online ? <Wifi className="w-3.5 h-3.5 text-emerald-400" /> : <WifiOff className="w-3.5 h-3.5" />}
+            {networkInfo.online ? <Wifi className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" /> : <WifiOff className="w-3.5 h-3.5" />}
             <span className="capitalize">{networkInfo.type}</span>
           </div>
 
@@ -548,8 +747,8 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
             onClick={toggleWakeLock}
             className={`px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-colors ${
               isWakeLocked
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                : 'bg-white/[0.04] border-white/[0.08] text-white/60 hover:text-white'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-medium'
+                : btnSecondary
             }`}
             title="Toggle Keep Screen On"
           >
@@ -558,8 +757,8 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
           </button>
 
           {batteryLevel !== null && (
-            <div className="px-2.5 py-1 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/70 flex items-center gap-1.5">
-              <BatteryCharging className={`w-3.5 h-3.5 ${isCharging ? 'text-emerald-400' : 'text-[#c9a063]'}`} />
+            <div className={`px-2.5 py-1 rounded-lg ${isDark ? 'bg-white/[0.04] border-white/[0.08] text-white/70' : 'bg-slate-100 border-slate-200 text-slate-700'} border flex items-center gap-1.5`}>
+              <BatteryCharging className={`w-3.5 h-3.5 ${isCharging ? 'text-emerald-500 dark:text-emerald-400' : 'text-[#c9a063]'}`} />
               <span>{batteryLevel}%</span>
             </div>
           )}
@@ -569,27 +768,73 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
               onClick={() => setHapticLevelArmed(!hapticLevelArmed)}
               className={`px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-colors ${
                 hapticLevelArmed
-                  ? 'bg-[#c9a063]/10 border-[#c9a063]/30 text-[#c9a063]'
-                  : 'bg-white/[0.04] border-white/[0.08] text-white/40'
+                  ? 'bg-[#c9a063]/10 border-[#c9a063]/30 text-[#c9a063] font-medium'
+                  : btnSecondary
               }`}
             >
               <Zap className="w-3.5 h-3.5" />
               <span>Haptics {hapticLevelArmed ? 'ON' : 'OFF'}</span>
             </button>
           )}
+
+          {/* Voice Commander Quick Controller in Top Bar */}
+          <button
+            onClick={isVoiceListening ? stopVoiceCommander : startVoiceCommander}
+            className={`px-3 py-1 rounded-lg border flex items-center gap-1.5 transition-all text-xs font-semibold ${
+              isVoiceListening
+                ? 'bg-emerald-600 hover:bg-emerald-500 text-white animate-pulse border-emerald-400 shadow-md shadow-emerald-600/30'
+                : 'bg-[#c9a063]/20 hover:bg-[#c9a063]/30 text-[#c9a063] border-[#c9a063]/40'
+            }`}
+            title="Toggle Live Voice Command Recognition"
+          >
+            {isVoiceListening ? <Mic className="w-3.5 h-3.5 animate-bounce" /> : <MicOff className="w-3.5 h-3.5" />}
+            <span>{isVoiceListening ? 'Voice Active' : 'Voice Cmd'}</span>
+          </button>
         </div>
       </div>
+
+      {/* Voice Commander Status HUD Banner */}
+      {isVoiceListening && (
+        <div className="p-3.5 bg-gradient-to-r from-emerald-950/80 via-[#141714] to-black border border-emerald-500/40 rounded-2xl shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-emerald-950 border border-emerald-400/60 rounded-xl text-emerald-400">
+              <Mic className="w-4 h-4 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-300 bg-emerald-950/90 px-2 py-0.5 rounded border border-emerald-500/40">
+                  Voice Command Engine Active
+                </span>
+                {voiceTranscript && (
+                  <span className="text-white font-mono font-medium">"{voiceTranscript}"</span>
+                )}
+              </div>
+              <p className="text-white/60 text-[11px] mt-0.5">
+                {voiceActionFeedback || 'Say: "Record point", "Undo", "Redo", "Tare level", "Lock sight", "Start pacing"...'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+            {['Record point', 'Undo', 'Redo', 'Tare level', 'Lock sight'].map(cmd => (
+              <span key={cmd} className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-white/70 font-mono">
+                {cmd}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Sensor Permission Notice for Mobile Orientation */}
       {!isSensorActive && (
         <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-between gap-4 text-xs">
-          <div className="flex items-center gap-2.5 text-amber-200">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <div className="flex items-center gap-2.5 text-amber-700 dark:text-amber-200">
+            <AlertTriangle className="w-4 h-4 text-amber-500 dark:text-amber-400 shrink-0" />
             <span>Mobile motion & IMU sensors require browser permission on some mobile devices.</span>
           </div>
           <button
             onClick={requestOrientationPermission}
-            className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs shrink-0 transition-colors"
+            className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs shrink-0 transition-colors shadow-sm"
           >
             Enable IMU
           </button>
@@ -597,7 +842,7 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
       )}
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar border-b border-white/[0.06] pb-1">
+      <div className={`flex items-center gap-1 overflow-x-auto custom-scrollbar border-b ${borderSubtle} pb-1`}>
         {[
           { id: 'theodolite', label: 'Optical Theodolite HUD', icon: Camera },
           { id: 'level', label: '2D Spirit Level & Dip', icon: Crosshair },
@@ -618,11 +863,15 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
               onClick={() => setActiveSubTab(tab.id as any)}
               className={`px-3.5 py-2 text-xs font-medium rounded-lg whitespace-nowrap transition-colors flex items-center gap-2 ${
                 isActive
-                  ? 'bg-white/[0.08] text-white border border-white/[0.12]'
-                  : 'text-white/50 hover:text-white hover:bg-white/[0.03]'
+                  ? isDark
+                    ? 'bg-white/[0.08] text-white border border-white/[0.12]'
+                    : 'bg-white text-slate-900 border border-slate-300 shadow-sm font-semibold'
+                  : isDark
+                    ? 'text-white/50 hover:text-white hover:bg-white/[0.03]'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#c9a063]' : 'text-white/40'}`} />
+              <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#c9a063]' : textMuted}`} />
               <span>{tab.label}</span>
             </button>
           );
@@ -747,19 +996,19 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
 
       {activeSubTab === 'pedometer' && (
         <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-          <div className="md:col-span-6 bg-[#111111] p-6 rounded-2xl border border-white/[0.08] space-y-4 font-mono">
+          <div className={`md:col-span-6 ${cardBg} p-6 rounded-2xl border space-y-4 font-mono transition-colors`}>
             <div className="flex items-center justify-between font-sans">
-              <span className="text-xs font-semibold text-white">Reconnaissance Pacing Pedometer</span>
+              <span className={`text-xs font-semibold ${textPrimary}`}>Reconnaissance Pacing Pedometer</span>
               <Activity className="w-4 h-4 text-[#c9a063]" />
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-center">
-              <div className="p-4 bg-white/[0.02] border border-white/[0.06] rounded-xl">
-                <div className="text-[10px] text-white/40 uppercase">Step Count</div>
-                <div className="text-3xl font-bold text-white mt-1">{stepCount}</div>
+              <div className={`p-4 ${subCardBg} border rounded-xl`}>
+                <div className={`text-[10px] ${textMuted} uppercase tracking-wider`}>Step Count</div>
+                <div className={`text-3xl font-bold ${textPrimary} mt-1`}>{stepCount}</div>
               </div>
-              <div className="p-4 bg-white/[0.02] border border-white/[0.06] rounded-xl">
-                <div className="text-[10px] text-white/40 uppercase">Paced Distance</div>
+              <div className={`p-4 ${subCardBg} border rounded-xl`}>
+                <div className={`text-[10px] ${textMuted} uppercase tracking-wider`}>Paced Distance</div>
                 <div className="text-3xl font-bold text-[#c9a063] mt-1">
                   {totalPacingDistance.toFixed(2)} {distanceUnit}
                 </div>
@@ -774,7 +1023,7 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
                     if (!paceStartTime) setPaceStartTime(Date.now());
                     triggerHaptic([30, 40]);
                   }}
-                  className="flex-1 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs transition-colors flex items-center justify-center gap-1.5 font-sans"
+                  className="flex-1 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs transition-colors flex items-center justify-center gap-1.5 font-sans shadow-sm"
                 >
                   <Play className="w-3.5 h-3.5" /> Start Pacing Session
                 </button>
@@ -784,7 +1033,7 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
                     setIsPacingActive(false);
                     triggerHaptic(20);
                   }}
-                  className="flex-1 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium text-xs transition-colors flex items-center justify-center gap-1.5 font-sans"
+                  className="flex-1 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium text-xs transition-colors flex items-center justify-center gap-1.5 font-sans shadow-sm"
                 >
                   <Pause className="w-3.5 h-3.5" /> Pause Pacing
                 </button>
@@ -797,7 +1046,7 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
                   setIsPacingActive(false);
                   triggerHaptic(20);
                 }}
-                className="px-3 py-2.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/70 text-xs border border-white/[0.08] transition-colors"
+                className={`px-3 py-2.5 rounded-lg ${btnSecondary} text-xs border transition-colors`}
                 title="Reset Steps"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
@@ -805,25 +1054,25 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
             </div>
           </div>
 
-          <div className="md:col-span-6 bg-[#111111] p-6 rounded-2xl border border-white/[0.08] space-y-4 font-mono text-xs">
-            <div className="text-xs font-semibold text-white font-sans">Stride Length Calibration</div>
+          <div className={`md:col-span-6 ${cardBg} p-6 rounded-2xl border space-y-4 font-mono text-xs transition-colors`}>
+            <div className={`text-xs font-semibold ${textPrimary} font-sans`}>Stride Length Calibration</div>
             <div>
-              <label className="text-[10px] text-white/40 block mb-1">Average Stride / Double-Pace (Meters)</label>
+              <label className={`text-[10px] ${textMuted} block mb-1`}>Average Stride / Double-Pace (Meters)</label>
               <input
                 type="number"
                 step="0.01"
                 value={paceLengthM}
                 onChange={e => setPaceLengthM(parseFloat(e.target.value) || 0.762)}
-                className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white"
+                className={`w-full px-3 py-2 rounded-lg ${isDark ? 'bg-white/[0.04] border-white/[0.08] text-white' : 'bg-slate-50 border-slate-200 text-slate-900'} border focus:outline-none focus:border-[#c9a063]`}
               />
             </div>
-            <div className="p-3 bg-white/[0.02] border border-white/[0.06] rounded-xl space-y-1">
+            <div className={`p-3 ${subCardBg} border rounded-xl space-y-1`}>
               <div className="flex justify-between">
-                <span className="text-white/40">Elapsed Time:</span>
-                <span className="text-white font-bold">{paceElapsedTime} seconds</span>
+                <span className={textSecondary}>Elapsed Time:</span>
+                <span className={`font-bold ${textPrimary}`}>{paceElapsedTime} seconds</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-white/40">Walking Speed:</span>
+                <span className={textSecondary}>Walking Speed:</span>
                 <span className="text-[#c9a063] font-bold">{pacingSpeedKmH.toFixed(2)} km/h</span>
               </div>
             </div>
@@ -832,31 +1081,31 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
       )}
 
       {activeSubTab === 'sound' && (
-        <div className="bg-[#111111] p-6 rounded-2xl border border-white/[0.08] space-y-5 font-mono">
+        <div className={`${cardBg} p-6 rounded-2xl border space-y-5 font-mono transition-colors`}>
           <div className="flex items-center justify-between font-sans">
             <div>
-              <h3 className="text-sm font-semibold text-white">Acoustic Sound Level Meter (dB SPL)</h3>
-              <p className="text-xs text-white/50">Site safety and heavy mining/construction equipment noise monitoring.</p>
+              <h3 className={`text-sm font-semibold ${textPrimary}`}>Acoustic Sound Level Meter (dB SPL)</h3>
+              <p className={`text-xs ${textSecondary}`}>Site safety and heavy mining/construction equipment noise monitoring.</p>
             </div>
             <Volume2 className="w-5 h-5 text-[#c9a063]" />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
-            <div className="p-4 bg-white/[0.02] border border-white/[0.06] rounded-xl">
-              <div className="text-[10px] text-white/40 uppercase">Real-Time Level</div>
+            <div className={`p-4 ${subCardBg} border rounded-xl`}>
+              <div className={`text-[10px] ${textMuted} uppercase tracking-wider`}>Real-Time Level</div>
               <div className="text-4xl font-bold text-[#c9a063] mt-1">
                 {noiseDb !== null ? `${noiseDb} dB` : '-- dB'}
               </div>
             </div>
-            <div className="p-4 bg-white/[0.02] border border-white/[0.06] rounded-xl">
-              <div className="text-[10px] text-white/40 uppercase">Peak Recorded</div>
-              <div className="text-4xl font-bold text-white mt-1">
+            <div className={`p-4 ${subCardBg} border rounded-xl`}>
+              <div className={`text-[10px] ${textMuted} uppercase tracking-wider`}>Peak Recorded</div>
+              <div className={`text-4xl font-bold ${textPrimary} mt-1`}>
                 {peakNoiseDb > 0 ? `${peakNoiseDb} dB` : '-- dB'}
               </div>
             </div>
-            <div className="p-4 bg-white/[0.02] border border-white/[0.06] rounded-xl">
-              <div className="text-[10px] text-white/40 uppercase">OSHA Site Limit</div>
-              <div className="text-4xl font-bold text-emerald-400 mt-1">85 dB</div>
+            <div className={`p-4 ${subCardBg} border rounded-xl`}>
+              <div className={`text-[10px] ${textMuted} uppercase tracking-wider`}>OSHA Site Limit</div>
+              <div className="text-4xl font-bold text-emerald-500 dark:text-emerald-400 mt-1">85 dB</div>
             </div>
           </div>
 
@@ -864,14 +1113,14 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
             {!isMicActive ? (
               <button
                 onClick={startMic}
-                className="px-4 py-2 rounded-lg bg-[#c9a063] hover:bg-[#d6b074] text-black font-semibold text-xs transition-colors flex items-center gap-1.5 font-sans"
+                className="px-4 py-2 rounded-lg bg-[#c9a063] hover:bg-[#b88f55] text-black font-semibold text-xs transition-colors flex items-center gap-1.5 font-sans shadow-sm"
               >
                 <Play className="w-3.5 h-3.5" /> Start Sound Analyzer
               </button>
             ) : (
               <button
                 onClick={stopMic}
-                className="px-4 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-semibold transition-colors flex items-center gap-1.5 font-sans"
+                className="px-4 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 text-xs font-semibold transition-colors flex items-center gap-1.5 font-sans"
               >
                 <Pause className="w-3.5 h-3.5" /> Stop Analyzer
               </button>
@@ -892,18 +1141,58 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
       {/* ========================================================================= */}
       {/* OBSERVATION AUDIT LEDGER & GIS EXPORT */}
       {/* ========================================================================= */}
-      <div className="bg-[#111111] p-5 rounded-2xl border border-white/[0.08] space-y-4">
+      <div className={`${cardBg} p-5 rounded-2xl border space-y-4 transition-colors`}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-white">Sensor & Peripheral Observation Ledger</h3>
-            <p className="text-xs text-white/50">Review, audit, and dispatch multi-sensor observations to GIS Map Layers or CSV.</p>
+            <h3 className={`text-sm font-semibold ${textPrimary}`}>Sensor & Peripheral Observation Ledger</h3>
+            <p className={`text-xs ${textSecondary}`}>Review, audit, and dispatch multi-sensor observations to GIS Map Layers or CSV.</p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Undo / Redo / Delete Controls */}
+            <div className="flex items-center gap-1 p-1 bg-white/5 rounded-xl border border-white/10">
+              <button
+                onClick={handleUndoReading}
+                disabled={historyIndex <= 0}
+                className={`px-2.5 py-1 rounded-lg ${btnSecondary} disabled:opacity-30 text-xs font-semibold flex items-center gap-1 transition-colors`}
+                title="Undo last observation action"
+              >
+                <Undo2 className="w-3.5 h-3.5 text-[#c9a063]" />
+                <span>Undo</span>
+              </button>
+              <button
+                onClick={handleRedoReading}
+                disabled={historyIndex >= readingsHistory.length - 1}
+                className={`px-2.5 py-1 rounded-lg ${btnSecondary} disabled:opacity-30 text-xs font-semibold flex items-center gap-1 transition-colors`}
+                title="Redo observation action"
+              >
+                <Redo2 className="w-3.5 h-3.5 text-[#c9a063]" />
+                <span>Redo</span>
+              </button>
+              <button
+                onClick={handleDeleteLastReading}
+                disabled={readingsLog.length === 0}
+                className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 disabled:opacity-30 text-xs font-semibold flex items-center gap-1 border border-red-500/20 transition-colors"
+                title="Delete the most recent observation"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Last</span>
+              </button>
+              <button
+                onClick={handleClearReadings}
+                disabled={readingsLog.length === 0}
+                className="px-2.5 py-1 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 disabled:opacity-30 text-xs font-semibold flex items-center gap-1 border border-red-500/30 transition-colors"
+                title="Clear all recorded observations"
+              >
+                <Trash className="w-3.5 h-3.5" />
+                <span>Clear</span>
+              </button>
+            </div>
+
             <button
               onClick={handleExportCsv}
               disabled={!readingsLog.length}
-              className="px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] disabled:opacity-30 text-white/80 text-xs font-medium transition-colors border border-white/[0.08] flex items-center gap-1.5"
+              className={`px-3 py-1.5 rounded-lg ${btnSecondary} disabled:opacity-30 text-xs font-medium transition-colors border flex items-center gap-1.5`}
             >
               <Download className="w-3.5 h-3.5" /> Export CSV ({readingsLog.length})
             </button>
@@ -911,7 +1200,7 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
               <button
                 onClick={handleSendToGis}
                 disabled={!readingsLog.length}
-                className="px-3.5 py-1.5 rounded-lg bg-[#c9a063] hover:bg-[#d6b074] disabled:opacity-30 text-black text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-lg shadow-[#c9a063]/20"
+                className="px-3.5 py-1.5 rounded-lg bg-[#c9a063] hover:bg-[#b88f55] disabled:opacity-30 text-black text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-sm"
               >
                 <Layers className="w-3.5 h-3.5" /> Plot on GIS Map
               </button>
@@ -920,10 +1209,10 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
         </div>
 
         {/* Ledger Table */}
-        <div className="border border-white/[0.06] rounded-xl overflow-x-auto max-h-60 custom-scrollbar">
+        <div className={`border ${borderSubtle} rounded-xl overflow-x-auto max-h-60 custom-scrollbar`}>
           <table className="w-full text-left border-collapse text-xs font-mono">
             <thead>
-              <tr className="bg-white/[0.02] border-b border-white/[0.06] text-white/40 text-[11px]">
+              <tr className={`${isDark ? 'bg-white/[0.02]' : 'bg-slate-50'} border-b ${borderSubtle} ${textMuted} text-[11px]`}>
                 <th className="py-2.5 px-3">Point ID</th>
                 <th className="py-2.5 px-3">Time</th>
                 <th className="py-2.5 px-3">Azimuth</th>
@@ -932,27 +1221,37 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
                 <th className="py-2.5 px-3">GPS Lat/Lon</th>
                 <th className="py-2.5 px-3">Elev (m)</th>
                 <th className="py-2.5 px-3">Remarks</th>
+                <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/[0.04]">
+            <tbody className={`divide-y ${isDark ? 'divide-white/[0.04]' : 'divide-slate-200'}`}>
               {readingsLog.length > 0 ? (
                 readingsLog.map(r => (
-                  <tr key={r.id} className="hover:bg-white/[0.02] text-white/80">
+                  <tr key={r.id} className={`${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50/80'} ${textPrimary}`}>
                     <td className="py-2 px-3 text-[#c9a063] font-bold">{r.id}</td>
-                    <td className="py-2 px-3 text-white/50">{r.timestamp}</td>
+                    <td className={`py-2 px-3 ${textSecondary}`}>{r.timestamp}</td>
                     <td className="py-2 px-3">{r.heading}°</td>
                     <td className="py-2 px-3">{r.pitch}° / {r.roll}°</td>
                     <td className="py-2 px-3">{r.slopePercent}%</td>
-                    <td className="py-2 px-3 text-white/60">
+                    <td className={`py-2 px-3 ${textSecondary}`}>
                       {r.latitude ? `${r.latitude.toFixed(5)}, ${r.longitude?.toFixed(5)}` : 'N/A'}
                     </td>
                     <td className="py-2 px-3">{r.altitude ?? 'N/A'}</td>
-                    <td className="py-2 px-3 text-white/90 truncate max-w-xs">{r.remarks}</td>
+                    <td className={`py-2 px-3 ${textPrimary} truncate max-w-xs`}>{r.remarks}</td>
+                    <td className="py-2 px-3 text-right">
+                      <button
+                        onClick={() => handleDeleteReading(r.id)}
+                        className="p-1 hover:bg-red-500/20 text-red-500/70 hover:text-red-400 rounded transition-colors"
+                        title={`Delete reading ${r.id}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-white/30 italic">
+                  <td colSpan={9} className={`py-8 text-center ${textMuted} italic`}>
                     No observations logged yet. Log sight readings, level observations, or NFC/BLE points above.
                   </td>
                 </tr>

@@ -47,6 +47,16 @@ import {
   HAPTIC_PATTERNS
 } from '../lib/haptics';
 import { useToast } from '../context/ToastContext';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import {
+  getTileUrl,
+  lonLatToTile,
+  tileToBBox,
+  globalTileCache,
+  getOptimalZoomLevel,
+  ImageryProvider
+} from '../lib/tileManager';
+import { Globe } from 'lucide-react';
 
 interface GeofenceStudioTabProps {
   workingZone: string;
@@ -286,6 +296,12 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
 
   // Map & Canvas State
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isOnline = useOnlineStatus();
+  const [showBasemap, setShowBasemap] = useState<boolean>(false);
+  const [basemapProvider, setBasemapProvider] = useState<ImageryProvider>('google_satellite');
+  const [basemapOpacity, setBasemapOpacity] = useState<number>(0.85);
+  const [, setRenderTick] = useState<number>(0);
+
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -293,6 +309,25 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
   const [hoveredCoord, setHoveredCoord] = useState<{ lat: number; lon: number; utmE: number; utmN: number } | null>(null);
   const [drawMode, setDrawMode] = useState<'none' | 'polygon' | 'circle' | 'corridor'>('none');
   const [newFencePts, setNewFencePts] = useState<GeoPoint[]>([]);
+
+  // Mobile Touch Gesture Ref (prevents browser pinch zoom)
+  const touchStateRef = useRef<{
+    isPinching: boolean;
+    startDist: number;
+    startZoom: number;
+    startOffset: { x: number; y: number };
+    startTouch: { x: number; y: number };
+    startTime: number;
+    hasMoved: boolean;
+  }>({
+    isPinching: false,
+    startDist: 0,
+    startZoom: 1,
+    startOffset: { x: 0, y: 0 },
+    startTouch: { x: 0, y: 0 },
+    startTime: 0,
+    hasMoved: false
+  });
 
   // Persist Zones
   useEffect(() => {
@@ -561,6 +596,61 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
       return { x: sx, y: sy };
     };
 
+    // Satellite Imagery Layer Background
+    if (showBasemap) {
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const worldMinE = cx + (0 - width / 2 - panOffset.x) / baseScale;
+      const worldMaxE = cx + (width - width / 2 - panOffset.x) / baseScale;
+      const worldMaxN = cy - (0 - height / 2 - panOffset.y) / baseScale;
+      const worldMinN = cy - (height - height / 2 - panOffset.y) / baseScale;
+
+      const swLL = utmToLonLat(Math.min(worldMinE, worldMaxE), Math.min(worldMinN, worldMaxN), zNum, isSouth);
+      const neLL = utmToLonLat(Math.max(worldMinE, worldMaxE), Math.max(worldMinN, worldMaxN), zNum, isSouth);
+
+      const centerLat = (swLL.lat + neLL.lat) / 2;
+      const zoom = getOptimalZoomLevel(baseScale, centerLat);
+
+      const minTile = lonLatToTile(swLL.lon, neLL.lat, zoom);
+      const maxTile = lonLatToTile(neLL.lon, swLL.lat, zoom);
+
+      ctx.save();
+      ctx.globalAlpha = basemapOpacity;
+
+      const minX_tile = Math.max(0, Math.min(minTile.x, maxTile.x) - 1);
+      const maxX_tile = Math.min(Math.pow(2, zoom) - 1, Math.max(minTile.x, maxTile.x) + 1);
+      const minY_tile = Math.max(0, Math.min(minTile.y, maxTile.y) - 1);
+      const maxY_tile = Math.min(Math.pow(2, zoom) - 1, Math.max(minTile.y, maxTile.y) + 1);
+
+      if ((maxX_tile - minX_tile + 1) * (maxY_tile - minY_tile + 1) <= 100) {
+        for (let tx = minX_tile; tx <= maxX_tile; tx++) {
+          for (let ty = minY_tile; ty <= maxY_tile; ty++) {
+            const tileBBox = tileToBBox(tx, ty, zoom);
+            const tileSW_utm = lonLatToUtm(tileBBox.west, tileBBox.south, zNum, isSouth);
+            const tileNE_utm = lonLatToUtm(tileBBox.east, tileBBox.north, zNum, isSouth);
+
+            const pTL = toScreen(tileSW_utm.E, tileNE_utm.N);
+            const pBR = toScreen(tileNE_utm.E, tileSW_utm.N);
+
+            const tileWidth = pBR.x - pTL.x;
+            const tileHeight = pBR.y - pTL.y;
+
+            const url = getTileUrl(basemapProvider, tx, ty, zoom);
+            const cached = globalTileCache.get(url);
+
+            if (cached && cached.loaded && cached.img) {
+              ctx.drawImage(cached.img, pTL.x, pTL.y, tileWidth, tileHeight);
+            } else {
+              globalTileCache.load(url, () => {
+                setRenderTick(t => t + 1);
+              });
+            }
+          }
+        }
+      }
+      ctx.restore();
+    }
+
     // Draw Grid Lines (100m grid)
     ctx.strokeStyle = isDark ? 'rgba(51, 65, 85, 0.4)' : 'rgba(148, 163, 184, 0.5)';
     ctx.lineWidth = 1;
@@ -796,7 +886,147 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
     ctx.font = '10px monospace';
     ctx.fillText(`${scaleBarMeters} m`, 20 + scaleBarPx / 2 - 12, height - 32);
 
-  }, [metricZones, selectedZoneId, roverUtm, roverPos, trackHistory, activeBreachAlert, drawMode, newFencePts, zoomLevel, panOffset, zNum, isSouth, isDark]);
+  }, [metricZones, selectedZoneId, roverUtm, roverPos, trackHistory, activeBreachAlert, drawMode, newFencePts, zoomLevel, panOffset, zNum, isSouth, isDark, showBasemap, basemapProvider, basemapOpacity]);
+
+  // Touch Event Listeners for Mobile Pinch Zoom & Pan
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      const rect = cv.getBoundingClientRect();
+
+      if (e.touches.length === 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const midX = (t1.clientX + t2.clientX) / 2 - rect.left;
+        const midY = (t1.clientY + t2.clientY) / 2 - rect.top;
+
+        touchStateRef.current = {
+          isPinching: true,
+          startDist: Math.max(10, dist),
+          startZoom: zoomLevel,
+          startOffset: { ...panOffset },
+          startTouch: { x: midX, y: midY },
+          startTime: Date.now(),
+          hasMoved: false
+        };
+        setIsDragging(false);
+        return;
+      }
+
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        const sx = t.clientX - rect.left;
+        const sy = t.clientY - rect.top;
+
+        touchStateRef.current = {
+          isPinching: false,
+          startDist: 0,
+          startZoom: zoomLevel,
+          startOffset: { ...panOffset },
+          startTouch: { x: sx, y: sy },
+          startTime: Date.now(),
+          hasMoved: false
+        };
+        setIsDragging(true);
+        setDragStart({ x: t.clientX - panOffset.x, y: t.clientY - panOffset.y });
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const rect = cv.getBoundingClientRect();
+
+      if (e.touches.length === 2 && touchStateRef.current.isPinching) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+
+        const zoomRatio = dist / touchStateRef.current.startDist;
+        const newZoom = Math.max(0.3, Math.min(8, touchStateRef.current.startZoom * zoomRatio));
+        setZoomLevel(newZoom);
+        touchStateRef.current.hasMoved = true;
+        return;
+      }
+
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        const sx = t.clientX - rect.left;
+        const sy = t.clientY - rect.top;
+
+        const distTouch = Math.hypot(sx - touchStateRef.current.startTouch.x, sy - touchStateRef.current.startTouch.y);
+        if (distTouch > 5) {
+          touchStateRef.current.hasMoved = true;
+        }
+
+        const dx = sx - touchStateRef.current.startTouch.x;
+        const dy = sy - touchStateRef.current.startTouch.y;
+        setPanOffset({
+          x: touchStateRef.current.startOffset.x + dx,
+          y: touchStateRef.current.startOffset.y + dy
+        });
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      const duration = Date.now() - touchStateRef.current.startTime;
+
+      if (!touchStateRef.current.hasMoved && duration < 300 && drawMode !== 'none') {
+        const rect = cv.getBoundingClientRect();
+        const clickX = touchStateRef.current.startTouch.x;
+        const clickY = touchStateRef.current.startTouch.y;
+
+        const allPts: { x: number; y: number }[] = [];
+        metricZones.forEach(z => z.utmPts.forEach(pt => allPts.push({ x: pt.a, y: pt.b })));
+        allPts.push({ x: roverUtm.E, y: roverUtm.N });
+        let minX = Math.min(...allPts.map(p => p.x));
+        let maxX = Math.max(...allPts.map(p => p.x));
+        let minY = Math.min(...allPts.map(p => p.y));
+        let maxY = Math.max(...allPts.map(p => p.y));
+        const spanX = Math.max(200, maxX - minX);
+        const spanY = Math.max(200, maxY - minY);
+        minX -= spanX * 0.25; maxX += spanX * 0.25;
+        minY -= spanY * 0.25; maxY += spanY * 0.25;
+        const baseScale = Math.min((cv.width - 80) / (maxX - minX), (cv.height - 80) / (maxY - minY)) * zoomLevel;
+
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        const utmE = cx + (clickX - cv.width / 2 - panOffset.x) / baseScale;
+        const utmN = cy - (clickY - cv.height / 2 - panOffset.y) / baseScale;
+
+        const ll = utmToLonLat(utmE, utmN, zNum, isSouth);
+        setNewFencePts(prev => [...prev, { a: ll.lon, b: ll.lat }]);
+        if (vibrationEnabled) {
+          triggerVertexAddedHaptic();
+        }
+      }
+
+      setIsDragging(false);
+      touchStateRef.current.isPinching = false;
+    };
+
+    const onTouchCancel = (e: TouchEvent) => {
+      e.preventDefault();
+      setIsDragging(false);
+      touchStateRef.current.isPinching = false;
+    };
+
+    cv.addEventListener('touchstart', onTouchStart, { passive: false });
+    cv.addEventListener('touchmove', onTouchMove, { passive: false });
+    cv.addEventListener('touchend', onTouchEnd, { passive: false });
+    cv.addEventListener('touchcancel', onTouchCancel, { passive: false });
+
+    return () => {
+      cv.removeEventListener('touchstart', onTouchStart);
+      cv.removeEventListener('touchmove', onTouchMove);
+      cv.removeEventListener('touchend', onTouchEnd);
+      cv.removeEventListener('touchcancel', onTouchCancel);
+    };
+  }, [zoomLevel, panOffset, drawMode, metricZones, roverUtm, zNum, isSouth, vibrationEnabled]);
 
   // Handle Canvas Mouse Interactions
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1201,11 +1431,37 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg flex flex-col gap-3 relative">
             {/* Viewport Top Toolbar */}
             <div className="flex flex-wrap items-center justify-between gap-2 z-10">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                   <Crosshair className="w-3.5 h-3.5 text-blue-400" />
                   Tactical Vector Radar ({workingZone})
                 </span>
+
+                {/* Map Imagery Toggle */}
+                <label className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-800 border border-slate-700 text-xs text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showBasemap}
+                    onChange={e => setShowBasemap(e.target.checked)}
+                    className="rounded border-slate-600 text-blue-500 focus:ring-0 focus:ring-offset-0 w-3.5 h-3.5 bg-slate-900"
+                  />
+                  <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Imagery</span>
+                </label>
+
+                {showBasemap && (
+                  <select
+                    value={basemapProvider}
+                    onChange={e => setBasemapProvider(e.target.value as ImageryProvider)}
+                    className="bg-slate-800 text-slate-200 border border-slate-700 rounded px-2 py-0.5 text-xs"
+                  >
+                    <option value="google_satellite">Google Satellite</option>
+                    <option value="google_hybrid">Google Hybrid</option>
+                    <option value="google_streets">Google Streets</option>
+                    <option value="osm_standard">OpenStreetMap</option>
+                    <option value="opentopo">OpenTopoMap</option>
+                  </select>
+                )}
               </div>
 
               {/* Draw Toolbar */}

@@ -42,7 +42,8 @@ import {
   Radio,
   Sparkles,
   Activity,
-  AlertCircle
+  AlertCircle,
+  X
 } from 'lucide-react';
 import { PhotoLandmark, LandmarkMeasurement, GeoFeature } from '../types';
 import { lonLatToUtm, utmToLonLat, mgrsFromLonLat, encodePlusCode } from '../lib/geodesy';
@@ -254,6 +255,12 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
 
   const [activeTab, setActiveTab] = useState<'camera' | 'rangefinder' | 'gallery'>('camera');
   const [statusMsg, setStatusMsg] = useState<string>('');
+
+  // Full-Screen & Multi-Shot Field Viewfinder State
+  const [isFullscreenViewfinder, setIsFullscreenViewfinder] = useState<boolean>(false);
+  const [isMultiShotMode, setIsMultiShotMode] = useState<boolean>(true);
+  const [multiShotCount, setMultiShotCount] = useState<number>(0);
+  const [flashEffect, setFlashEffect] = useState<boolean>(false);
 
   // 1. Initialize Camera
   const startCamera = async (facing: 'environment' | 'user' = facingMode) => {
@@ -863,6 +870,25 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
 
     setCapturedMetadata(newLandmark);
     setStatusMsg(`Captured landmark "${newLandmark.name}" with stamped GPS Map Camera telemetry!`);
+    return newLandmark;
+  };
+
+  // Rapid Multi-Shot Capture: Takes photo, saves to gallery, auto-increments tag, stays live in viewfinder
+  const captureMultiShotPhoto = () => {
+    const lm = capturePhotoWithHUD();
+    if (!lm) return;
+    setSavedLandmarks(prev => [lm, ...prev]);
+    setMultiShotCount(prev => prev + 1);
+    setFlashEffect(true);
+    setTimeout(() => setFlashEffect(false), 150);
+
+    const match = landmarkTag.match(/(\d+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10) + 1;
+      setLandmarkTag(landmarkTag.replace(/\d+$/, String(num).padStart(match[1].length, '0')));
+    } else {
+      setLandmarkTag(`LM-${savedLandmarks.length + 2}`);
+    }
   };
 
   // Save current captured photo to persistent list
@@ -1153,6 +1179,17 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
                       </button>
                     )}
                     <button
+                      onClick={() => {
+                        setIsFullscreenViewfinder(true);
+                        if (!cameraActive) startCamera();
+                      }}
+                      className="px-3 py-2 bg-[#141414] hover:bg-[#1a1a1a] text-white text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-1.5"
+                      title="Open Full-Screen Viewfinder (Multi-Shot Ready)"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5 text-[#c9a063]" />
+                      Full Screen
+                    </button>
+                    <button
                       onClick={stopCamera}
                       className="px-3 py-2 bg-red-950/40 hover:bg-red-900/50 text-red-300 text-xs font-semibold rounded-xl border border-red-800/40"
                     >
@@ -1160,23 +1197,45 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
                     </button>
                   </>
                 ) : (
-                  <button
-                    onClick={() => startCamera()}
-                    className="px-3.5 py-2 bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5"
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                    Start Camera
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => startCamera()}
+                      className="px-3.5 py-2 bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      Start Camera
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsFullscreenViewfinder(true);
+                        startCamera();
+                      }}
+                      className="px-3.5 py-2 bg-[#141414] hover:bg-[#1a1a1a] text-white text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-1.5"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5 text-[#c9a063]" />
+                      Full-Screen Camera
+                    </button>
+                  </div>
                 )}
               </div>
 
-              <button
-                onClick={capturePhotoWithHUD}
-                className="px-6 py-2.5 bg-gradient-to-r from-[#c9a063] to-[#e4be83] hover:from-[#d6b074] hover:to-[#ebd09c] text-black font-bold text-sm rounded-xl shadow-xl shadow-[#c9a063]/20 flex items-center gap-2 transform active:scale-95 transition-transform"
-              >
-                <Camera className="w-4 h-4" />
-                Capture Stamped Landmark
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={captureMultiShotPhoto}
+                  className="px-4 py-2.5 bg-[#1a1a1a] hover:bg-[#222] text-[#c9a063] border border-[#c9a063]/40 font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5"
+                  title="Quick capture & stamp without closing viewfinder"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Multi-Shot Snap
+                </button>
+                <button
+                  onClick={capturePhotoWithHUD}
+                  className="px-5 py-2.5 bg-gradient-to-r from-[#c9a063] to-[#e4be83] hover:from-[#d6b074] hover:to-[#ebd09c] text-black font-bold text-xs sm:text-sm rounded-xl shadow-xl shadow-[#c9a063]/20 flex items-center gap-2 transform active:scale-95 transition-transform"
+                >
+                  <Camera className="w-4 h-4" />
+                  Capture & Inspect
+                </button>
+              </div>
             </div>
 
             {/* Frozen Preview Modal */}
@@ -1746,6 +1805,186 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+      {/* FULL-SCREEN FIELD CAMERA & MULTI-SHOT CAPTURE MODAL */}
+      {isFullscreenViewfinder && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col justify-between overflow-hidden select-none animate-in fade-in duration-200">
+          {/* Live Video Feed */}
+          {cameraActive ? (
+            <video
+              ref={(el) => {
+                if (el && streamRef.current) {
+                  el.srcObject = streamRef.current;
+                  el.play().catch(() => {});
+                }
+              }}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover z-0"
+            />
+          ) : (
+            <div className="absolute inset-0 bg-gradient-to-b from-[#131823] via-[#0d111a] to-[#080a0f] flex flex-col items-center justify-center p-6 text-center z-0">
+              <Camera className="w-12 h-12 text-[#c9a063] mb-3 animate-pulse" />
+              <p className="text-white text-sm font-semibold">Camera is initializing...</p>
+              <button
+                onClick={() => startCamera()}
+                className="mt-4 px-4 py-2 bg-[#c9a063] text-black font-bold text-xs rounded-xl shadow-lg"
+              >
+                Start Camera
+              </button>
+            </div>
+          )}
+
+          {/* Shutter Flash Animation */}
+          {flashEffect && (
+            <div className="absolute inset-0 bg-white z-40 pointer-events-none transition-opacity duration-150" />
+          )}
+
+          {/* Reticle / Crosshairs Overlay */}
+          {reticleMode === 'crosshair' && (
+            <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
+              <div className="w-20 h-20 rounded-full border-2 border-[#c9a063]/80 flex items-center justify-center">
+                <div className="w-2 h-2 bg-[#c9a063] rounded-full"></div>
+              </div>
+              <div className="absolute w-36 h-0.5 bg-[#c9a063]/70"></div>
+              <div className="absolute h-36 w-0.5 bg-[#c9a063]/70"></div>
+            </div>
+          )}
+
+          {/* Top Control Bar */}
+          <div className="relative z-20 p-4 sm:p-6 bg-gradient-to-b from-black/90 via-black/50 to-transparent flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsFullscreenViewfinder(false)}
+                className="px-3.5 py-2 bg-black/70 hover:bg-black/90 text-white text-xs font-bold rounded-xl border border-white/20 backdrop-blur-md flex items-center gap-1.5 shadow-lg active:scale-95 transition-transform"
+                title="Return to regular display view"
+              >
+                <Minimize2 className="w-4 h-4 text-[#c9a063]" />
+                Back to Display
+              </button>
+
+              <div className="bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-xl border border-[#c9a063]/40 text-xs font-mono text-[#c9a063] flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span className="font-bold">{landmarkTag}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Multi-Shot Toggle */}
+              <button
+                onClick={() => setIsMultiShotMode(!isMultiShotMode)}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold backdrop-blur-md flex items-center gap-1.5 ${
+                  isMultiShotMode
+                    ? 'bg-[#c9a063] text-black border-[#c9a063]'
+                    : 'bg-black/70 text-white/80 border-white/20'
+                }`}
+                title="Continuous Multi-Shot captures pictures one after another without closing"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                {isMultiShotMode ? 'Multi-Shot: ON' : 'Single Shot'}
+              </button>
+
+              {multiShotCount > 0 && (
+                <div className="bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-mono px-2.5 py-1.5 rounded-xl backdrop-blur-md flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  {multiShotCount} snapped
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Middle Live Telemetry Floating HUD */}
+          <div className="relative z-20 px-4 sm:px-6 pointer-events-none flex justify-between items-start">
+            <div className="bg-black/75 backdrop-blur-md p-2.5 rounded-xl border border-white/15 text-[11px] font-mono text-white/90 space-y-0.5">
+              <div className="text-[#c9a063] font-bold">LAT: {lat.toFixed(6)}° | LON: {lon.toFixed(6)}°</div>
+              <div>UTM: {currentUtm.E.toFixed(1)}m E, {currentUtm.N.toFixed(1)}m N (Z{zNum})</div>
+              <div>ALT: {altitude.toFixed(1)}m | ACC: ±{accuracy.toFixed(1)}m</div>
+            </div>
+
+            <div className="bg-black/75 backdrop-blur-md p-2.5 rounded-xl border border-white/15 text-[11px] font-mono text-white/90 space-y-0.5 text-right">
+              <div className="text-[#c9a063] font-bold flex items-center justify-end gap-1">
+                <Compass className="w-3.5 h-3.5" />
+                {azimuth.toFixed(1)}° {getCardinal(azimuth)}
+              </div>
+              <div>PITCH: {pitch.toFixed(1)}° | ROLL: {roll.toFixed(1)}°</div>
+              <div className="text-amber-400">{tempC}°C {weatherCondition}</div>
+            </div>
+          </div>
+
+          {/* Bottom Controls & Massive Shutter */}
+          <div className="relative z-20 p-4 sm:p-6 bg-gradient-to-t from-black/95 via-black/70 to-transparent flex flex-col gap-3">
+            {/* Live Watermark Minimal Bar */}
+            <div className="bg-black/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 text-white/80 text-[10px] font-mono flex items-center justify-between flex-wrap gap-2">
+              <span className="text-[#c9a063] font-bold">BHUNEX GEOMATICS CERTIFIED WATERMARK</span>
+              <span>PLUS: {currentPlusCode}</span>
+              <span className="text-emerald-400 font-mono text-[9px]">HASH: {currentIntegrityHash.slice(0, 10)}...</span>
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              {/* Left quick actions */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={toggleCameraFacing}
+                  className="p-3 bg-white/10 hover:bg-white/20 text-white rounded-full backdrop-blur-md border border-white/20 active:scale-95 transition-transform"
+                  title="Flip Camera (Front/Rear)"
+                >
+                  <RefreshCw className="w-5 h-5 text-[#c9a063]" />
+                </button>
+                {hasTorch && (
+                  <button
+                    onClick={toggleTorch}
+                    className={`p-3 rounded-full backdrop-blur-md border active:scale-95 transition-transform ${
+                      torchOn
+                        ? 'bg-amber-400 text-black border-amber-400'
+                        : 'bg-white/10 text-white border-white/20'
+                    }`}
+                    title="Toggle Flash / Torch"
+                  >
+                    <Zap className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Central Shutter Button for Multi-Shot */}
+              <div className="flex flex-col items-center">
+                <button
+                  onClick={() => {
+                    if (isMultiShotMode) {
+                      captureMultiShotPhoto();
+                    } else {
+                      capturePhotoWithHUD();
+                      setIsFullscreenViewfinder(false);
+                    }
+                  }}
+                  className="w-18 h-18 sm:w-20 sm:h-20 rounded-full border-4 border-[#c9a063] bg-white/20 hover:bg-white/30 active:scale-90 transition-transform flex items-center justify-center shadow-2xl p-1"
+                  title={isMultiShotMode ? "Click to snap & continue (Multi-Shot)" : "Click to capture and review"}
+                >
+                  <div className="w-full h-full rounded-full bg-gradient-to-tr from-[#c9a063] to-[#ebd09c] flex items-center justify-center">
+                    <Camera className="w-8 h-8 text-black" />
+                  </div>
+                </button>
+                <span className="text-[10px] text-white/70 font-mono mt-1">
+                  {isMultiShotMode ? 'TAP TO MULTI-SNAP' : 'TAP TO CAPTURE'}
+                </span>
+              </div>
+
+              {/* Right Finish / Gallery Review */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setIsFullscreenViewfinder(false);
+                    setActiveTab('gallery');
+                  }}
+                  className="px-4 py-2.5 bg-black/80 hover:bg-black text-[#c9a063] border border-[#c9a063]/50 text-xs font-bold rounded-xl backdrop-blur-md flex items-center gap-1.5 shadow-lg active:scale-95 transition-transform"
+                >
+                  <Layers className="w-4 h-4" />
+                  Gallery ({savedLandmarks.length})
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

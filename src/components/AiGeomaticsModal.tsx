@@ -13,9 +13,11 @@ import {
   Wifi,
   WifiOff,
   BookOpen,
-  ShieldCheck
+  ShieldCheck,
+  Cpu
 } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { executeGeomaticsAi } from '../lib/geoAiEngine';
 
 interface AiGeomaticsModalProps {
   isOpen: boolean;
@@ -28,6 +30,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  source?: string;
 }
 
 export const AiGeomaticsModal: React.FC<AiGeomaticsModalProps> = ({
@@ -41,8 +44,9 @@ export const AiGeomaticsModal: React.FC<AiGeomaticsModalProps> = ({
     {
       role: 'assistant',
       content:
-        'Hello! I am your **BhuNex App Guide & Geomatics Assistant**.\n\nI can help you navigate and use the tools in BhuNex:\n- **Coordinate Conversions**: Transforming between Lat/Long, UTM Zone ' + workingZone + ', and Indian Kalianpur LCC 1SP.\n- **Cadastral & Revenue Mapping**: Entering Khasra/Plot numbers, converting Bigha-Katha-Dhur to Sq. Meters & Hectares.\n- **Total Station & GPS Surveys**: Setting up backsight stations, balancing traverses with Bowditch rule, calculating Vincenty distance.\n- **Borehole Stratigraphy & Mines**: Generating 3D strip logs and checking IBM 2018 mineral cutoff thresholds.\n- **Boundaries & Geofences**: Drawing plot offsets, corridor buffers, and proximity alarms.\n\nAsk me how to perform any survey or cadastral task in BhuNex!',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        'Hello! I am your **BhuNex App Guide & Geomatics Assistant** (Powered by Open-Source Geomatics Intelligence & Gemini).\n\nI can help you navigate and use the tools in BhuNex:\n- **Coordinate Conversions**: Transforming between Lat/Long, UTM Zone ' + workingZone + ', and Indian Kalianpur LCC 1SP.\n- **Cadastral & Revenue Mapping**: Entering Khasra/Plot numbers, converting Bigha-Katha-Dhur to Sq. Meters & Hectares.\n- **Total Station & GPS Surveys**: Setting up backsight stations, balancing traverses with Bowditch rule, calculating Vincenty distance.\n- **Borehole Stratigraphy & Mines**: Generating 3D strip logs and checking IBM 2018 mineral cutoff thresholds.\n- **Boundaries & Geofences**: Drawing plot offsets, corridor buffers, and proximity alarms.\n\nAsk me how to perform any survey or cadastral task in BhuNex!',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      source: 'OpenSource-GeoEngine'
     }
   ]);
   const [inputPrompt, setInputPrompt] = useState('');
@@ -75,11 +79,6 @@ export const AiGeomaticsModal: React.FC<AiGeomaticsModalProps> = ({
     const prompt = (textToSend || inputPrompt).trim();
     if (!prompt || isLoading) return;
 
-    if (!isOnline) {
-      setErrorMsg('Internet connection is currently offline. Please reconnect to use AI assistance.');
-      return;
-    }
-
     const userMsg: Message = {
       role: 'user',
       content: prompt,
@@ -90,6 +89,9 @@ export const AiGeomaticsModal: React.FC<AiGeomaticsModalProps> = ({
     setInputPrompt('');
     setIsLoading(true);
     setErrorMsg(null);
+
+    let answerText = '';
+    let usedSource = 'OpenSource-GeoEngine';
 
     try {
       const res = await fetch('/api/ai/geomatics-assistant', {
@@ -104,22 +106,31 @@ export const AiGeomaticsModal: React.FC<AiGeomaticsModalProps> = ({
         })
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to get consultation response.');
+      if (res.ok) {
+        const data = await res.json();
+        answerText = data.answer;
+        usedSource = data.model || 'Gemini/OpenSource';
+      } else {
+        throw new Error('Server returned non-200');
       }
-
-      const aiMsg: Message = {
-        role: 'assistant',
-        content: data.answer,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages(prev => [...prev, aiMsg]);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Unable to reach AI service. Please check network connection.');
-    } finally {
-      setIsLoading(false);
+    } catch (fetchErr) {
+      // Local open-source fallback
+      const localResult = await executeGeomaticsAi(prompt, {
+        workingZone,
+        activeLayerName: activeTab
+      });
+      answerText = localResult.answer;
+      usedSource = localResult.modelUsed;
     }
+
+    const aiMsg: Message = {
+      role: 'assistant',
+      content: answerText || 'Completed geomatics query analysis.',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      source: usedSource
+    };
+    setMessages(prev => [...prev, aiMsg]);
+    setIsLoading(false);
   };
 
   return (

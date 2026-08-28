@@ -45,7 +45,6 @@ interface DesktopMenuBarProps {
   openSettings: () => void;
   openShortcuts: () => void;
   openTour: () => void;
-  openAiModal: () => void;
   openAbout?: () => void;
   onExportProject: () => void;
   onImportProject: (file: File) => void;
@@ -66,7 +65,6 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
   openSettings,
   openShortcuts,
   openTour,
-  openAiModal,
   openAbout,
   onExportProject,
   onImportProject,
@@ -382,21 +380,6 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
 
             {openMenu === 'help' && (
               <div className="absolute left-0 top-full mt-1.5 w-52 bg-[#121212] border border-white/[0.08] rounded-xl shadow-xl py-1 z-50 text-xs text-white/90">
-                {isOnline && (
-                  <button
-                    onClick={() => {
-                      openAiModal();
-                      setOpenMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left hover:bg-white/[0.06] flex items-center justify-between"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Sparkles className="w-3.5 h-3.5 text-[#8ecbf8]" />
-                      AI Assistant
-                    </span>
-                    <span className="text-[10px] text-white/30 font-mono">⌘G</span>
-                  </button>
-                )}
                 <button
                   onClick={() => {
                     openCommandPalette();
@@ -495,18 +478,6 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
           <span className="hidden lg:inline text-white/50 font-normal">Search tools...</span>
           <kbd className="text-[10px] bg-white/[0.08] text-white/50 px-1.5 py-0.2 rounded font-mono">⌘K</kbd>
         </button>
-
-        {/* AI Geomatics Consultant - Only shown when online */}
-        {isOnline && (
-          <button
-            onClick={openAiModal}
-            className="h-8 px-2.5 rounded-md bg-[#0d2640]/80 hover:bg-[#14365a] border border-[#377cb8]/40 text-[#8ecbf8] font-medium flex items-center gap-1.5 transition-colors text-xs shadow-2xs"
-            title="AI Assistant (Ctrl+G)"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">AI Help</span>
-          </button>
-        )}
 
         {/* Theme Toggle */}
         <button

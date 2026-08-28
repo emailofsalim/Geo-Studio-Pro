@@ -7,7 +7,6 @@ import { CommandPalette } from './components/CommandPalette';
 import { SettingsModal } from './components/SettingsModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { TourSpotlight } from './components/TourSpotlight';
-import { AiGeomaticsModal } from './components/AiGeomaticsModal';
 import { AboutModal } from './components/AboutModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useToast } from './context/ToastContext';
@@ -71,7 +70,6 @@ export function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isTourOpen, setIsTourOpen] = useState(false);
-  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
 
   // Auto-Save Engine State (IndexedDB)
@@ -168,11 +166,6 @@ export function App() {
       else if ((e.ctrlKey || e.metaKey) && e.key === '/') {
         e.preventDefault();
         setIsShortcutsOpen(prev => !prev);
-      }
-      // Ctrl+G or Cmd+G: AI Consultant
-      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
-        e.preventDefault();
-        setIsAiModalOpen(prev => !prev);
       }
       // Direct Tab Switching Ctrl+1 through Ctrl+9
       else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
@@ -305,7 +298,6 @@ export function App() {
         openSettings={() => setIsSettingsOpen(true)}
         openShortcuts={() => setIsShortcutsOpen(true)}
         openTour={() => setIsTourOpen(true)}
-        openAiModal={() => setIsAiModalOpen(true)}
         openAbout={() => setIsAboutOpen(true)}
         onExportProject={handleExportProject}
         onImportProject={handleImportProject}
@@ -321,7 +313,6 @@ export function App() {
         setWorkingZone={setWorkingZone}
         openCommandPalette={() => setIsCommandPaletteOpen(true)}
         openSettings={() => setIsSettingsOpen(true)}
-        openAiModal={() => setIsAiModalOpen(true)}
         hasGpsFix={false}
         isDark={isDarkMode}
         setIsDark={setIsDarkMode}
@@ -474,7 +465,6 @@ export function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
         onOpenTour={() => setIsTourOpen(true)}
-        onOpenAi={() => setIsAiModalOpen(true)}
       />
 
       <SettingsModal
@@ -506,13 +496,6 @@ export function App() {
         isOpen={isTourOpen}
         onClose={() => setIsTourOpen(false)}
         setActiveTab={setActiveTab}
-      />
-
-      <AiGeomaticsModal
-        isOpen={isAiModalOpen}
-        onClose={() => setIsAiModalOpen(false)}
-        workingZone={workingZone}
-        activeTab={activeTab}
       />
 
       <AboutModal

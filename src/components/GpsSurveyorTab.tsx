@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useIsDarkMode } from '../hooks/useIsDarkMode';
 import {
   Compass,
@@ -37,7 +37,15 @@ import {
   Sparkles,
   X,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Undo2,
+  Redo2,
+  Camera,
+  Mic,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { GeoFeature, SurveyWaypoint, SurveyTrack, TrackPoint, ProximityAlarmSettings, ProximityAlarmEvent } from '../types';
 import {
@@ -63,6 +71,17 @@ import {
 } from '../lib/haptics';
 import { deduplicateSurveyWaypoints } from '../lib/deduplication';
 import { useToast } from '../context/ToastContext';
+import { ArStakeoutView } from './hardware/ArStakeoutView';
+import {
+  calculateStakeoutGuidance,
+  parseSurveyVoiceCommand,
+  StakeoutGuidance
+} from '../lib/voiceCommander';
+import {
+  speakVoiceAnnouncement,
+  isSpeechRecognitionSupported,
+  isSpeechSynthesisSupported
+} from '../lib/hardwareComms';
 
 interface GpsSurveyorTabProps {
   workingZone: string;
@@ -187,8 +206,8 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   // Hook for active Dark / Light mode detection
   const isDark = useIsDarkMode();
 
-  // Active Tab: 'cockpit' | 'averaging' | 'navigation' | 'trip' | 'satellites' | 'waypoints'
-  const [subTab, setSubTab] = useState<'cockpit' | 'averaging' | 'navigation' | 'trip' | 'satellites' | 'waypoints'>('cockpit');
+  // Active Tab: 'cockpit' | 'averaging' | 'navigation' | 'ar_stakeout' | 'trip' | 'satellites' | 'waypoints'
+  const [subTab, setSubTab] = useState<'cockpit' | 'averaging' | 'navigation' | 'ar_stakeout' | 'trip' | 'satellites' | 'waypoints'>('cockpit');
 
   // GPS Cockpit State
   const [isStreaming, setIsStreaming] = useState(false);
@@ -222,12 +241,135 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       return DEFAULT_INITIAL_WAYPOINTS;
     }
   });
+
+  // Waypoints Undo / Redo History Stack
+  const [wpHistory, setWpHistory] = useState<SurveyWaypoint[][]>(() => {
+    try {
+      const s = localStorage.getItem('gs_waypoints_v2');
+      if (s) {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed) && parsed.length > 0) return [parsed];
+      }
+    } catch {}
+    return [DEFAULT_INITIAL_WAYPOINTS];
+  });
+  const [historyIndex, setHistoryIndex] = useState<number>(0);
+
+  const [activeWaypointIndex, setActiveWaypointIndex] = useState<number>(0);
   const [wpId, setWpId] = useState('WP-001');
   const [wpCode, setWpCode] = useState('Boundary Pillar');
   const [wpElev, setWpElev] = useState('');
   const [wpRemarks, setWpRemarks] = useState('');
   const [wpSearch, setWpSearch] = useState('');
   const [wpCustomRadius, setWpCustomRadius] = useState<string>('10');
+
+  // Spoken Turn-by-Turn Voice Guidance for Navigation and AR
+  const [voiceNavActive, setVoiceNavActive] = useState<boolean>(false);
+  const [voiceNavIntervalSec, setVoiceNavIntervalSec] = useState<number>(5);
+  const lastSpokenNavTimeRef = useRef<number>(0);
+
+  // Helper to commit changes to waypoints with Undo/Redo tracking
+  const updateWaypointsWithHistory = useCallback((action: SurveyWaypoint[] | ((prev: SurveyWaypoint[]) => SurveyWaypoint[]), message?: string) => {
+    setWaypoints(prev => {
+      const next = typeof action === 'function' ? action(prev) : action;
+      setWpHistory(hist => {
+        const sliced = hist.slice(0, historyIndex + 1);
+        sliced.push(next);
+        if (sliced.length > 50) sliced.shift();
+        return sliced;
+      });
+      setHistoryIndex(prevIdx => Math.min(prevIdx + 1, 49));
+      try {
+        localStorage.setItem('gs_waypoints_v2', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, [historyIndex]);
+
+  const handleUndoWaypoints = useCallback(() => {
+    if (historyIndex > 0) {
+      const targetIdx = historyIndex - 1;
+      const targetState = wpHistory[targetIdx];
+      setWaypoints(targetState);
+      setHistoryIndex(targetIdx);
+      try {
+        localStorage.setItem('gs_waypoints_v2', JSON.stringify(targetState));
+      } catch {}
+      toast.showInfo(`Undid action (${targetState.length} waypoints in registry)`);
+      speakVoiceAnnouncement('Undo applied.');
+      triggerHaptic([20, 20]);
+    } else {
+      toast.showInfo('No previous actions to undo.');
+    }
+  }, [historyIndex, wpHistory, toast]);
+
+  const handleRedoWaypoints = useCallback(() => {
+    if (historyIndex < wpHistory.length - 1) {
+      const targetIdx = historyIndex + 1;
+      const targetState = wpHistory[targetIdx];
+      setWaypoints(targetState);
+      setHistoryIndex(targetIdx);
+      try {
+        localStorage.setItem('gs_waypoints_v2', JSON.stringify(targetState));
+      } catch {}
+      toast.showInfo(`Redid action (${targetState.length} waypoints in registry)`);
+      speakVoiceAnnouncement('Redo applied.');
+      triggerHaptic([20, 20]);
+    } else {
+      toast.showInfo('No actions to redo.');
+    }
+  }, [historyIndex, wpHistory, toast]);
+
+  const handleDeleteWaypoint = useCallback((id: string) => {
+    updateWaypointsWithHistory(prev => prev.filter(w => w.id !== id), `Deleted waypoint ${id}`);
+    toast.showInfo(`Deleted waypoint ${id}`);
+    speakVoiceAnnouncement(`Waypoint ${id} deleted.`);
+    triggerHaptic([30, 20]);
+  }, [updateWaypointsWithHistory, toast]);
+
+  const handleDeleteLastWaypoint = useCallback(() => {
+    if (waypoints.length === 0) {
+      toast.showWarning('No waypoints to delete.');
+      return;
+    }
+    const lastWp = waypoints[waypoints.length - 1];
+    updateWaypointsWithHistory(prev => prev.slice(0, -1), `Deleted last waypoint ${lastWp.id}`);
+    toast.showInfo(`Deleted waypoint ${lastWp.id}`);
+    speakVoiceAnnouncement(`Deleted last waypoint ${lastWp.id}`);
+    triggerHaptic([30, 20]);
+  }, [waypoints, updateWaypointsWithHistory, toast]);
+
+  const handleClearAllWaypoints = useCallback(() => {
+    if (waypoints.length === 0) return;
+    updateWaypointsWithHistory([], 'Cleared all waypoints');
+    toast.showInfo('Cleared all waypoints from registry (Can be undone via Ctrl+Z).');
+    speakVoiceAnnouncement('All waypoints cleared.');
+    triggerHaptic([40, 40, 60]);
+  }, [waypoints, updateWaypointsWithHistory, toast]);
+
+  // Global Keyboard Shortcuts (Ctrl+Z for Undo, Ctrl+Y or Ctrl+Shift+Z for Redo)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || (activeEl as HTMLElement)?.isContentEditable) {
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        if (e.shiftKey) {
+          e.preventDefault();
+          handleRedoWaypoints();
+        } else {
+          e.preventDefault();
+          handleUndoWaypoints();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedoWaypoints();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndoWaypoints, handleRedoWaypoints]);
 
   // Track Logger State
   const [isTracking, setIsTracking] = useState(false);
@@ -610,6 +752,25 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
           if (proximitySettings.vibrate) {
             triggerHaptic(HAPTIC_PATTERNS.TARGET_LOCKED);
           }
+        }
+      }
+
+      // Voice turn-by-turn navigation spoken director loop
+      if (voiceNavActive && (Date.now() - lastSpokenNavTimeRef.current >= voiceNavIntervalSec * 1000)) {
+        lastSpokenNavTimeRef.current = Date.now();
+        if (isArrived) {
+          speakVoiceAnnouncement(`Arrived at target within ${proximityRadiusMeters} meters.`);
+        } else {
+          const absTurn = Math.abs(turn);
+          let spoken = '';
+          if (absTurn < 5) {
+            spoken = `Direct on target. Walk forward ${dist.toFixed(0)} meters.`;
+          } else if (turn > 0) {
+            spoken = `Turn right ${absTurn.toFixed(0)} degrees, then walk forward ${dist.toFixed(0)} meters.`;
+          } else {
+            spoken = `Turn left ${absTurn.toFixed(0)} degrees, then walk forward ${dist.toFixed(0)} meters.`;
+          }
+          speakVoiceAnnouncement(spoken);
         }
       }
     }
@@ -997,8 +1158,9 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       remarks: `CEP95: ${avgStats.cep95.toFixed(2)}m | 2DRMS: ${avgStats.drms2.toFixed(2)}m | Grade: ${avgStats.qualityGrade}`
     };
 
-    setWaypoints(prev => [...prev, newWp]);
+    updateWaypointsWithHistory(prev => [...prev, newWp], `Added averaged benchmark ${newWp.id}`);
     triggerWaypointAddedHaptic();
+    speakVoiceAnnouncement(`Benchmark ${newWp.id} recorded.`);
     setSubTab('waypoints');
     const m = ptId.match(/^(.*?)(\d+)$/);
     if (m) {
@@ -1193,6 +1355,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
             { id: 'cockpit', label: 'Dual Coordinate Cockpit', icon: Radio },
             { id: 'averaging', label: 'GPS Averaging (CEP95)', icon: Target },
             { id: 'navigation', label: 'Go-To Guidance', icon: Navigation },
+            { id: 'ar_stakeout', label: 'AR Camera Stakeout', icon: Camera },
             { id: 'trip', label: 'Trip Odometer', icon: Activity },
             { id: 'satellites', label: 'Satellite Skyplot', icon: Satellite },
             { id: 'waypoints', label: `Waypoints (${waypoints.length})`, icon: MapPin }
@@ -1453,8 +1616,9 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                       proximityRadius: parseFloat(wpCustomRadius) || proximitySettings.globalRadius || 10,
                       alarmDisabled: false
                     };
-                    setWaypoints(prev => [...prev, newWp]);
+                    updateWaypointsWithHistory(prev => [...prev, newWp], `Logged waypoint ${newWp.id}`);
                     triggerWaypointAddedHaptic();
+                    speakVoiceAnnouncement(`Point ${newWp.id} recorded.`);
                     toast.showSuccess(`Logged waypoint ${newWp.id} (${newWp.code}) to registry`);
                     const m = wpId.match(/^(.*?)(\d+)$/);
                     if (m) {
@@ -1468,6 +1632,37 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                   <Plus className="w-4 h-4" />
                   Save Current Fix to Registry
                 </button>
+
+                {/* Undo, Redo, Delete Last Toolbar */}
+                <div className="pt-2 border-t border-white/5 flex items-center justify-between gap-1.5">
+                  <button
+                    onClick={handleUndoWaypoints}
+                    disabled={historyIndex <= 0}
+                    className="flex-1 py-1.5 px-2 bg-white/5 hover:bg-white/10 disabled:opacity-30 text-white rounded-lg border border-white/10 text-[11px] font-medium flex items-center justify-center gap-1 transition-all"
+                    title="Undo last recorded point (Ctrl+Z)"
+                  >
+                    <Undo2 className="w-3.5 h-3.5 text-[#c9a063]" />
+                    <span>Undo</span>
+                  </button>
+                  <button
+                    onClick={handleRedoWaypoints}
+                    disabled={historyIndex >= wpHistory.length - 1}
+                    className="flex-1 py-1.5 px-2 bg-white/5 hover:bg-white/10 disabled:opacity-30 text-white rounded-lg border border-white/10 text-[11px] font-medium flex items-center justify-center gap-1 transition-all"
+                    title="Redo action (Ctrl+Y)"
+                  >
+                    <Redo2 className="w-3.5 h-3.5 text-[#c9a063]" />
+                    <span>Redo</span>
+                  </button>
+                  <button
+                    onClick={handleDeleteLastWaypoint}
+                    disabled={waypoints.length === 0}
+                    className="py-1.5 px-2 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-30 text-red-400 rounded-lg border border-red-500/30 text-[11px] font-medium flex items-center justify-center gap-1 transition-all"
+                    title="Delete most recently logged waypoint"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Last</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1669,7 +1864,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                           : `${navMetrics.dist.toFixed(1)} m`}
                       </div>
 
-                      <div className="flex items-center justify-center gap-3">
+                      <div className="flex items-center justify-center gap-3 flex-wrap">
                         <span className={`px-4 py-1.5 rounded-full text-sm font-bold font-mono transition-all ${
                           Math.abs(navMetrics.turn) < 10
                             ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/50 shadow-lg shadow-emerald-950/50'
@@ -1681,6 +1876,15 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                             ? `TURN ${navMetrics.turn.toFixed(0)}° RIGHT ➔`
                             : `TURN ${Math.abs(navMetrics.turn).toFixed(0)}° LEFT ⬅`}
                         </span>
+
+                        <button
+                          onClick={() => setSubTab('ar_stakeout')}
+                          className="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-emerald-600 to-[#c9a063] hover:brightness-110 text-black font-bold text-xs flex items-center gap-1.5 shadow-lg transition-all active:scale-95"
+                          title="Open Camera AR Stakeout View with 3D reticle overlay"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>AR Camera View</span>
+                        </button>
                       </div>
 
                       {navMetrics.isArrived && (
@@ -1689,6 +1893,85 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                           <span>🎯 PROXIMITY ARRIVAL: Reached target threshold within {proximityRadiusMeters}m!</span>
                         </div>
                       )}
+                    </div>
+
+                    {/* Turn-by-Turn Spoken Stakeout Voice Controller */}
+                    <div className="p-4 rounded-xl bg-black/40 border border-white/10 space-y-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                        <span className="font-semibold text-white flex items-center gap-1.5">
+                          <Volume2 className="w-4 h-4 text-[#c9a063]" />
+                          Turn-by-Turn Stakeout Spoken Voice Engine
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => {
+                              const newActive = !voiceNavActive;
+                              setVoiceNavActive(newActive);
+                              if (newActive) {
+                                const turnTxt = Math.abs(navMetrics.turn) < 5
+                                  ? `On target, walk forward ${navMetrics.dist.toFixed(0)} meters.`
+                                  : navMetrics.turn > 0
+                                  ? `Turn right ${Math.abs(navMetrics.turn).toFixed(0)} degrees, then forward ${navMetrics.dist.toFixed(0)} meters.`
+                                  : `Turn left ${Math.abs(navMetrics.turn).toFixed(0)} degrees, then forward ${navMetrics.dist.toFixed(0)} meters.`;
+                                speakVoiceAnnouncement(turnTxt);
+                                lastSpokenNavTimeRef.current = Date.now();
+                              }
+                            }}
+                            className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${
+                              voiceNavActive
+                                ? 'bg-emerald-600 text-white animate-pulse shadow-md shadow-emerald-600/30'
+                                : 'bg-white/5 hover:bg-white/10 text-white/70 border border-white/10'
+                            }`}
+                          >
+                            {voiceNavActive ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                            <span>{voiceNavActive ? 'Voice Navigation Active' : 'Enable Spoken Guidance'}</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              const turnTxt = Math.abs(navMetrics.turn) < 5
+                                ? `On target, walk forward ${navMetrics.dist.toFixed(0)} meters.`
+                                : navMetrics.turn > 0
+                                ? `Turn right ${Math.abs(navMetrics.turn).toFixed(0)} degrees, forward ${navMetrics.dist.toFixed(0)} meters.`
+                                : `Turn left ${Math.abs(navMetrics.turn).toFixed(0)} degrees, forward ${navMetrics.dist.toFixed(0)} meters.`;
+                              speakVoiceAnnouncement(turnTxt);
+                              triggerHaptic([20, 30]);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-[#c9a063]/20 hover:bg-[#c9a063]/30 text-[#c9a063] border border-[#c9a063]/40 text-xs font-bold flex items-center gap-1"
+                          >
+                            <Radio className="w-3.5 h-3.5" />
+                            <span>Speak Now</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-white/70 font-mono flex-wrap gap-2 pt-1 border-t border-white/5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-white/50">Direction:</span>
+                          <span className="text-emerald-400 font-bold">
+                            {Math.abs(navMetrics.turn) < 5
+                              ? `Forward ${navMetrics.dist.toFixed(1)}m`
+                              : `${navMetrics.turn > 0 ? 'Right' : 'Left'} ${Math.abs(navMetrics.turn).toFixed(0)}° • Forward ${navMetrics.dist.toFixed(1)}m`}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1 text-[10px]">
+                          <span className="text-white/40">Cadence:</span>
+                          {[3, 5, 10].map(s => (
+                            <button
+                              key={s}
+                              onClick={() => setVoiceNavIntervalSec(s)}
+                              className={`px-1.5 py-0.5 rounded border ${
+                                voiceNavIntervalSec === s
+                                  ? 'bg-[#c9a063] text-black font-bold border-[#c9a063]'
+                                  : 'bg-white/5 text-white/60 border-white/10 hover:text-white'
+                              }`}
+                            >
+                              {s}s
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
 
                     {/* Navigation Metrics Grid */}
@@ -2223,6 +2506,46 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
         </div>
       )}
 
+      {/* 4b. Augmented Reality (AR) Camera Stakeout View */}
+      {subTab === 'ar_stakeout' && (
+        <ArStakeoutView
+          currentPos={currentPos}
+          deviceHeading={deviceHeading || 0}
+          waypoints={waypoints}
+          activeWaypointIndex={activeWaypointIndex}
+          onSelectWaypointIndex={setActiveWaypointIndex}
+          onUndoWaypoint={handleUndoWaypoints}
+          onRedoWaypoint={handleRedoWaypoints}
+          onDeleteWaypoint={handleDeleteWaypoint}
+          canUndo={historyIndex > 0}
+          canRedo={historyIndex < wpHistory.length - 1}
+          distanceUnit={distanceUnit}
+          onStoreObservation={remark => {
+            if (currentPos) {
+              const newWp: SurveyWaypoint = {
+                id: `STK-${waypoints.length + 1}`,
+                code: 'Stakeout Ground Marker',
+                E: currentPos.utm.E,
+                N: currentPos.utm.N,
+                Z: currentPos.alt || 0,
+                lat: currentPos.lat,
+                lon: currentPos.lon,
+                acc: currentPos.acc,
+                zone: workingZone,
+                time: Date.now(),
+                remarks: remark,
+                proximityRadius: 5
+              };
+              updateWaypointsWithHistory(prev => [...prev, newWp], `Recorded stakeout point ${newWp.id}`);
+              speakVoiceAnnouncement(`Stakeout point ${newWp.id} recorded.`);
+              toast.showSuccess(`Saved stakeout check observation ${newWp.id}`);
+            } else {
+              toast.showWarning('No current GPS fix available to record stakeout position.');
+            }
+          }}
+        />
+      )}
+
       {/* 5. Trip Computer & Odometer */}
       {subTab === 'trip' && (
         <div className="bg-[#0f0f0f] p-6 rounded-2xl border border-white/5 space-y-6">
@@ -2350,6 +2673,46 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Undo & Redo & Delete controls */}
+              <div className="flex items-center gap-1 bg-[#141414] p-1 rounded-xl border border-white/10">
+                <button
+                  onClick={handleUndoWaypoints}
+                  disabled={historyIndex <= 0}
+                  className="px-2.5 py-1 bg-white/5 hover:bg-white/10 disabled:opacity-30 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
+                  title="Undo last waypoint action (Ctrl+Z)"
+                >
+                  <Undo2 className="w-3.5 h-3.5 text-[#c9a063]" />
+                  <span>Undo</span>
+                </button>
+                <button
+                  onClick={handleRedoWaypoints}
+                  disabled={historyIndex >= wpHistory.length - 1}
+                  className="px-2.5 py-1 bg-white/5 hover:bg-white/10 disabled:opacity-30 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
+                  title="Redo waypoint action (Ctrl+Y)"
+                >
+                  <Redo2 className="w-3.5 h-3.5 text-[#c9a063]" />
+                  <span>Redo</span>
+                </button>
+                <button
+                  onClick={handleDeleteLastWaypoint}
+                  disabled={waypoints.length === 0}
+                  className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-30 text-red-400 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
+                  title="Delete last recorded waypoint"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Last</span>
+                </button>
+                <button
+                  onClick={handleClearAllWaypoints}
+                  disabled={waypoints.length === 0}
+                  className="px-2.5 py-1 bg-red-950/40 hover:bg-red-900/60 disabled:opacity-30 text-red-300 rounded-lg text-xs font-semibold border border-red-500/30 flex items-center gap-1 transition-all"
+                  title="Clear all waypoints (Undoable with Ctrl+Z)"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Clear All</span>
+                </button>
+              </div>
+
               <button
                 onClick={handleDeduplicateWaypoints}
                 disabled={waypoints.length === 0}

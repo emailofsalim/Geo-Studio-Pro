@@ -32,6 +32,7 @@ import {
   EdmCorrectionResult
 } from '../../lib/openSurveyData';
 import { triggerHaptic } from '../../lib/haptics';
+import { useIsDarkMode } from '../../hooks/useIsDarkMode';
 
 interface EnvironmentalDataViewProps {
   gpsFix: { lat: number; lon: number; alt: number | null } | null;
@@ -42,6 +43,7 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
   gpsFix,
   onLogReading
 }) => {
+  const isDark = useIsDarkMode();
   const [report, setReport] = useState<FullEnvironmentalReport | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [customLat, setCustomLat] = useState<number>(() => gpsFix?.lat || 25.5941);
@@ -111,38 +113,47 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
     triggerHaptic([30, 40]);
   };
 
+  // Card & Element background classes based on theme
+  const cardBg = isDark ? 'bg-[#111111] border-white/[0.08]' : 'bg-white border-slate-200 shadow-sm';
+  const subCardBg = isDark ? 'bg-white/[0.02] border-white/[0.06]' : 'bg-slate-50 border-slate-200/80';
+  const innerDarkBg = isDark ? 'bg-black/40 border-white/[0.05]' : 'bg-slate-100/80 border-slate-200';
+  const textPrimary = isDark ? 'text-white' : 'text-slate-900';
+  const textSecondary = isDark ? 'text-white/50' : 'text-slate-500';
+  const textMuted = isDark ? 'text-white/40' : 'text-slate-400';
+  const borderSubtle = isDark ? 'border-white/[0.06]' : 'border-slate-200';
+
   return (
     <div className="space-y-6">
       {/* Top Banner: Status & Quick Coordinates Input */}
-      <div className="bg-[#111111] p-5 rounded-2xl border border-white/[0.08] flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className={`${cardBg} p-5 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors`}>
+        <div className="flex items-center gap-3.5">
           <div className="w-10 h-10 rounded-xl bg-[#c9a063]/10 border border-[#c9a063]/25 flex items-center justify-center shrink-0">
             <Globe className="w-5 h-5 text-[#c9a063]" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-white">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className={`text-sm font-semibold ${textPrimary}`}>
                 Live Survey Meteorology & Space Weather
               </h2>
               {report?.isLive ? (
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
                   Live Free API
                 </span>
               ) : (
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                   Offline Standard Model
                 </span>
               )}
             </div>
-            <p className="text-xs text-white/50 mt-0.5">
+            <p className={`text-xs ${textSecondary} mt-0.5`}>
               {report?.location?.displayName || `Lat: ${customLat.toFixed(4)}°, Lon: ${customLon.toFixed(4)}°, Alt: ${customAlt}m`}
             </p>
           </div>
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2 self-end md:self-auto">
+        <div className="flex items-center gap-2 self-end md:self-auto flex-wrap">
           {gpsFix && (
             <button
               onClick={() => {
@@ -152,10 +163,10 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
                 loadData(gpsFix.lat, gpsFix.lon, gpsFix.alt || 0);
                 triggerHaptic(20);
               }}
-              className="px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/70 hover:text-white border border-white/[0.08] text-xs font-mono flex items-center gap-1.5 transition-colors"
+              className={`px-3 py-1.5 rounded-lg ${isDark ? 'bg-white/[0.04] hover:bg-white/[0.08] text-white/70 hover:text-white border-white/[0.08]' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'} border text-xs font-mono flex items-center gap-1.5 transition-colors`}
               title="Use current GPS Fix"
             >
-              <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+              <MapPin className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
               <span>Use GPS Fix</span>
             </button>
           )}
@@ -163,7 +174,7 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
           <button
             onClick={handleRefresh}
             disabled={loading}
-            className="px-3.5 py-1.5 rounded-lg bg-[#c9a063] hover:bg-[#b88f55] text-black font-semibold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            className="px-3.5 py-1.5 rounded-lg bg-[#c9a063] hover:bg-[#b88f55] text-black font-semibold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50 shadow-sm"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             <span>{loading ? 'Fetching...' : 'Refresh'}</span>
@@ -172,7 +183,7 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
           {onLogReading && (
             <button
               onClick={handleLogAtmosphere}
-              className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white text-xs border border-white/[0.1] flex items-center gap-1.5 transition-colors"
+              className={`px-3 py-1.5 rounded-lg ${isDark ? 'bg-white/[0.06] hover:bg-white/[0.12] text-white border-white/[0.1]' : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'} text-xs border flex items-center gap-1.5 transition-colors`}
               title="Log observation to Field Ledger"
             >
               <span>+ Log Obs</span>
@@ -186,57 +197,57 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
         {/* Left Column: Atmospheric Observations (7 cols) */}
         <div className="lg:col-span-7 space-y-5">
           {/* Main Weather Card */}
-          <div className="bg-[#111111] p-6 rounded-2xl border border-white/[0.08] space-y-5">
-            <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
+          <div className={`${cardBg} p-6 rounded-2xl border space-y-5 transition-colors`}>
+            <div className={`flex items-center justify-between border-b ${borderSubtle} pb-3`}>
               <div className="flex items-center gap-2">
                 <Thermometer className="w-4 h-4 text-[#c9a063]" />
-                <span className="text-xs font-semibold text-white uppercase tracking-wider">
+                <span className={`text-xs font-semibold ${textPrimary} uppercase tracking-wider`}>
                   Site Atmospheric Conditions
                 </span>
               </div>
-              <span className="text-[11px] font-mono text-white/40">
+              <span className={`text-[11px] font-mono ${textMuted}`}>
                 {report?.fetchedAt ? `Updated ${report.fetchedAt}` : ''}
               </span>
             </div>
 
             {/* Weather Header Summary */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-                <div className="text-[10px] text-white/40 uppercase font-mono">Air Temp</div>
-                <div className="text-2xl font-bold text-white mt-1 font-mono">
+              <div className={`p-3.5 rounded-xl ${subCardBg} border transition-colors`}>
+                <div className={`text-[10px] ${textMuted} uppercase font-mono`}>Air Temp</div>
+                <div className={`text-2xl font-bold ${textPrimary} mt-1 font-mono`}>
                   {report?.atmosphere.temperatureC ?? '--'}°C
                 </div>
-                <div className="text-[10px] text-white/40 font-mono mt-0.5">
+                <div className={`text-[10px] ${textMuted} font-mono mt-0.5 truncate`}>
                   {report?.atmosphere.temperatureF ?? '--'}°F (Apparent: {report?.atmosphere.apparentTempC}°C)
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-                <div className="text-[10px] text-white/40 uppercase font-mono">Barometric Press.</div>
+              <div className={`p-3.5 rounded-xl ${subCardBg} border transition-colors`}>
+                <div className={`text-[10px] ${textMuted} uppercase font-mono`}>Barometric Press.</div>
                 <div className="text-2xl font-bold text-[#c9a063] mt-1 font-mono">
                   {report?.atmosphere.surfacePressureHpa ?? '--'}
                 </div>
-                <div className="text-[10px] text-white/40 font-mono mt-0.5">
+                <div className={`text-[10px] ${textMuted} font-mono mt-0.5`}>
                   hPa / mbar (MSL: {report?.atmosphere.mslPressureHpa} hPa)
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-                <div className="text-[10px] text-white/40 uppercase font-mono">Relative Humidity</div>
-                <div className="text-2xl font-bold text-cyan-400 mt-1 font-mono">
+              <div className={`p-3.5 rounded-xl ${subCardBg} border transition-colors`}>
+                <div className={`text-[10px] ${textMuted} uppercase font-mono`}>Relative Humidity</div>
+                <div className="text-2xl font-bold text-cyan-600 dark:text-cyan-400 mt-1 font-mono">
                   {report?.atmosphere.relativeHumidityPercent ?? '--'}%
                 </div>
-                <div className="text-[10px] text-white/40 font-mono mt-0.5">
+                <div className={`text-[10px] ${textMuted} font-mono mt-0.5`}>
                   Dew Point: {report?.atmosphere.dewPointC}°C
                 </div>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-                <div className="text-[10px] text-white/40 uppercase font-mono">Wind Velocity</div>
-                <div className="text-2xl font-bold text-emerald-400 mt-1 font-mono">
+              <div className={`p-3.5 rounded-xl ${subCardBg} border transition-colors`}>
+                <div className={`text-[10px] ${textMuted} uppercase font-mono`}>Wind Velocity</div>
+                <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 font-mono">
                   {report?.atmosphere.windSpeedKmh ?? '--'}
                 </div>
-                <div className="text-[10px] text-white/40 font-mono mt-0.5">
+                <div className={`text-[10px] ${textMuted} font-mono mt-0.5`}>
                   km/h {report?.atmosphere.windCardinal} ({report?.atmosphere.windSpeedMs} m/s)
                 </div>
               </div>
@@ -244,46 +255,46 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
 
             {/* Secondary Meteorological Telemetry Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs font-mono">
-              <div className="p-3 bg-black/40 border border-white/[0.05] rounded-xl flex items-center justify-between">
-                <span className="text-white/50 flex items-center gap-1.5">
-                  <Wind className="w-3.5 h-3.5 text-white/40" /> Wind Gusts:
+              <div className={`p-3 ${innerDarkBg} border rounded-xl flex items-center justify-between`}>
+                <span className={`${textSecondary} flex items-center gap-1.5`}>
+                  <Wind className={`w-3.5 h-3.5 ${textMuted}`} /> Wind Gusts:
                 </span>
-                <span className="text-white font-medium">{report?.atmosphere.windGustsKmh ?? '--'} km/h</span>
+                <span className={`${textPrimary} font-medium`}>{report?.atmosphere.windGustsKmh ?? '--'} km/h</span>
               </div>
 
-              <div className="p-3 bg-black/40 border border-white/[0.05] rounded-xl flex items-center justify-between">
-                <span className="text-white/50 flex items-center gap-1.5">
-                  <Compass className="w-3.5 h-3.5 text-white/40" /> Wind Azimuth:
+              <div className={`p-3 ${innerDarkBg} border rounded-xl flex items-center justify-between`}>
+                <span className={`${textSecondary} flex items-center gap-1.5`}>
+                  <Compass className={`w-3.5 h-3.5 ${textMuted}`} /> Wind Azimuth:
                 </span>
-                <span className="text-white font-medium">{report?.atmosphere.windDirectionDeg ?? '--'}°</span>
+                <span className={`${textPrimary} font-medium`}>{report?.atmosphere.windDirectionDeg ?? '--'}°</span>
               </div>
 
-              <div className="p-3 bg-black/40 border border-white/[0.05] rounded-xl flex items-center justify-between">
-                <span className="text-white/50 flex items-center gap-1.5">
-                  <Cloud className="w-3.5 h-3.5 text-white/40" /> Cloud Cover:
+              <div className={`p-3 ${innerDarkBg} border rounded-xl flex items-center justify-between`}>
+                <span className={`${textSecondary} flex items-center gap-1.5`}>
+                  <Cloud className={`w-3.5 h-3.5 ${textMuted}`} /> Cloud Cover:
                 </span>
-                <span className="text-white font-medium">{report?.atmosphere.cloudCoverPercent ?? '--'}%</span>
+                <span className={`${textPrimary} font-medium`}>{report?.atmosphere.cloudCoverPercent ?? '--'}%</span>
               </div>
 
-              <div className="p-3 bg-black/40 border border-white/[0.05] rounded-xl flex items-center justify-between">
-                <span className="text-white/50 flex items-center gap-1.5">
+              <div className={`p-3 ${innerDarkBg} border rounded-xl flex items-center justify-between`}>
+                <span className={`${textSecondary} flex items-center gap-1.5`}>
                   <Sun className="w-3.5 h-3.5 text-[#c9a063]" /> Solar Irradiance:
                 </span>
-                <span className="text-white font-medium">{report?.atmosphere.solarIrradianceWm2 ?? '--'} W/m²</span>
+                <span className={`${textPrimary} font-medium`}>{report?.atmosphere.solarIrradianceWm2 ?? '--'} W/m²</span>
               </div>
 
-              <div className="p-3 bg-black/40 border border-white/[0.05] rounded-xl flex items-center justify-between">
-                <span className="text-white/50 flex items-center gap-1.5">
-                  <Zap className="w-3.5 h-3.5 text-amber-400" /> UV Index:
+              <div className={`p-3 ${innerDarkBg} border rounded-xl flex items-center justify-between`}>
+                <span className={`${textSecondary} flex items-center gap-1.5`}>
+                  <Zap className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" /> UV Index:
                 </span>
-                <span className="text-white font-medium">{report?.atmosphere.uvIndex ?? '--'} / 11</span>
+                <span className={`${textPrimary} font-medium`}>{report?.atmosphere.uvIndex ?? '--'} / 11</span>
               </div>
 
-              <div className="p-3 bg-black/40 border border-white/[0.05] rounded-xl flex items-center justify-between">
-                <span className="text-white/50 flex items-center gap-1.5">
-                  <Eye className="w-3.5 h-3.5 text-white/40" /> Horiz. Visibility:
+              <div className={`p-3 ${innerDarkBg} border rounded-xl flex items-center justify-between`}>
+                <span className={`${textSecondary} flex items-center gap-1.5`}>
+                  <Eye className={`w-3.5 h-3.5 ${textMuted}`} /> Horiz. Visibility:
                 </span>
-                <span className="text-white font-medium">
+                <span className={`${textPrimary} font-medium`}>
                   {report ? `${(report.atmosphere.visibilityMeters / 1000).toFixed(1)} km` : '--'}
                 </span>
               </div>
@@ -292,18 +303,18 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
 
           {/* 12-Hour Hourly Trend Table */}
           {report?.hourlyForecast && (
-            <div className="bg-[#111111] p-5 rounded-2xl border border-white/[0.08] space-y-3 font-mono">
+            <div className={`${cardBg} p-5 rounded-2xl border space-y-3 font-mono transition-colors`}>
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-white font-sans flex items-center gap-2">
+                <span className={`text-xs font-semibold ${textPrimary} font-sans flex items-center gap-2`}>
                   <Clock className="w-3.5 h-3.5 text-[#c9a063]" /> 12-Hour Field Forecasting Trend
                 </span>
-                <span className="text-[10px] text-white/40">Open-Meteo Hourly Model</span>
+                <span className={`text-[10px] ${textMuted}`}>Open-Meteo Hourly Model</span>
               </div>
 
               <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full text-[11px] text-left">
                   <thead>
-                    <tr className="text-white/40 border-b border-white/[0.06]">
+                    <tr className={`${textMuted} border-b ${borderSubtle}`}>
                       <th className="py-2 pr-3">Time</th>
                       <th className="py-2 pr-3">Temp (°C)</th>
                       <th className="py-2 pr-3">Pressure (hPa)</th>
@@ -312,15 +323,15 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
                       <th className="py-2">Rain Prob (%)</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/[0.04]">
+                  <tbody className={`divide-y ${isDark ? 'divide-white/[0.04]' : 'divide-slate-100'}`}>
                     {report.hourlyForecast.time.map((timeStr, idx) => (
-                      <tr key={idx} className="hover:bg-white/[0.02]">
-                        <td className="py-1.5 pr-3 text-white/80 font-medium">{timeStr}</td>
-                        <td className="py-1.5 pr-3 text-[#c9a063]">{report.hourlyForecast!.temperature[idx]}°C</td>
-                        <td className="py-1.5 pr-3 text-white/70">{report.hourlyForecast!.pressure[idx]}</td>
-                        <td className="py-1.5 pr-3 text-emerald-400">{report.hourlyForecast!.windSpeed[idx]}</td>
-                        <td className="py-1.5 pr-3 text-white/50">{report.hourlyForecast!.cloudCover[idx]}%</td>
-                        <td className="py-1.5 text-cyan-400">{report.hourlyForecast!.precipitationProb[idx]}%</td>
+                      <tr key={idx} className={`${isDark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'}`}>
+                        <td className={`py-1.5 pr-3 ${isDark ? 'text-white/80' : 'text-slate-700'} font-medium`}>{timeStr}</td>
+                        <td className="py-1.5 pr-3 text-[#c9a063] font-semibold">{report.hourlyForecast!.temperature[idx]}°C</td>
+                        <td className={`py-1.5 pr-3 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>{report.hourlyForecast!.pressure[idx]}</td>
+                        <td className="py-1.5 pr-3 text-emerald-600 dark:text-emerald-400 font-medium">{report.hourlyForecast!.windSpeed[idx]}</td>
+                        <td className={`py-1.5 pr-3 ${textSecondary}`}>{report.hourlyForecast!.cloudCover[idx]}%</td>
+                        <td className="py-1.5 text-cyan-600 dark:text-cyan-400">{report.hourlyForecast!.precipitationProb[idx]}%</td>
                       </tr>
                     ))}
                   </tbody>
@@ -333,11 +344,11 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
         {/* Right Column: EDM Velocity Correction & Space Weather (5 cols) */}
         <div className="lg:col-span-5 space-y-5">
           {/* Total Station EDM Atmospheric Velocity Correction Dial */}
-          <div className="bg-[#111111] p-6 rounded-2xl border border-white/[0.08] space-y-4">
-            <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
+          <div className={`${cardBg} p-6 rounded-2xl border space-y-4 transition-colors`}>
+            <div className={`flex items-center justify-between border-b ${borderSubtle} pb-3`}>
               <div className="flex items-center gap-2">
                 <Gauge className="w-4 h-4 text-[#c9a063]" />
-                <span className="text-xs font-semibold text-white uppercase tracking-wider">
+                <span className={`text-xs font-semibold ${textPrimary} uppercase tracking-wider`}>
                   Total Station EDM PPM Correction
                 </span>
               </div>
@@ -346,7 +357,9 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
                 className={`text-[10px] px-2 py-0.5 rounded font-mono border transition-colors ${
                   isManualEdm
                     ? 'bg-[#c9a063]/20 border-[#c9a063]/40 text-[#c9a063]'
-                    : 'bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white'
+                    : isDark
+                    ? 'bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white'
+                    : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
                 }`}
               >
                 {isManualEdm ? 'Manual Input Mode' : 'Live Sync Mode'}
@@ -354,56 +367,56 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
             </div>
 
             {/* Big PPM Display Card */}
-            <div className="p-4 rounded-xl bg-gradient-to-b from-[#181818] to-[#121212] border border-[#c9a063]/30 flex flex-col items-center justify-center text-center">
-              <span className="text-[10px] text-white/50 uppercase tracking-widest font-mono">
+            <div className={`p-4 rounded-xl ${isDark ? 'bg-gradient-to-b from-[#181818] to-[#121212] border-[#c9a063]/30' : 'bg-gradient-to-b from-amber-50/60 to-orange-50/40 border-[#c9a063]/40'} border flex flex-col items-center justify-center text-center`}>
+              <span className={`text-[10px] ${textSecondary} uppercase tracking-widest font-mono`}>
                 Atmospheric Velocity Correction
               </span>
               <div className="text-4xl font-extrabold text-[#c9a063] font-mono my-1 tracking-tight">
-                {edmResult.ppmCorrection > 0 ? `+${edmResult.ppmCorrection}` : edmResult.ppmCorrection} <span className="text-base font-normal text-white/50">ppm</span>
+                {edmResult.ppmCorrection > 0 ? `+${edmResult.ppmCorrection}` : edmResult.ppmCorrection} <span className={`text-base font-normal ${textSecondary}`}>ppm</span>
               </div>
-              <div className="text-xs font-mono text-white/80">
-                ΔD Correction: <span className="text-emerald-400 font-semibold">{edmResult.deltaPer1000m > 0 ? `+${edmResult.deltaPer1000m}` : edmResult.deltaPer1000m} mm</span> per 1000m baseline
+              <div className={`text-xs font-mono ${isDark ? 'text-white/80' : 'text-slate-700'}`}>
+                ΔD Correction: <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{edmResult.deltaPer1000m > 0 ? `+${edmResult.deltaPer1000m}` : edmResult.deltaPer1000m} mm</span> per 1000m baseline
               </div>
 
               <button
                 onClick={handleCopyPpm}
-                className="mt-3 px-3 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[11px] font-mono flex items-center gap-1.5 border border-white/[0.08] transition-colors"
+                className={`mt-3 px-3 py-1 rounded-lg ${isDark ? 'bg-white/[0.06] hover:bg-white/[0.12] text-white/80 border-white/[0.08]' : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 shadow-sm'} text-[11px] font-mono flex items-center gap-1.5 border transition-colors`}
               >
-                {copiedPpm ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                {copiedPpm ? <Check className="w-3 h-3 text-emerald-500 dark:text-emerald-400" /> : <Copy className="w-3 h-3" />}
                 <span>{copiedPpm ? 'Copied to Clipboard' : 'Copy EDM Parameters'}</span>
               </button>
             </div>
 
             {/* Manual Override Controls */}
             {isManualEdm && (
-              <div className="p-3.5 bg-black/40 border border-white/[0.08] rounded-xl space-y-3 text-xs font-mono">
-                <div className="flex items-center justify-between text-white/70">
+              <div className={`p-3.5 ${innerDarkBg} border rounded-xl space-y-3 text-xs font-mono`}>
+                <div className={`flex items-center justify-between ${isDark ? 'text-white/70' : 'text-slate-700'}`}>
                   <span>Temperature (°C):</span>
                   <input
                     type="number"
                     value={overrideTemp}
                     onChange={e => setOverrideTemp(parseFloat(e.target.value) || 0)}
-                    className="w-20 px-2 py-1 bg-white/[0.04] border border-white/[0.1] rounded text-right text-white focus:outline-none focus:border-[#c9a063]"
+                    className={`w-20 px-2 py-1 ${isDark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-slate-300 text-slate-900'} border rounded text-right focus:outline-none focus:border-[#c9a063]`}
                     step="0.5"
                   />
                 </div>
-                <div className="flex items-center justify-between text-white/70">
+                <div className={`flex items-center justify-between ${isDark ? 'text-white/70' : 'text-slate-700'}`}>
                   <span>Barometric Press. (hPa):</span>
                   <input
                     type="number"
                     value={overridePress}
                     onChange={e => setOverridePress(parseFloat(e.target.value) || 1013.25)}
-                    className="w-24 px-2 py-1 bg-white/[0.04] border border-white/[0.1] rounded text-right text-white focus:outline-none focus:border-[#c9a063]"
+                    className={`w-24 px-2 py-1 ${isDark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-slate-300 text-slate-900'} border rounded text-right focus:outline-none focus:border-[#c9a063]`}
                     step="0.5"
                   />
                 </div>
-                <div className="flex items-center justify-between text-white/70">
+                <div className={`flex items-center justify-between ${isDark ? 'text-white/70' : 'text-slate-700'}`}>
                   <span>Relative Humidity (%):</span>
                   <input
                     type="number"
                     value={overrideRh}
                     onChange={e => setOverrideRh(parseFloat(e.target.value) || 50)}
-                    className="w-20 px-2 py-1 bg-white/[0.04] border border-white/[0.1] rounded text-right text-white focus:outline-none focus:border-[#c9a063]"
+                    className={`w-20 px-2 py-1 ${isDark ? 'bg-white/[0.04] border-white/[0.1] text-white' : 'bg-white border-slate-300 text-slate-900'} border rounded text-right focus:outline-none focus:border-[#c9a063]`}
                     step="1"
                     min="0"
                     max="100"
@@ -413,28 +426,28 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
             )}
 
             {/* Geodetic Optical Constants */}
-            <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-white/60">
-              <div className="p-2.5 bg-white/[0.02] border border-white/[0.04] rounded-lg">
-                <div className="text-[9px] text-white/40 uppercase">Refractive Index (n)</div>
-                <div className="text-white font-semibold mt-0.5">{edmResult.carrierRefractionIndex}</div>
+            <div className={`grid grid-cols-2 gap-2 text-[11px] font-mono ${textSecondary}`}>
+              <div className={`p-2.5 ${subCardBg} border rounded-lg`}>
+                <div className={`text-[9px] ${textMuted} uppercase`}>Refractive Index (n)</div>
+                <div className={`${textPrimary} font-semibold mt-0.5`}>{edmResult.carrierRefractionIndex}</div>
               </div>
-              <div className="p-2.5 bg-white/[0.02] border border-white/[0.04] rounded-lg">
-                <div className="text-[9px] text-white/40 uppercase">Air Density (ρ)</div>
-                <div className="text-white font-semibold mt-0.5">{edmResult.airDensityKgM3} kg/m³</div>
+              <div className={`p-2.5 ${subCardBg} border rounded-lg`}>
+                <div className={`text-[9px] ${textMuted} uppercase`}>Air Density (ρ)</div>
+                <div className={`${textPrimary} font-semibold mt-0.5`}>{edmResult.airDensityKgM3} kg/m³</div>
               </div>
             </div>
           </div>
 
           {/* Space Weather & Ionospheric Scintillation (NOAA SWPC) */}
-          <div className="bg-[#111111] p-6 rounded-2xl border border-white/[0.08] space-y-4">
-            <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
+          <div className={`${cardBg} p-6 rounded-2xl border space-y-4 transition-colors`}>
+            <div className={`flex items-center justify-between border-b ${borderSubtle} pb-3`}>
               <div className="flex items-center gap-2">
                 <Radio className="w-4 h-4 text-[#c9a063]" />
-                <span className="text-xs font-semibold text-white uppercase tracking-wider">
+                <span className={`text-xs font-semibold ${textPrimary} uppercase tracking-wider`}>
                   Space Weather & GNSS RTK Scintillation
                 </span>
               </div>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/[0.04] text-white/50 border border-white/[0.08]">
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${isDark ? 'bg-white/[0.04] text-white/50 border-white/[0.08]' : 'bg-slate-100 text-slate-600 border-slate-200'} border`}>
                 NOAA SWPC Open Data
               </span>
             </div>
@@ -442,16 +455,16 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
             {/* Planetary Kp Index Meter */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-white/60">Planetary Kp Index:</span>
+                <span className={textSecondary}>Planetary Kp Index:</span>
                 <span className={`font-bold ${
-                  (report?.spaceWeather.kpIndex || 0) >= 5 ? 'text-red-400' : (report?.spaceWeather.kpIndex || 0) >= 3.5 ? 'text-amber-400' : 'text-emerald-400'
+                  (report?.spaceWeather.kpIndex || 0) >= 5 ? 'text-red-500 dark:text-red-400' : (report?.spaceWeather.kpIndex || 0) >= 3.5 ? 'text-amber-500 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
                 }`}>
                   Kp {report?.spaceWeather.kpIndex ?? '2.1'} ({report?.spaceWeather.stormCategory ?? 'Quiet'})
                 </span>
               </div>
 
               {/* Visual 0 - 9 Kp bar */}
-              <div className="h-2.5 w-full bg-white/[0.05] rounded-full overflow-hidden flex gap-0.5 p-0.5">
+              <div className={`h-2.5 w-full ${isDark ? 'bg-white/[0.05]' : 'bg-slate-100'} rounded-full overflow-hidden flex gap-0.5 p-0.5`}>
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(level => {
                   const currentKp = report?.spaceWeather.kpIndex || 2;
                   const isFilled = currentKp >= level;
@@ -461,7 +474,7 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
                   return (
                     <div
                       key={level}
-                      className={`flex-1 rounded-sm transition-all ${isFilled ? bg : 'bg-white/[0.06]'}`}
+                      className={`flex-1 rounded-sm transition-all ${isFilled ? bg : isDark ? 'bg-white/[0.06]' : 'bg-slate-200'}`}
                     />
                   );
                 })}
@@ -469,16 +482,16 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
             </div>
 
             {/* RTK / GNSS Impact Recommendation Box */}
-            <div className="p-3.5 bg-black/40 border border-white/[0.06] rounded-xl space-y-1.5">
-              <div className="flex items-center gap-2 text-xs font-medium text-white">
+            <div className={`p-3.5 ${innerDarkBg} border rounded-xl space-y-1.5`}>
+              <div className={`flex items-center gap-2 text-xs font-medium ${textPrimary}`}>
                 {(report?.spaceWeather.kpIndex || 0) < 5 ? (
-                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <ShieldCheck className="w-4 h-4 text-emerald-500 dark:text-emerald-400 shrink-0" />
                 ) : (
-                  <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+                  <ShieldAlert className="w-4 h-4 text-amber-500 dark:text-amber-400 shrink-0" />
                 )}
                 <span>GNSS Positioning Impact: {report?.spaceWeather.gnssImpactLevel || 'Optimal'}</span>
               </div>
-              <p className="text-[11px] text-white/50 font-mono leading-relaxed">
+              <p className={`text-[11px] ${textSecondary} font-mono leading-relaxed`}>
                 {report?.spaceWeather.gnssRecommendation || 'Optimal RTK fix conditions with low ionospheric scintillation delay.'}
               </p>
             </div>
@@ -489,48 +502,48 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
       {/* Solar Ephemeris & Astrometric Alignment + UAV Flight Index */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Astronomic Solar Ephemeris */}
-        <div className="bg-[#111111] p-6 rounded-2xl border border-white/[0.08] space-y-4">
-          <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
+        <div className={`${cardBg} p-6 rounded-2xl border space-y-4 transition-colors`}>
+          <div className={`flex items-center justify-between border-b ${borderSubtle} pb-3`}>
             <div className="flex items-center gap-2">
               <Sun className="w-4 h-4 text-[#c9a063]" />
-              <span className="text-xs font-semibold text-white uppercase tracking-wider">
+              <span className={`text-xs font-semibold ${textPrimary} uppercase tracking-wider`}>
                 Solar Ephemeris & Meridian Alignment
               </span>
             </div>
-            <span className="text-[10px] font-mono text-white/40">NOAA SPA Engine</span>
+            <span className={`text-[10px] font-mono ${textMuted}`}>NOAA SPA Engine</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center font-mono">
-            <div className="p-3 bg-white/[0.02] border border-white/[0.06] rounded-xl">
-              <div className="text-[10px] text-white/40 uppercase">Solar Azimuth</div>
-              <div className="text-lg font-bold text-white mt-1">
+            <div className={`p-3 ${subCardBg} border rounded-xl`}>
+              <div className={`text-[10px] ${textMuted} uppercase`}>Solar Azimuth</div>
+              <div className={`text-lg font-bold ${textPrimary} mt-1`}>
                 {report?.solar.solarAzimuthDeg ?? '--'}°
               </div>
             </div>
 
-            <div className="p-3 bg-white/[0.02] border border-white/[0.06] rounded-xl">
-              <div className="text-[10px] text-white/40 uppercase">Solar Elevation</div>
+            <div className={`p-3 ${subCardBg} border rounded-xl`}>
+              <div className={`text-[10px] ${textMuted} uppercase`}>Solar Elevation</div>
               <div className="text-lg font-bold text-[#c9a063] mt-1">
                 {report?.solar.solarElevationDeg ?? '--'}°
               </div>
             </div>
 
-            <div className="p-3 bg-white/[0.02] border border-white/[0.06] rounded-xl">
-              <div className="text-[10px] text-white/40 uppercase">Solar Noon</div>
-              <div className="text-sm font-bold text-white mt-1.5">
+            <div className={`p-3 ${subCardBg} border rounded-xl`}>
+              <div className={`text-[10px] ${textMuted} uppercase`}>Solar Noon</div>
+              <div className={`text-sm font-bold ${textPrimary} mt-1.5`}>
                 {report?.solar.solarNoonTime ?? '--'}
               </div>
             </div>
 
-            <div className="p-3 bg-white/[0.02] border border-white/[0.06] rounded-xl">
-              <div className="text-[10px] text-white/40 uppercase">Shadow Ratio</div>
-              <div className="text-lg font-bold text-cyan-400 mt-1">
+            <div className={`p-3 ${subCardBg} border rounded-xl`}>
+              <div className={`text-[10px] ${textMuted} uppercase`}>Shadow Ratio</div>
+              <div className="text-lg font-bold text-cyan-600 dark:text-cyan-400 mt-1">
                 {report?.solar.shadowRatio ?? '--'}x
               </div>
             </div>
           </div>
 
-          <div className="flex items-center justify-between text-xs font-mono text-white/60 pt-1">
+          <div className={`flex items-center justify-between text-xs font-mono ${textSecondary} pt-1`}>
             <span>Sunrise: {report?.solar.sunriseTime ?? '--'}</span>
             <span>Sunset: {report?.solar.sunsetTime ?? '--'}</span>
             <span>Daylight: {report?.solar.daylightDurationHours ?? '--'} hrs</span>
@@ -538,24 +551,24 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
         </div>
 
         {/* Drone / UAV Photogrammetry Safety Pre-Flight Index */}
-        <div className="bg-[#111111] p-6 rounded-2xl border border-white/[0.08] space-y-4">
-          <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
+        <div className={`${cardBg} p-6 rounded-2xl border space-y-4 transition-colors`}>
+          <div className={`flex items-center justify-between border-b ${borderSubtle} pb-3`}>
             <div className="flex items-center gap-2">
               <Plane className="w-4 h-4 text-[#c9a063]" />
-              <span className="text-xs font-semibold text-white uppercase tracking-wider">
+              <span className={`text-xs font-semibold ${textPrimary} uppercase tracking-wider`}>
                 UAV / Drone Mapping Flight Pre-Check
               </span>
             </div>
             {report?.uavSafety.status === 'GO' ? (
-              <span className="px-2.5 py-0.5 rounded text-xs font-bold font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded text-xs font-bold font-mono bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" /> FLIGHT GO
               </span>
             ) : report?.uavSafety.status === 'CAUTION' ? (
-              <span className="px-2.5 py-0.5 rounded text-xs font-bold font-mono bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded text-xs font-bold font-mono bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" /> CAUTION
               </span>
             ) : (
-              <span className="px-2.5 py-0.5 rounded text-xs font-bold font-mono bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded text-xs font-bold font-mono bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" /> NO-GO
               </span>
             )}
@@ -563,29 +576,29 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
 
           <div className="space-y-2 font-mono text-xs">
             {report?.uavSafety.reasons.map((reason, idx) => (
-              <div key={idx} className="flex items-start gap-2 text-white/70">
+              <div key={idx} className={`flex items-start gap-2 ${isDark ? 'text-white/70' : 'text-slate-700'}`}>
                 <span className="text-[#c9a063] mt-0.5">•</span>
                 <span className="leading-relaxed">{reason}</span>
               </div>
             ))}
           </div>
 
-          <div className="grid grid-cols-4 gap-2 text-center text-[10px] font-mono pt-2 border-t border-white/[0.06]">
+          <div className={`grid grid-cols-4 gap-2 text-center text-[10px] font-mono pt-2 border-t ${borderSubtle}`}>
             <div>
-              <div className="text-white/40">Wind</div>
-              <div className="text-white font-bold mt-0.5">{report?.uavSafety.windScore ?? 100}%</div>
+              <div className={textMuted}>Wind</div>
+              <div className={`${textPrimary} font-bold mt-0.5`}>{report?.uavSafety.windScore ?? 100}%</div>
             </div>
             <div>
-              <div className="text-white/40">Precip</div>
-              <div className="text-white font-bold mt-0.5">{report?.uavSafety.precipScore ?? 100}%</div>
+              <div className={textMuted}>Precip</div>
+              <div className={`${textPrimary} font-bold mt-0.5`}>{report?.uavSafety.precipScore ?? 100}%</div>
             </div>
             <div>
-              <div className="text-white/40">Visibility</div>
-              <div className="text-white font-bold mt-0.5">{report?.uavSafety.visibilityScore ?? 100}%</div>
+              <div className={textMuted}>Visibility</div>
+              <div className={`${textPrimary} font-bold mt-0.5`}>{report?.uavSafety.visibilityScore ?? 100}%</div>
             </div>
             <div>
-              <div className="text-white/40">Space Wx</div>
-              <div className="text-white font-bold mt-0.5">{report?.uavSafety.spaceWeatherScore ?? 100}%</div>
+              <div className={textMuted}>Space Wx</div>
+              <div className={`${textPrimary} font-bold mt-0.5`}>{report?.uavSafety.spaceWeatherScore ?? 100}%</div>
             </div>
           </div>
         </div>
