@@ -14,7 +14,7 @@ import {
   SolarPosition,
   sampleElevation
 } from '../../lib/tileManager';
-import { Compass, Wifi, WifiOff, RotateCcw, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { Compass, Wifi, WifiOff, RotateCcw, ZoomIn, ZoomOut, Maximize2, Lock, Unlock } from 'lucide-react';
 
 interface GisMapCanvasProps {
   layers: GisLayer[];
@@ -48,6 +48,9 @@ interface GisMapCanvasProps {
   onUpdateHeadingDeg: (heading: number) => void;
   solarPos: SolarPosition;
   solarEnabled: boolean;
+  // Map Lock & Live Location Marker
+  isMapLocked?: boolean;
+  liveGps?: { E: number; N: number; lon: number; lat: number; accuracy?: number } | null;
 }
 
 export const GisMapCanvas: React.FC<GisMapCanvasProps> = ({
@@ -80,7 +83,9 @@ export const GisMapCanvas: React.FC<GisMapCanvasProps> = ({
   headingDeg,
   onUpdateHeadingDeg,
   solarPos,
-  solarEnabled
+  solarEnabled,
+  isMapLocked = false,
+  liveGps = null
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -672,7 +677,63 @@ export const GisMapCanvas: React.FC<GisMapCanvasProps> = ({
       }
     }
 
-    // 8. North Arrow & Scale Bar HUD
+    // 8. Render Live GPS Real-Time Location Marker
+    if (liveGps) {
+      const gpsSc = worldToScreen(liveGps.E, liveGps.N, cv.height, cv.width);
+      if (gpsSc.visible) {
+        // Draw accuracy circle in meters if available
+        if (liveGps.accuracy && liveGps.accuracy > 0) {
+          const accRadiusPx = Math.max(12, liveGps.accuracy * scale);
+          ctx.beginPath();
+          ctx.arc(gpsSc.x, gpsSc.y, accRadiusPx, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(16, 185, 129, 0.12)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(16, 185, 129, 0.45)';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 4]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // Pulsing radar ripple halo
+        ctx.beginPath();
+        ctx.arc(gpsSc.x, gpsSc.y, 16, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.25)';
+        ctx.fill();
+
+        // Main Pinpoint Circle
+        ctx.beginPath();
+        ctx.arc(gpsSc.x, gpsSc.y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = '#10b981';
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        // Inner glowing core
+        ctx.beginPath();
+        ctx.arc(gpsSc.x, gpsSc.y, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+
+        // Pinpoint Label Pill
+        ctx.save();
+        ctx.fillStyle = 'rgba(6, 78, 59, 0.9)';
+        ctx.strokeStyle = 'rgba(52, 211, 153, 0.8)';
+        ctx.lineWidth = 1;
+        const lbl = `LIVE GPS (±${(liveGps.accuracy || 3).toFixed(1)}m)`;
+        ctx.font = 'bold 9px monospace';
+        const tW = ctx.measureText(lbl).width;
+        ctx.fillRect(gpsSc.x - tW / 2 - 4, gpsSc.y - 24, tW + 8, 14);
+        ctx.strokeRect(gpsSc.x - tW / 2 - 4, gpsSc.y - 24, tW + 8, 14);
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.fillText(lbl, gpsSc.x, gpsSc.y - 14);
+        ctx.restore();
+      }
+    }
+
+    // 9. North Arrow & Scale Bar HUD
     ctx.save();
     const naX = 32, naY = 38;
     ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
@@ -774,6 +835,7 @@ export const GisMapCanvas: React.FC<GisMapCanvasProps> = ({
     }
 
     if (activeTool === 'pan' || e.button === 1 || e.buttons === 4) {
+      if (isMapLocked) return;
       setIsPanning(true);
       setPanStart({ x: sx - offset.x, y: sy - offset.y });
       return;
@@ -1006,6 +1068,7 @@ export const GisMapCanvas: React.FC<GisMapCanvasProps> = ({
       const rect = cv.getBoundingClientRect();
 
       if (e.touches.length === 2) {
+        if (isMapLocked) return;
         // 2-Finger Pinch-to-Zoom
         const t1 = e.touches[0];
         const t2 = e.touches[1];
@@ -1077,12 +1140,12 @@ export const GisMapCanvas: React.FC<GisMapCanvasProps> = ({
           startTime: Date.now(),
           hasMoved: false,
           vertexDrag: hitVertex,
-          isPanning: !hitVertex
+          isPanning: !hitVertex && !isMapLocked
         };
 
         if (hitVertex) {
           setVertexDrag(hitVertex);
-        } else {
+        } else if (!isMapLocked) {
           setIsPanning(true);
           setPanStart({ x: sx - offset.x, y: sy - offset.y });
         }
@@ -1251,6 +1314,7 @@ export const GisMapCanvas: React.FC<GisMapCanvasProps> = ({
   // Zoom Handling
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
+    if (isMapLocked) return;
     const cv = canvasRef.current;
     if (!cv) return;
     const rect = cv.getBoundingClientRect();
@@ -1268,6 +1332,7 @@ export const GisMapCanvas: React.FC<GisMapCanvasProps> = ({
 
   // On-Screen Touch Zoom Helpers for Mobile
   const handleTouchZoom = (zoomIn: boolean) => {
+    if (isMapLocked) return;
     const cv = canvasRef.current;
     const centerX = cv ? cv.width / 2 : 400;
     const centerY = cv ? cv.height / 2 : 250;

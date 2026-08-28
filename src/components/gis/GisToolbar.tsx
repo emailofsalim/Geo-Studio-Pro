@@ -17,7 +17,11 @@ import {
   Globe,
   CheckCircle2,
   Mountain,
-  Compass
+  Compass,
+  Lock,
+  Unlock,
+  RefreshCw,
+  Navigation
 } from 'lucide-react';
 import { GisTool } from './gisTypes';
 import { ImageryLayerConfig, ImageryProvider } from '../../lib/tileManager';
@@ -51,6 +55,12 @@ interface GisToolbarProps {
   onOpenGoogleEarth: () => void;
   pitchDeg: number;
   isOnline: boolean;
+  // Map Lock & Live Map Refresh Controls
+  isMapLocked?: boolean;
+  onToggleMapLock?: () => void;
+  onRefreshMapTiles?: () => void;
+  onLiveGpsLocate?: () => void;
+  isLocatingGps?: boolean;
 }
 
 export const GisToolbar: React.FC<GisToolbarProps> = ({
@@ -80,7 +90,12 @@ export const GisToolbar: React.FC<GisToolbarProps> = ({
   onChangeImageryProvider,
   onOpenGoogleEarth,
   pitchDeg,
-  isOnline
+  isOnline,
+  isMapLocked = false,
+  onToggleMapLock,
+  onRefreshMapTiles,
+  onLiveGpsLocate,
+  isLocatingGps = false
 }) => {
   return (
     <div className="flex items-center justify-between flex-wrap gap-2 pb-2.5 border-b border-slate-200 dark:border-white/5">
@@ -287,7 +302,7 @@ export const GisToolbar: React.FC<GisToolbarProps> = ({
           </button>
         </div>
 
-        {/* View Options */}
+        {/* View Options & Themes */}
         {!imageryConfig.enabled && (
           <select
             value={basemapTheme}
@@ -299,6 +314,53 @@ export const GisToolbar: React.FC<GisToolbarProps> = ({
             <option value="parchment">Cadastral Parchment</option>
             <option value="light_topo">Light Topo Grid</option>
           </select>
+        )}
+
+        {/* MAP LOCK / UNLOCK CONTROLS */}
+        {onToggleMapLock && (
+          <button
+            onClick={onToggleMapLock}
+            className={`p-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1 transition-all ${
+              isMapLocked
+                ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 shadow-sm'
+                : 'bg-slate-100 dark:bg-[#141414] text-slate-600 dark:text-white/60 hover:text-slate-900 dark:hover:text-white border-slate-200 dark:border-white/10'
+            }`}
+            title={
+              isMapLocked
+                ? 'Map is LOCKED (Pan & Zoom fixed; Imagery refresh paused). Click to UNLOCK'
+                : 'Map is UNLOCKED (Refreshes on location/scale change). Click to LOCK View'
+            }
+          >
+            {isMapLocked ? <Lock className="w-3.5 h-3.5 text-rose-400" /> : <Unlock className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline text-[11px]">{isMapLocked ? 'Locked' : 'Lock Map'}</span>
+          </button>
+        )}
+
+        {/* REFRESH MAP TILES */}
+        {onRefreshMapTiles && (
+          <button
+            onClick={onRefreshMapTiles}
+            className="p-1.5 bg-slate-100 dark:bg-[#141414] hover:bg-slate-200 dark:hover:bg-[#1a1a1a] border border-slate-200 dark:border-white/10 rounded-xl text-slate-700 dark:text-white transition-all"
+            title="Refresh Aerial Satellite Tiles / Redraw Viewport"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {/* LIVE LOCATION GPS */}
+        {onLiveGpsLocate && (
+          <button
+            onClick={onLiveGpsLocate}
+            disabled={isLocatingGps}
+            className={`p-1.5 rounded-xl border text-xs transition-all ${
+              isLocatingGps
+                ? 'bg-emerald-500/30 text-emerald-300 border-emerald-500 animate-pulse'
+                : 'bg-slate-100 dark:bg-[#141414] text-slate-700 dark:text-white hover:bg-slate-200 dark:hover:bg-[#1a1a1a] border-slate-200 dark:border-white/10'
+            }`}
+            title="Fly to Live Device GPS Location on Map"
+          >
+            <Navigation className="w-3.5 h-3.5 text-emerald-400" />
+          </button>
         )}
 
         <button

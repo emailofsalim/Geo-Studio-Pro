@@ -241,6 +241,32 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
 
+  // Map Lock State (controls pan/zoom and throttles background map refresh)
+  const [isMapLocked, setIsMapLocked] = useState<boolean>(false);
+  // Layer Inline Editing State
+  const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
+  const [editingLayerName, setEditingLayerName] = useState<string>('');
+
+  const handleStartRenameLayer = (layer: GisLayer, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setEditingLayerId(layer.id);
+    setEditingLayerName(layer.name);
+  };
+
+  const handleSaveRenameLayer = (layerId: string) => {
+    const trimmed = editingLayerName.trim();
+    if (!trimmed) {
+      setEditingLayerId(null);
+      return;
+    }
+    const nextLayers = layers.map(l =>
+      l.id === layerId ? { ...l, name: trimmed } : l
+    );
+    pushHistory(nextLayers, `Renamed Layer to "${trimmed}"`);
+    setEditingLayerId(null);
+    toast.showSuccess(`Renamed layer to "${trimmed}"`);
+  };
+
   // Layers State & History Stack
   const [layers, setLayers] = useState<GisLayer[]>(() => {
     try {
@@ -1205,7 +1231,7 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
                         : 'bg-slate-50 dark:bg-[#141414] border-slate-200 dark:border-white/5 text-slate-700 dark:text-white/70 hover:bg-slate-100 dark:hover:bg-white/5'
                     }`}
                   >
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       <button
                         onClick={e => {
                           e.stopPropagation();
@@ -1215,14 +1241,53 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
                           pushHistory(nextLayers, 'Toggled Layer Visibility');
                         }}
                         className="text-slate-400 dark:text-white/40 hover:text-slate-900 dark:hover:text-white"
+                        title={layer.visible ? 'Hide Layer' : 'Show Layer'}
                       >
                         {layer.visible ? <Eye className="w-3.5 h-3.5 text-emerald-500" /> : <EyeOff className="w-3.5 h-3.5" />}
                       </button>
 
                       <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: layer.color }} />
 
-                      <div className="min-w-0">
-                        <div className="font-semibold text-xs truncate">{layer.name}</div>
+                      <div className="min-w-0 flex-1">
+                        {editingLayerId === layer.id ? (
+                          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              value={editingLayerName}
+                              onChange={e => setEditingLayerName(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') handleSaveRenameLayer(layer.id);
+                                if (e.key === 'Escape') setEditingLayerId(null);
+                              }}
+                              autoFocus
+                              className="w-full text-xs font-semibold px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-amber-500 text-slate-900 dark:text-white focus:outline-none"
+                            />
+                            <button
+                              onClick={() => handleSaveRenameLayer(layer.id)}
+                              className="p-1 text-emerald-500 hover:text-emerald-400 rounded hover:bg-emerald-500/10"
+                              title="Save Layer Name"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between group/title">
+                            <div
+                              onDoubleClick={e => handleStartRenameLayer(layer, e)}
+                              className="font-semibold text-xs truncate max-w-[140px] select-text"
+                              title="Double click to rename"
+                            >
+                              {layer.name}
+                            </div>
+                            <button
+                              onClick={e => handleStartRenameLayer(layer, e)}
+                              className="opacity-0 group-hover/title:opacity-100 p-0.5 text-slate-400 hover:text-amber-500 rounded transition-opacity"
+                              title="Rename Layer"
+                            >
+                              <Settings2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
                         <div className="text-[10px] opacity-60 font-mono">
                           {layer.features.length} {layer.geomType}s
                         </div>
