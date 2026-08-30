@@ -83,9 +83,6 @@ import { GisFeatureInspector } from './gis/GisFeatureInspector';
 import { GisAiCopilotDrawer } from './gis/GisAiCopilotDrawer';
 import { GoogleEarthPanel } from './gis/GoogleEarthPanel';
 import { GisTool, SelectedFeatureRef } from './gis/gisTypes';
-import { UniversalAppHeaderBar } from './UniversalAppHeaderBar';
-import { UniversalDataBridgeModal } from './UniversalDataBridgeModal';
-import { ExportFormatId, DetectedImportResult } from '../lib/universalDataBridge';
 import {
   ImageryLayerConfig,
   ImageryProvider,
@@ -254,39 +251,6 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
   // Layer Inline Editing State
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
   const [editingLayerName, setEditingLayerName] = useState<string>('');
-
-  // Universal Data Bridge Modal State
-  const [isUniversalBridgeOpen, setIsUniversalBridgeOpen] = useState(false);
-  const [universalBridgeMode, setUniversalBridgeMode] = useState<'import' | 'export'>('export');
-  const [universalBridgeFormat, setUniversalBridgeFormat] = useState<ExportFormatId>('geojson');
-
-  const handleOpenUniversalImport = () => {
-    setUniversalBridgeMode('import');
-    setIsUniversalBridgeOpen(true);
-  };
-
-  const handleOpenUniversalExport = (format?: ExportFormatId) => {
-    setUniversalBridgeMode('export');
-    if (format) setUniversalBridgeFormat(format);
-    setIsUniversalBridgeOpen(true);
-  };
-
-  const handleBridgeImportComplete = (result: DetectedImportResult) => {
-    const newLayer: GisLayer = {
-      id: `layer_${Date.now()}`,
-      name: result.formatName + ' (' + result.features.length + ' feats)',
-      visible: true,
-      color: '#c9a063',
-      fillColor: '#c9a063',
-      fillOpacity: 0.3,
-      strokeWidth: 2,
-      geomType: result.polygonsCount > 0 ? 'polygon' : result.linesCount > 0 ? 'line' : 'point',
-      features: result.features
-    };
-    pushHistory([newLayer, ...layers], `Imported ${result.formatName}`);
-    setActiveLayerId(newLayer.id);
-    toast.showSuccess(`Added new layer "${newLayer.name}" with ${result.featureCount} features.`);
-  };
 
   const handleLiveGpsLocate = () => {
     if (!navigator.geolocation) {
@@ -1242,16 +1206,6 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Universal Import & Export Header Bar */}
-      <UniversalAppHeaderBar
-        appName="GIS Map Studio"
-        appDescription="Multi-layer spatial GIS canvas with topology QA, spatial operations, styling and multi-format geodata bridge."
-        workingZone={workingZone}
-        featureCount={layers.reduce((acc, l) => acc + l.features.length, 0)}
-        onUniversalImport={handleOpenUniversalImport}
-        onUniversalExport={handleOpenUniversalExport}
-      />
-
       {/* 1. Main Viewport & Layer Control Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Left 4 Columns: Smart Layer Panel & Styling Manager */}
@@ -1272,10 +1226,6 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
               </div>
 
               <div className="flex items-center gap-1.5">
-                <label className="cursor-pointer p-1.5 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-white/80 transition-all text-xs" title="Import Shapefile .zip, GeoJSON, KML, DXF, CSV">
-                  <Upload className="w-3.5 h-3.5" />
-                  <input type="file" multiple accept=".zip,.geojson,.json,.kml,.dxf,.csv" onChange={handleFileUpload} className="hidden" />
-                </label>
                 <button
                   onClick={() => {
                     const newL: GisLayer = {
@@ -1292,10 +1242,11 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
                     pushHistory([...layers, newL], 'Created New Layer');
                     setActiveLayerId(newL.id);
                   }}
-                  className="p-1.5 rounded-xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-all text-xs shadow-sm"
+                  className="p-1.5 rounded-xl bg-amber-500 text-black font-bold hover:bg-amber-400 transition-all text-xs shadow-sm flex items-center gap-1"
                   title="Add New Empty Vector Layer"
                 >
                   <Plus className="w-3.5 h-3.5" />
+                  <span>New Layer</span>
                 </button>
               </div>
             </div>
@@ -1654,41 +1605,6 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5" /> Topology QA ({topologyIssues.length})
-            </button>
-          </div>
-
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button
-              onClick={handleExportShapefile}
-              className="px-2.5 py-1 bg-slate-100 dark:bg-[#141414] hover:bg-slate-200 dark:hover:bg-[#1a1a1a] text-amber-600 dark:text-amber-400 rounded-lg text-xs border border-amber-500/30 font-semibold flex items-center gap-1"
-              title="Export active layer as ESRI Shapefile Bundle (.zip)"
-            >
-              <FolderArchive className="w-3.5 h-3.5" /> Shapefile (.zip)
-            </button>
-            <button
-              onClick={handleExportAllLayersZip}
-              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-lg text-xs flex items-center gap-1 shadow-sm"
-              title="Export all layers packaged into a single ZIP archive"
-            >
-              <Download className="w-3.5 h-3.5" /> All Layers (.zip)
-            </button>
-            <button
-              onClick={handleExportGeoJSON}
-              className="px-2.5 py-1 bg-slate-100 dark:bg-[#141414] hover:bg-slate-200 dark:hover:bg-[#1a1a1a] text-slate-700 dark:text-white rounded-lg text-xs border border-slate-200 dark:border-white/10 font-mono"
-            >
-              GeoJSON
-            </button>
-            <button
-              onClick={handleExportKML}
-              className="px-2.5 py-1 bg-slate-100 dark:bg-[#141414] hover:bg-slate-200 dark:hover:bg-[#1a1a1a] text-slate-700 dark:text-white rounded-lg text-xs border border-slate-200 dark:border-white/10 font-mono"
-            >
-              KML
-            </button>
-            <button
-              onClick={handleExportDXF}
-              className="px-2.5 py-1 bg-slate-100 dark:bg-[#141414] hover:bg-slate-200 dark:hover:bg-[#1a1a1a] text-slate-700 dark:text-white rounded-lg text-xs border border-slate-200 dark:border-white/10 font-mono"
-            >
-              DXF CAD
             </button>
           </div>
         </div>
@@ -2169,20 +2085,6 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
           </div>
         </div>
       )}
-
-      {/* Universal Data Bridge Modal */}
-      <UniversalDataBridgeModal
-        isOpen={isUniversalBridgeOpen}
-        onClose={() => setIsUniversalBridgeOpen(false)}
-        initialMode={universalBridgeMode}
-        initialFormat={universalBridgeFormat}
-        activeAppId="gis"
-        activeAppName="GIS Map Studio"
-        workingZone={workingZone}
-        featuresOverride={activeLayer.features}
-        layersOverride={layers}
-        onImportComplete={handleBridgeImportComplete}
-      />
     </div>
   );
 };

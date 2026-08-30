@@ -319,55 +319,6 @@ export const Navigation: React.FC<NavigationProps> = ({
 
         {/* Navigation Items Scroll Area */}
         <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-2.5 space-y-3 custom-scrollbar">
-          {/* Universal Data Bridge Actions */}
-          {(openUniversalImport || openUniversalExport) && (
-            <div className="space-y-1 pb-1">
-              {!isRail && (
-                <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400 select-none flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <Sparkles className="w-2.5 h-2.5" />
-                    Data Bridge
-                  </span>
-                  <span className="text-[9px] font-mono text-white/30">Auto / 12+</span>
-                </div>
-              )}
-
-              {openUniversalImport && (
-                <button
-                  type="button"
-                  onClick={openUniversalImport}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 transition-all shadow-xs group relative"
-                  title="Universal Import: Auto-detects GeoJSON, KML, DXF, CSV, GPX, Shapefile, LandXML"
-                >
-                  <Upload className="w-3.5 h-3.5 shrink-0" />
-                  {!isRail && (
-                    <div className="flex items-center justify-between w-full">
-                      <span>Universal Import</span>
-                      <span className="text-[9px] font-mono bg-emerald-500/20 px-1 rounded">Auto</span>
-                    </div>
-                  )}
-                </button>
-              )}
-
-              {openUniversalExport && (
-                <button
-                  type="button"
-                  onClick={() => openUniversalExport()}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[#c9a063]/10 hover:bg-[#c9a063]/20 text-[#c9a063] border border-[#c9a063]/20 transition-all shadow-xs group relative"
-                  title="Universal Export: Choose format or extension"
-                >
-                  <Download className="w-3.5 h-3.5 shrink-0" />
-                  {!isRail && (
-                    <div className="flex items-center justify-between w-full">
-                      <span>Universal Export</span>
-                      <span className="text-[9px] font-mono bg-[#c9a063]/20 px-1 rounded">Choose</span>
-                    </div>
-                  )}
-                </button>
-              )}
-            </div>
-          )}
-
           {/* 1. PRIMARY NAVIGATION SECTION */}
           <div className="space-y-0.5">
             {!isRail && (

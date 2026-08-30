@@ -2582,35 +2582,11 @@ export const CameraLandmarkStudio: React.FC<CameraLandmarkStudioProps> = ({
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              <button
-                onClick={handleExportKML}
-                disabled={savedLandmarks.length === 0}
-                className="px-3 py-2 bg-[#141414] hover:bg-[#1a1a1a] text-white text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-1.5 disabled:opacity-40"
-              >
-                <Download className="w-3.5 h-3.5 text-[#c9a063]" />
-                Export KML (Avenza)
-              </button>
-              <button
-                onClick={handleExportCSV}
-                disabled={savedLandmarks.length === 0}
-                className="px-3 py-2 bg-[#141414] hover:bg-[#1a1a1a] text-white text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-1.5 disabled:opacity-40"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-[#c9a063]" />
-                Export CSV Audit Log
-              </button>
-              <button
-                onClick={handleExportZip}
-                disabled={savedLandmarks.length === 0}
-                className="px-3.5 py-2 bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 disabled:opacity-40"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Download Package (.zip)
-              </button>
               {onSendToGisLayers && (
                 <button
                   onClick={handleSendToGis}
                   disabled={savedLandmarks.length === 0}
-                  className="px-3 py-2 bg-[#141414] hover:bg-[#1a1a1a] text-[#c9a063] text-xs font-semibold rounded-xl border border-[#c9a063]/30 flex items-center gap-1.5 disabled:opacity-40"
+                  className="px-3.5 py-2 bg-[#c9a063] hover:bg-[#d6b074] text-black text-xs font-bold rounded-xl shadow-lg flex items-center gap-1.5 disabled:opacity-40"
                 >
                   <MapPin className="w-3.5 h-3.5" />
                   Plot on GIS Studio Map

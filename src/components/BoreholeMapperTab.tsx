@@ -400,15 +400,9 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
             </button>
             <button
               onClick={() => setShowRuleModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-white rounded-xl text-xs font-semibold border border-white/10"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold rounded-xl text-xs"
             >
-              <Sliders className="w-3.5 h-3.5 text-[#c9a063]" /> Edit Cutoff Rules
-            </button>
-            <button
-              onClick={handleExportSurpac}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs rounded-xl uppercase tracking-wider"
-            >
-              <FolderArchive className="w-3.5 h-3.5" /> Export Surpac DB (.zip)
+              <Sliders className="w-3.5 h-3.5" /> Edit Cutoff Rules
             </button>
           </div>
         </div>
@@ -501,34 +495,6 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
                 </option>
               ))}
             </select>
-          </div>
-
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button
-              onClick={handleExportShapefile}
-              className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-[#c9a063] hover:text-[#d6b074] rounded-xl text-xs font-semibold border border-[#c9a063]/30"
-              title="Export all borehole collar coordinates and ore classifications to ESRI Shapefile Bundle (.zip)"
-            >
-              Shapefile (.zip)
-            </button>
-            <button
-              onClick={handleExportKML}
-              className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-white rounded-xl text-xs font-semibold border border-white/10"
-            >
-              KML
-            </button>
-            <button
-              onClick={handleExportDXF}
-              className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-white rounded-xl text-xs font-semibold border border-white/10"
-            >
-              DXF
-            </button>
-            <button
-              onClick={handleExportOreQA}
-              className="px-3.5 py-1.5 bg-[#c9a063] hover:bg-[#d6b074] text-black rounded-xl text-xs font-bold"
-            >
-              Ore QA Report (.csv)
-            </button>
           </div>
         </div>
 

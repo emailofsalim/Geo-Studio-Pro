@@ -2125,60 +2125,7 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
         </div>
       )}
 
-      {/* 4. Export Hub Bar */}
-      <div className="bg-[#0f0f0f] rounded-2xl p-5 border border-white/5 flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <FileText className="w-4 h-4 text-[#c9a063]" />
-          <span className="text-xs font-serif italic text-white">Cadastral Vector & GIS Export Hub</span>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={handleExportKML}
-            disabled={!polygons.length}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] disabled:opacity-40 text-white rounded-xl text-xs font-semibold border border-white/10"
-          >
-            <Globe className="w-3.5 h-3.5 text-[#c9a063]" /> Google Earth (.kml)
-          </button>
-          <button
-            onClick={handleExportDXF}
-            disabled={!polygons.length}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] disabled:opacity-40 text-white rounded-xl text-xs font-semibold border border-white/10"
-          >
-            <FileCode className="w-3.5 h-3.5 text-[#c9a063]" /> AutoCAD (.dxf)
-          </button>
-          <button
-            onClick={handleExportGeoJSON}
-            disabled={!polygons.length}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] disabled:opacity-40 text-white rounded-xl text-xs font-semibold border border-white/10"
-          >
-            GeoJSON (.json)
-          </button>
-          <button
-            onClick={handleExportWorldFile}
-            disabled={!affineMatrix}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] disabled:opacity-40 text-white rounded-xl text-xs font-semibold border border-white/10"
-          >
-            World File (.tfw)
-          </button>
-          <button
-            onClick={handleExportQgisPoints}
-            disabled={!gcps.length}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] disabled:opacity-40 text-white rounded-xl text-xs font-semibold border border-white/10"
-          >
-            QGIS (.points)
-          </button>
-          <button
-            onClick={handleExportExcel}
-            disabled={!polygons.length}
-            className="flex items-center gap-1.5 px-4 py-1.5 bg-[#c9a063] hover:bg-[#d6b074] disabled:opacity-40 text-black rounded-xl text-xs font-bold uppercase tracking-wider shadow"
-          >
-            <FileSpreadsheet className="w-4 h-4" /> Khatian Schedule (.xlsx)
-          </button>
-        </div>
-      </div>
-
-      {/* 5. Live Vector GIS Radar Verification */}
+      {/* 4. Live Vector GIS Radar Verification */}
       {polygons.length > 0 && (
         <div className="bg-[#0f0f0f] rounded-2xl p-6 border border-white/5">
           <VectorRadarMap

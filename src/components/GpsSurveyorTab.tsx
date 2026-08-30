@@ -78,9 +78,6 @@ import { useToast } from '../context/ToastContext';
 import { ArStakeoutView } from './hardware/ArStakeoutView';
 import { MapTilesStakeoutView } from './hardware/MapTilesStakeoutView';
 import { ImportWaypointsModal } from './ImportWaypointsModal';
-import { UniversalAppHeaderBar } from './UniversalAppHeaderBar';
-import { UniversalDataBridgeModal } from './UniversalDataBridgeModal';
-import { ExportFormatId, DetectedImportResult } from '../lib/universalDataBridge';
 import {
   calculateStakeoutGuidance,
   parseSurveyVoiceCommand,
@@ -279,68 +276,6 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   const [wpRemarks, setWpRemarks] = useState('');
   const [wpSearch, setWpSearch] = useState('');
   const [wpCustomRadius, setWpCustomRadius] = useState<string>('10');
-
-  // Universal Data Bridge Modal State
-  const [isUniversalBridgeOpen, setIsUniversalBridgeOpen] = useState(false);
-  const [universalBridgeMode, setUniversalBridgeMode] = useState<'import' | 'export'>('export');
-  const [universalBridgeFormat, setUniversalBridgeFormat] = useState<ExportFormatId>('gpx');
-
-  const handleOpenUniversalImport = () => {
-    setUniversalBridgeMode('import');
-    setIsUniversalBridgeOpen(true);
-  };
-
-  const handleOpenUniversalExport = (format?: ExportFormatId) => {
-    setUniversalBridgeMode('export');
-    if (format) setUniversalBridgeFormat(format);
-    setIsUniversalBridgeOpen(true);
-  };
-
-  const handleBridgeImportComplete = (result: DetectedImportResult) => {
-    const zNum = parseInt(workingZone, 10) || 45;
-    const isSouth = workingZone.endsWith('S');
-    const newWps: SurveyWaypoint[] = result.features.map((f, i) => {
-      const pt = f.pts[0] || { a: 0, b: 0 };
-      let E = 0;
-      let N = 0;
-      let lat = 0;
-      let lon = 0;
-      if (f.kind === 'en') {
-        E = pt.a;
-        N = pt.b;
-        const ll = utmToLonLat(E, N, zNum, isSouth);
-        lat = ll.lat;
-        lon = ll.lon;
-      } else {
-        lon = pt.a;
-        lat = pt.b;
-        const u = lonLatToUtm(lon, lat, zNum, isSouth);
-        E = u.E;
-        N = u.N;
-      }
-      return {
-        id: f.name || `PT-${waypoints.length + i + 1}`,
-        code: (f.props?.code as string) || 'Imported Waypoint',
-        E,
-        N,
-        Z: (f.props?.elevation as number) || (f.props?.Z as number) || 0,
-        lat,
-        lon,
-        acc: 1.0,
-        zone: workingZone,
-        time: Date.now(),
-        remarks: f.props ? JSON.stringify(f.props) : undefined,
-        proximityRadius: 5
-      };
-    });
-
-    const updated = [...waypoints, ...newWps];
-    setWaypoints(updated);
-    try {
-      localStorage.setItem('gs_waypoints_v2', JSON.stringify(updated));
-    } catch {}
-    toast.showSuccess(`Imported ${newWps.length} waypoint(s) via Universal Import (${result.formatName})`);
-  };
 
   // Spoken Turn-by-Turn Voice Guidance for Navigation and AR
   const [voiceNavActive, setVoiceNavActive] = useState<boolean>(false);
@@ -1423,16 +1358,6 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Universal Import & Export Header Bar */}
-      <UniversalAppHeaderBar
-        appName="GNSS Field Surveyor & Waypoints"
-        appDescription="Dual-coordinate geodetic cockpit, real-time CEP95 GPS averaging, Go-To guidance, AR stakeout, and universal GNSS data bridge."
-        workingZone={workingZone}
-        featureCount={waypoints.length}
-        onUniversalImport={handleOpenUniversalImport}
-        onUniversalExport={handleOpenUniversalExport}
-      />
-
       {/* 1. Header & Navigation Sub-Tabs */}
       <div className="bg-[#0f0f0f] rounded-2xl p-4 sm:p-6 border border-white/5 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
@@ -3013,30 +2938,6 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                 <ArrowUpRight className="w-3.5 h-3.5 text-[#c9a063]" />
                 Send to Calc
               </button>
-              <button
-                onClick={handleExportGPX}
-                disabled={waypoints.length === 0}
-                className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-white text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-1.5 disabled:opacity-40"
-              >
-                <Download className="w-3.5 h-3.5 text-[#c9a063]" />
-                Export GPX (Avenza)
-              </button>
-              <button
-                onClick={handleExportDXF}
-                disabled={waypoints.length === 0}
-                className="px-3 py-1.5 bg-[#141414] hover:bg-[#1a1a1a] text-white text-xs font-semibold rounded-xl border border-white/10 flex items-center gap-1.5 disabled:opacity-40"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Export DXF (CAD)
-              </button>
-              <button
-                onClick={handleExportCSV}
-                disabled={waypoints.length === 0}
-                className="px-3.5 py-1.5 bg-[#c9a063] hover:bg-[#d6b074] text-black font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5 disabled:opacity-40"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                Export CSV
-              </button>
             </div>
           </div>
 
@@ -3176,19 +3077,6 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
           toast.showSuccess(`Successfully imported ${importedPoints.length} stakeout waypoints.`);
           speakVoiceAnnouncement(`Imported ${importedPoints.length} waypoints.`);
         }}
-      />
-
-      {/* Universal Data Bridge Modal */}
-      <UniversalDataBridgeModal
-        isOpen={isUniversalBridgeOpen}
-        onClose={() => setIsUniversalBridgeOpen(false)}
-        initialMode={universalBridgeMode}
-        initialFormat={universalBridgeFormat}
-        activeAppId="gps"
-        activeAppName="GNSS Field Surveyor"
-        workingZone={workingZone}
-        waypointsOverride={waypoints}
-        onImportComplete={handleBridgeImportComplete}
       />
     </div>
   );

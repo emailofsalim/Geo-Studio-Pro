@@ -1610,12 +1610,6 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handleExportBreachCSV}
-                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs flex items-center gap-1"
-                >
-                  <Download className="w-3 h-3" /> Export CSV Audit
-                </button>
-                <button
                   onClick={() => setBreachEvents([])}
                   className="p-1 text-slate-500 hover:text-red-400 rounded"
                   title="Clear Event Log"
@@ -1662,21 +1656,6 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
                 <h2 className="text-sm font-bold text-slate-200">Active Geofence Zones</h2>
-              </div>
-
-              {/* Import / Export Menu */}
-              <div className="flex items-center gap-1.5">
-                <label className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded cursor-pointer" title="Import Shapefile ZIP / GeoJSON / KML">
-                  <FolderArchive className="w-3.5 h-3.5" />
-                  <input type="file" accept=".zip,.kmz,.kml,.geojson,.json" onChange={handleImportGeofenceFile} className="hidden" />
-                </label>
-                <button
-                  onClick={handleExportZonesGeoJSON}
-                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded"
-                  title="Export GeoJSON"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                </button>
               </div>
             </div>
 

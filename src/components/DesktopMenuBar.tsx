@@ -491,28 +491,26 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
           <ChevronDown className="w-3 h-3 text-white/40 absolute right-2 pointer-events-none" />
         </div>
 
-        {/* Universal Import & Export Toolbar Buttons */}
+        {/* Universal Import & Export Toolbar Buttons (ONE GLOBAL IMPORT + ONE GLOBAL EXPORT) */}
         {openUniversalImport && (
           <button
             onClick={openUniversalImport}
-            className="px-2.5 py-1 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 transition-colors shadow-xs"
-            title="Universal Import (Auto-detects GeoJSON, KML, KMZ, DXF, CSV, Excel, GPX, Shapefile, LandXML)"
+            className="px-3 py-1 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 transition-all shadow-xs"
+            title="Import Geodata (Auto-Detects GeoJSON, KML, DXF, CSV, Excel, GPX, Shapefile, LandXML, etc.)"
           >
             <Upload className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">Universal Import</span>
-            <span className="text-[10px] opacity-70">Auto</span>
+            <span className="font-semibold">Import</span>
           </button>
         )}
 
         {openUniversalExport && (
           <button
             onClick={() => openUniversalExport()}
-            className="px-2.5 py-1 rounded-md bg-[#c9a063]/15 hover:bg-[#c9a063]/25 border border-[#c9a063]/40 text-xs font-semibold text-[#c9a063] hover:text-[#d6b074] flex items-center gap-1.5 transition-colors shadow-xs"
-            title="Universal Export (Select GeoJSON, KML, KMZ, DXF, CSV, Excel, GPX, Shapefile, etc.)"
+            className="px-3 py-1 rounded-md bg-[#c9a063]/15 hover:bg-[#c9a063]/25 border border-[#c9a063]/40 text-xs font-semibold text-[#c9a063] hover:text-[#d6b074] flex items-center gap-1.5 transition-all shadow-xs"
+            title="Export Geodata (Select GeoJSON, KML, DXF, CSV, Excel, GPX, Shapefile, Surpac, etc.)"
           >
             <Download className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">Universal Export</span>
-            <span className="text-[10px] opacity-70">12+</span>
+            <span className="font-semibold">Export</span>
           </button>
         )}
       </div>
