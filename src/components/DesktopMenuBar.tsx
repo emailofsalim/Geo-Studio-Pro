@@ -46,8 +46,11 @@ interface DesktopMenuBarProps {
   openShortcuts: () => void;
   openTour: () => void;
   openAbout?: () => void;
+  openAiCopilot?: () => void;
   onExportProject: () => void;
   onImportProject: (file: File) => void;
+  openUniversalImport?: () => void;
+  openUniversalExport?: (format?: any) => void;
   onClearAllData: () => void;
   hasGpsFix?: boolean;
 }
@@ -66,8 +69,11 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
   openShortcuts,
   openTour,
   openAbout,
+  openAiCopilot,
   onExportProject,
   onImportProject,
+  openUniversalImport,
+  openUniversalExport,
   onClearAllData
 }) => {
   const isOnline = useOnlineStatus();
@@ -117,18 +123,18 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
         <button
           onClick={() => setActiveTab('templates')}
           className="flex items-center gap-2 text-left group"
-          title="BhuNex GeoStudio Home"
+          title="BhuStudio Home & Templates"
         >
           <div className="w-7 h-7 rounded-lg overflow-hidden border border-[#377cb8]/40 bg-[#0e2c4d] flex items-center justify-center p-0.5 group-hover:border-[#8ecbf8]/80 transition-colors shadow-2xs">
             <img
               src="/icon-192.svg"
-              alt="BhuNex Logo"
+              alt="BhuStudio Logo"
               className="w-full h-full object-contain"
               referrerPolicy="no-referrer"
             />
           </div>
           <span className="font-semibold text-sm text-white tracking-tight">
-            BhuNex
+            BhuStudio
           </span>
         </button>
 
@@ -162,6 +168,35 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
                   </span>
                   <span className="text-[10px] text-white/30 font-mono">⌘1</span>
                 </button>
+                <button
+                  onClick={() => {
+                    if (openUniversalImport) openUniversalImport();
+                    else fileInputRef.current?.click();
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left hover:bg-[#c9a063]/10 text-[#c9a063] flex items-center justify-between font-medium"
+                >
+                  <span className="flex items-center gap-2">
+                    <Upload className="w-3.5 h-3.5" />
+                    Universal Import (Auto-Detect)
+                  </span>
+                  <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1 rounded">ALL</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (openUniversalExport) openUniversalExport();
+                    else onExportProject();
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left hover:bg-[#c9a063]/10 text-[#c9a063] flex items-center justify-between font-medium"
+                >
+                  <span className="flex items-center gap-2">
+                    <Download className="w-3.5 h-3.5" />
+                    Universal Export (Choose Format)
+                  </span>
+                  <span className="text-[9px] bg-[#c9a063]/20 text-[#c9a063] px-1 rounded">12+</span>
+                </button>
+                <div className="my-1 border-t border-white/[0.06]" />
                 <button
                   onClick={() => {
                     onExportProject();
@@ -456,14 +491,30 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
           <ChevronDown className="w-3 h-3 text-white/40 absolute right-2 pointer-events-none" />
         </div>
 
-        {/* Distance Unit Pill */}
-        <button
-          onClick={() => setDistanceUnit(distanceUnit === 'm' ? 'ft' : 'm')}
-          className="px-2 py-1 rounded-md bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.08] text-xs font-mono text-white/70 hover:text-white transition-colors"
-          title="Toggle Unit (Meters / Feet)"
-        >
-          {distanceUnit === 'm' ? 'Meters' : 'Feet'}
-        </button>
+        {/* Universal Import & Export Toolbar Buttons */}
+        {openUniversalImport && (
+          <button
+            onClick={openUniversalImport}
+            className="px-2.5 py-1 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 transition-colors shadow-xs"
+            title="Universal Import (Auto-detects GeoJSON, KML, KMZ, DXF, CSV, Excel, GPX, Shapefile, LandXML)"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">Universal Import</span>
+            <span className="text-[10px] opacity-70">Auto</span>
+          </button>
+        )}
+
+        {openUniversalExport && (
+          <button
+            onClick={() => openUniversalExport()}
+            className="px-2.5 py-1 rounded-md bg-[#c9a063]/15 hover:bg-[#c9a063]/25 border border-[#c9a063]/40 text-xs font-semibold text-[#c9a063] hover:text-[#d6b074] flex items-center gap-1.5 transition-colors shadow-xs"
+            title="Universal Export (Select GeoJSON, KML, KMZ, DXF, CSV, Excel, GPX, Shapefile, etc.)"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">Universal Export</span>
+            <span className="text-[10px] opacity-70">12+</span>
+          </button>
+        )}
       </div>
 
       {/* Right: Search, AI & Preferences */}
@@ -478,6 +529,18 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
           <span className="hidden lg:inline text-white/50 font-normal">Search tools...</span>
           <kbd className="text-[10px] bg-white/[0.08] text-white/50 px-1.5 py-0.2 rounded font-mono">⌘K</kbd>
         </button>
+
+        {/* Global AI Geomatics Copilot */}
+        {openAiCopilot && (
+          <button
+            onClick={openAiCopilot}
+            className="h-8 px-2.5 rounded-md bg-[#c9a063]/10 hover:bg-[#c9a063]/20 border border-[#c9a063]/30 text-[#c9a063] hover:text-[#d6b074] flex items-center gap-1.5 transition-all text-xs font-semibold shadow-xs"
+            title="Open AI Geomatics Assistant"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-[#c9a063] animate-pulse" />
+            <span className="hidden sm:inline">AI Copilot</span>
+          </button>
+        )}
 
         {/* Theme Toggle */}
         <button

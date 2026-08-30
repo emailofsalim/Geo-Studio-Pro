@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useIsDarkMode } from '../hooks/useIsDarkMode';
+import { useManagedResource } from '../hooks/useHardwareResource';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -247,6 +248,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
   onSendToOffset
 }) => {
   const toast = useToast();
+  const managedResource = useManagedResource('geofence_studio_tab', 'Geofence Breach & Proximity Radar');
   const isDark = useIsDarkMode();
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
@@ -507,42 +509,45 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
     return () => clearInterval(interval);
   }, [trackingMode, simPlaying, simSpeedFactor, evaluateBreaches]);
 
-  // Real GPS Geolocation Watcher
+  // Real GPS Geolocation Watcher (Managed Hardware Lifecycle)
   useEffect(() => {
     if (trackingMode !== 'gps') return;
-    if (!navigator.geolocation) {
+
+    try {
+      const stopTracking = managedResource.startLocationTracking(
+        pos => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          const speedKmh = pos.coords.speed !== null ? pos.coords.speed * 3.6 : 0;
+          const heading = pos.coords.heading !== null ? pos.coords.heading : 0;
+          const acc = pos.coords.accuracy || 3.0;
+
+          setRoverPos({
+            lat,
+            lon,
+            speedKmh: Math.round(speedKmh * 10) / 10,
+            heading: Math.round(heading),
+            acc: Math.round(acc * 10) / 10
+          });
+
+          setTrackHistory(prev => [{ lat, lon, time: Date.now() }, ...prev.slice(0, 150)]);
+          evaluateBreaches(lat, lon, speedKmh, heading);
+        },
+        err => {
+          console.warn('GPS watch error:', err.message);
+          toast.showError(`GPS Error: ${err.message}`);
+        },
+        { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+      );
+
+      return () => {
+        stopTracking();
+      };
+    } catch (err: any) {
       toast.showError('Geolocation API not supported in this browser.');
       setTrackingMode('sim');
-      return;
     }
-
-    const watchId = navigator.geolocation.watchPosition(
-      pos => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-        const speedKmh = pos.coords.speed !== null ? pos.coords.speed * 3.6 : 0;
-        const heading = pos.coords.heading !== null ? pos.coords.heading : 0;
-        const acc = pos.coords.accuracy || 3.0;
-
-        setRoverPos({
-          lat,
-          lon,
-          speedKmh: Math.round(speedKmh * 10) / 10,
-          heading: Math.round(heading),
-          acc: Math.round(acc * 10) / 10
-        });
-
-        setTrackHistory(prev => [{ lat, lon, time: Date.now() }, ...prev.slice(0, 150)]);
-        evaluateBreaches(lat, lon, speedKmh, heading);
-      },
-      err => {
-        console.warn('GPS watch error:', err.message);
-      },
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
-    );
-
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, [trackingMode, evaluateBreaches]);
+  }, [trackingMode, evaluateBreaches, managedResource, toast]);
 
   // Draw Vector Radar Canvas
   useEffect(() => {
@@ -626,8 +631,8 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
         for (let tx = minX_tile; tx <= maxX_tile; tx++) {
           for (let ty = minY_tile; ty <= maxY_tile; ty++) {
             const tileBBox = tileToBBox(tx, ty, zoom);
-            const tileSW_utm = lonLatToUtm(tileBBox.west, tileBBox.south, zNum, isSouth);
-            const tileNE_utm = lonLatToUtm(tileBBox.east, tileBBox.north, zNum, isSouth);
+            const tileSW_utm = lonLatToUtm(tileBBox.minLon, tileBBox.minLat, zNum, isSouth);
+            const tileNE_utm = lonLatToUtm(tileBBox.maxLon, tileBBox.maxLat, zNum, isSouth);
 
             const pTL = toScreen(tileSW_utm.E, tileNE_utm.N);
             const pBR = toScreen(tileNE_utm.E, tileSW_utm.N);
@@ -636,14 +641,12 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
             const tileHeight = pBR.y - pTL.y;
 
             const url = getTileUrl(basemapProvider, tx, ty, zoom);
-            const cached = globalTileCache.get(url);
+            const cachedImg = globalTileCache.get(url, () => {
+              setRenderTick(t => t + 1);
+            });
 
-            if (cached && cached.loaded && cached.img) {
-              ctx.drawImage(cached.img, pTL.x, pTL.y, tileWidth, tileHeight);
-            } else {
-              globalTileCache.load(url, () => {
-                setRenderTick(t => t + 1);
-              });
+            if (cachedImg) {
+              ctx.drawImage(cachedImg, pTL.x, pTL.y, tileWidth, tileHeight);
             }
           }
         }

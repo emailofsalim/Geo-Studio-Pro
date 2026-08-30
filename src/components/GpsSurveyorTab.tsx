@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useIsDarkMode } from '../hooks/useIsDarkMode';
+import { useManagedResource } from '../hooks/useHardwareResource';
 import {
   Compass,
   Play,
@@ -45,7 +46,10 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Map as MapIcon,
+  Upload,
+  Footprints
 } from 'lucide-react';
 import { GeoFeature, SurveyWaypoint, SurveyTrack, TrackPoint, ProximityAlarmSettings, ProximityAlarmEvent } from '../types';
 import {
@@ -72,6 +76,11 @@ import {
 import { deduplicateSurveyWaypoints } from '../lib/deduplication';
 import { useToast } from '../context/ToastContext';
 import { ArStakeoutView } from './hardware/ArStakeoutView';
+import { MapTilesStakeoutView } from './hardware/MapTilesStakeoutView';
+import { ImportWaypointsModal } from './ImportWaypointsModal';
+import { UniversalAppHeaderBar } from './UniversalAppHeaderBar';
+import { UniversalDataBridgeModal } from './UniversalDataBridgeModal';
+import { ExportFormatId, DetectedImportResult } from '../lib/universalDataBridge';
 import {
   calculateStakeoutGuidance,
   parseSurveyVoiceCommand,
@@ -202,12 +211,20 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   onSendToOffset
 }) => {
   const toast = useToast();
+  const managedResource = useManagedResource('gps_surveyor_tab', 'GNSS RTK & Waypoints Surveyor');
 
   // Hook for active Dark / Light mode detection
   const isDark = useIsDarkMode();
 
-  // Active Tab: 'cockpit' | 'averaging' | 'navigation' | 'ar_stakeout' | 'trip' | 'satellites' | 'waypoints'
-  const [subTab, setSubTab] = useState<'cockpit' | 'averaging' | 'navigation' | 'ar_stakeout' | 'trip' | 'satellites' | 'waypoints'>('cockpit');
+  // Active Tab: 'cockpit' | 'averaging' | 'stakeout_director' | 'map_stakeout' | 'ar_stakeout' | 'navigation' | 'trip' | 'satellites' | 'waypoints'
+  const [subTab, setSubTab] = useState<'cockpit' | 'averaging' | 'stakeout_director' | 'map_stakeout' | 'ar_stakeout' | 'navigation' | 'trip' | 'satellites' | 'waypoints'>('cockpit');
+  const [directorMode, setDirectorMode] = useState<'map' | 'ar' | 'compass'>('map');
+  const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
+
+  // Dynamic Movement / Course-Over-Ground (COG) Tracking State
+  const [motionHeading, setMotionHeading] = useState<number | null>(null);
+  const [isMoving, setIsMoving] = useState<boolean>(false);
+  const lastPosRef = useRef<{ E: number; N: number; time: number } | null>(null);
 
   // GPS Cockpit State
   const [isStreaming, setIsStreaming] = useState(false);
@@ -262,6 +279,68 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   const [wpRemarks, setWpRemarks] = useState('');
   const [wpSearch, setWpSearch] = useState('');
   const [wpCustomRadius, setWpCustomRadius] = useState<string>('10');
+
+  // Universal Data Bridge Modal State
+  const [isUniversalBridgeOpen, setIsUniversalBridgeOpen] = useState(false);
+  const [universalBridgeMode, setUniversalBridgeMode] = useState<'import' | 'export'>('export');
+  const [universalBridgeFormat, setUniversalBridgeFormat] = useState<ExportFormatId>('gpx');
+
+  const handleOpenUniversalImport = () => {
+    setUniversalBridgeMode('import');
+    setIsUniversalBridgeOpen(true);
+  };
+
+  const handleOpenUniversalExport = (format?: ExportFormatId) => {
+    setUniversalBridgeMode('export');
+    if (format) setUniversalBridgeFormat(format);
+    setIsUniversalBridgeOpen(true);
+  };
+
+  const handleBridgeImportComplete = (result: DetectedImportResult) => {
+    const zNum = parseInt(workingZone, 10) || 45;
+    const isSouth = workingZone.endsWith('S');
+    const newWps: SurveyWaypoint[] = result.features.map((f, i) => {
+      const pt = f.pts[0] || { a: 0, b: 0 };
+      let E = 0;
+      let N = 0;
+      let lat = 0;
+      let lon = 0;
+      if (f.kind === 'en') {
+        E = pt.a;
+        N = pt.b;
+        const ll = utmToLonLat(E, N, zNum, isSouth);
+        lat = ll.lat;
+        lon = ll.lon;
+      } else {
+        lon = pt.a;
+        lat = pt.b;
+        const u = lonLatToUtm(lon, lat, zNum, isSouth);
+        E = u.E;
+        N = u.N;
+      }
+      return {
+        id: f.name || `PT-${waypoints.length + i + 1}`,
+        code: (f.props?.code as string) || 'Imported Waypoint',
+        E,
+        N,
+        Z: (f.props?.elevation as number) || (f.props?.Z as number) || 0,
+        lat,
+        lon,
+        acc: 1.0,
+        zone: workingZone,
+        time: Date.now(),
+        remarks: f.props ? JSON.stringify(f.props) : undefined,
+        proximityRadius: 5
+      };
+    });
+
+    const updated = [...waypoints, ...newWps];
+    setWaypoints(updated);
+    try {
+      localStorage.setItem('gs_waypoints_v2', JSON.stringify(updated));
+    } catch {}
+    toast.showSuccess(`Imported ${newWps.length} waypoint(s) via Universal Import (${result.formatName})`);
+  };
 
   // Spoken Turn-by-Turn Voice Guidance for Navigation and AR
   const [voiceNavActive, setVoiceNavActive] = useState<boolean>(false);
@@ -525,18 +604,19 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     downloadBlob(csv, `GeoStudio_Proximity_Alerts_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
   };
 
-  // Compass listener
+  // Compass listener (Managed Hardware Lifecycle)
   useEffect(() => {
-    const handleOrientation = (e: DeviceOrientationEvent) => {
+    const unregister = managedResource.registerOrientation((e: DeviceOrientationEvent) => {
       if ((e as any).webkitCompassHeading != null) {
         setDeviceHeading((e as any).webkitCompassHeading);
       } else if (e.alpha != null) {
         setDeviceHeading((360 - e.alpha) % 360);
       }
+    });
+    return () => {
+      unregister();
     };
-    window.addEventListener('deviceorientation', handleOrientation, true);
-    return () => window.removeEventListener('deviceorientation', handleOrientation, true);
-  }, []);
+  }, [managedResource]);
 
   // GNSS Fix Calculation
   const processFix = (pos: GeolocationPosition) => {
@@ -558,8 +638,36 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       }
     } catch {}
 
+    // Calculate Dynamic Movement Course-Over-Ground (COG)
+    const speedMps = speed ?? 0;
+    let calculatedCog: number | null = null;
+    let movingNow = false;
+
+    if (lastPosRef.current) {
+      const dE_move = u.E - lastPosRef.current.E;
+      const dN_move = u.N - lastPosRef.current.N;
+      const dist_move = Math.hypot(dE_move, dN_move);
+      const dt_move = (pos.timestamp - lastPosRef.current.time) / 1000;
+      const calcSpeed = dt_move > 0 ? dist_move / dt_move : 0;
+
+      if (dist_move >= 0.5 || speedMps >= 0.35 || calcSpeed >= 0.35) {
+        calculatedCog = (Math.atan2(dE_move, dN_move) * 180 / Math.PI + 360) % 360;
+        movingNow = true;
+        setMotionHeading(calculatedCog);
+        setIsMoving(true);
+      } else if (speedMps < 0.2) {
+        setIsMoving(false);
+      }
+    }
+
+    lastPosRef.current = { E: u.E, N: u.N, time: pos.timestamp };
+
+    const effectiveHeading = (movingNow || (speedMps >= 0.35 && heading != null && !isNaN(heading)))
+      ? (heading != null && !isNaN(heading) ? heading : (calculatedCog ?? deviceHeading ?? 0))
+      : (deviceHeading ?? heading ?? 0);
+
     const data = {
-      lat, lon, acc, alt, altAcc, speed, heading, time: pos.timestamp,
+      lat, lon, acc, alt, altAcc, speed, heading: effectiveHeading, time: pos.timestamp,
       utm: { E: u.E, N: u.N, zl: workingZone },
       mgrs,
       plusCode,
@@ -637,7 +745,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
         const dist = Math.hypot(dE, dN);
         const radius = wp.proximityRadius ?? proximitySettings.globalRadius;
         const bearing = (Math.atan2(dE, dN) * 180 / Math.PI + 360) % 360;
-        const hdg = (heading != null && !isNaN(heading)) ? heading : (deviceHeading || 0);
+        const hdg = effectiveHeading;
         const turn = ((bearing - hdg + 540) % 360) - 180;
 
         if (dist <= radius) {
@@ -724,7 +832,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       const dN = targetN - u.N;
       const dist = Math.hypot(dE, dN);
       const bearing = (Math.atan2(dE, dN) * 180 / Math.PI + 360) % 360;
-      const hdg = (heading != null && !isNaN(heading)) ? heading : (deviceHeading || 0);
+      const hdg = effectiveHeading;
       const turn = ((bearing - hdg + 540) % 360) - 180;
       const isArrived = dist <= proximityRadiusMeters;
 
@@ -780,36 +888,37 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     setGpsError(err.message || 'Position unavailable');
   };
 
-  const getSingleFix = () => {
-    if (!navigator.geolocation) {
-      setGpsError('Geolocation is not supported by your browser.');
-      return;
+  const getSingleFix = async () => {
+    try {
+      setGpsError(null);
+      const pos = await managedResource.getSingleLocationFix({
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0
+      });
+      processFix(pos);
+    } catch (err: any) {
+      handleError(err);
     }
-    navigator.geolocation.getCurrentPosition(processFix, handleError, {
-      enableHighAccuracy: true,
-      timeout: 15000,
-      maximumAge: 0
-    });
   };
 
   const toggleStream = () => {
     if (isStreaming) {
-      if (watchIdRef.current != null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-      }
+      managedResource.stopLocationTracking();
+      watchIdRef.current = null;
       setIsStreaming(false);
     } else {
-      if (!navigator.geolocation) {
-        setGpsError('Geolocation is not supported by your browser.');
-        return;
+      try {
+        setGpsError(null);
+        managedResource.startLocationTracking(processFix, handleError, {
+          enableHighAccuracy: true,
+          timeout: 20000,
+          maximumAge: 0
+        });
+        setIsStreaming(true);
+      } catch (err: any) {
+        setGpsError(err.message || 'Failed to initialize GNSS stream');
       }
-      watchIdRef.current = navigator.geolocation.watchPosition(processFix, handleError, {
-        enableHighAccuracy: true,
-        timeout: 20000,
-        maximumAge: 0
-      });
-      setIsStreaming(true);
     }
   };
 
@@ -1314,6 +1423,16 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Universal Import & Export Header Bar */}
+      <UniversalAppHeaderBar
+        appName="GNSS Field Surveyor & Waypoints"
+        appDescription="Dual-coordinate geodetic cockpit, real-time CEP95 GPS averaging, Go-To guidance, AR stakeout, and universal GNSS data bridge."
+        workingZone={workingZone}
+        featureCount={waypoints.length}
+        onUniversalImport={handleOpenUniversalImport}
+        onUniversalExport={handleOpenUniversalExport}
+      />
+
       {/* 1. Header & Navigation Sub-Tabs */}
       <div className="bg-[#0f0f0f] rounded-2xl p-4 sm:p-6 border border-white/5 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
@@ -1354,26 +1473,41 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
           {[
             { id: 'cockpit', label: 'Dual Coordinate Cockpit', icon: Radio },
             { id: 'averaging', label: 'GPS Averaging (CEP95)', icon: Target },
-            { id: 'navigation', label: 'Go-To Guidance', icon: Navigation },
-            { id: 'ar_stakeout', label: 'AR Camera Stakeout', icon: Camera },
+            { 
+              id: 'stakeout_director', 
+              label: 'Stakeout & Go-To Director', 
+              icon: Compass, 
+              badge: 'Map • AR • Compass',
+              isMerged: true 
+            },
             { id: 'trip', label: 'Trip Odometer', icon: Activity },
             { id: 'satellites', label: 'Satellite Skyplot', icon: Satellite },
             { id: 'waypoints', label: `Waypoints (${waypoints.length})`, icon: MapPin }
           ].map(tab => {
             const Icon = tab.icon;
-            const active = subTab === tab.id;
+            const active = subTab === tab.id || (tab.id === 'stakeout_director' && (subTab === 'map_stakeout' || subTab === 'ar_stakeout' || subTab === 'navigation'));
+            const isMerged = (tab as any).isMerged;
             return (
               <button
                 key={tab.id}
                 onClick={() => setSubTab(tab.id as any)}
                 className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap flex items-center gap-1.5 transition-all ${
                   active
-                    ? 'bg-[#c9a063] text-black font-bold shadow-md shadow-[#c9a063]/10'
+                    ? 'bg-[#c9a063] text-black font-bold shadow-md shadow-[#c9a063]/25 ring-1 ring-[#c9a063]'
+                    : isMerged
+                    ? 'bg-gradient-to-r from-amber-500/15 via-[#c9a063]/20 to-blue-500/15 text-amber-200 hover:text-white border border-[#c9a063]/40 hover:border-[#c9a063]'
                     : 'bg-[#141414] text-white/60 hover:text-white border border-white/5'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
-                {tab.label}
+                <Icon className={`w-3.5 h-3.5 ${active ? 'text-black' : isMerged ? 'text-[#c9a063]' : ''}`} />
+                <span>{tab.label}</span>
+                {(tab as any).badge && (
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
+                    active ? 'bg-black/20 text-black' : 'bg-[#c9a063]/20 text-[#c9a063]'
+                  }`}>
+                    {(tab as any).badge}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -1829,9 +1963,178 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
         </div>
       )}
 
-      {/* 4. Go-To Waypoint Guidance & Proximity Alarms (Handy GPS Style) */}
-      {subTab === 'navigation' && (
-        <div className="space-y-6">
+      {/* 4. Unified Stakeout & Go-To Director (Merged Map Tiles, AR Camera, and Tactical Compass / Proximity) */}
+      {(subTab === 'stakeout_director' || subTab === 'map_stakeout' || subTab === 'ar_stakeout' || subTab === 'navigation') && (
+        <div className="space-y-4">
+          {/* Dynamic Motion Sentinel & Vector Status Banner */}
+          <div className="p-3.5 rounded-2xl bg-[#0f0f0f] border border-white/10 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className={`p-2.5 rounded-xl border flex items-center justify-center transition-all ${
+                isMoving 
+                  ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-400 shadow-md shadow-emerald-900/30'
+                  : 'bg-amber-950/40 border-amber-500/30 text-amber-400'
+              }`}>
+                {isMoving ? <Footprints className="w-4 h-4 animate-bounce" /> : <Compass className="w-4 h-4" />}
+              </div>
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                    {isMoving ? '🚶 Dynamic GNSS Motion Course Active (COG)' : '🧭 Magnetic Sensor Compass Active'}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                    isMoving ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  }`}>
+                    {isMoving ? 'Moving Trajectory' : 'Stationary'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-white/60">
+                  {isMoving 
+                    ? `Direction & azimuth dynamically aligned to surveyor movement: ${currentPos?.heading != null ? currentPos.heading.toFixed(0) : '--'}° COG • Speed: ${((currentPos?.speed || 0) * 3.6).toFixed(1)} km/h`
+                    : `Walk 2-3 steps to activate Course-Over-Ground (COG) movement trajectory tracking.`}
+                </p>
+              </div>
+            </div>
+
+            {/* Integrated Director Mode Switcher */}
+            <div className="bg-black/40 p-1 rounded-xl border border-white/10 flex items-center gap-1">
+              <button
+                onClick={() => {
+                  setDirectorMode('map');
+                  if (subTab !== 'stakeout_director') setSubTab('stakeout_director');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                  (directorMode === 'map' && subTab === 'stakeout_director') || subTab === 'map_stakeout'
+                    ? 'bg-[#c9a063] text-black shadow-md'
+                    : 'text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <MapIcon className="w-3.5 h-3.5" />
+                <span>Map Tiles (2D)</span>
+              </button>
+              <button
+                onClick={() => {
+                  setDirectorMode('ar');
+                  if (subTab !== 'stakeout_director') setSubTab('stakeout_director');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                  (directorMode === 'ar' && subTab === 'stakeout_director') || subTab === 'ar_stakeout'
+                    ? 'bg-[#c9a063] text-black shadow-md'
+                    : 'text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>AR Camera (3D)</span>
+              </button>
+              <button
+                onClick={() => {
+                  setDirectorMode('compass');
+                  if (subTab !== 'stakeout_director') setSubTab('stakeout_director');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                  (directorMode === 'compass' && subTab === 'stakeout_director') || subTab === 'navigation'
+                    ? 'bg-[#c9a063] text-black shadow-md'
+                    : 'text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Navigation className="w-3.5 h-3.5" />
+                <span>Tactical Compass & Radar</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Mode 1: Map Tiles 2D Stakeout */}
+          {((directorMode === 'map' && subTab === 'stakeout_director') || subTab === 'map_stakeout') && (
+            <MapTilesStakeoutView
+              currentPos={currentPos}
+              deviceHeading={currentPos?.heading ?? deviceHeading ?? 0}
+              waypoints={waypoints}
+              activeWaypointIndex={activeWaypointIndex}
+              onSelectWaypointIndex={setActiveWaypointIndex}
+              onUndoWaypoint={handleUndoWaypoints}
+              onRedoWaypoint={handleRedoWaypoints}
+              onDeleteWaypoint={handleDeleteWaypoint}
+              canUndo={historyIndex > 0}
+              canRedo={historyIndex < wpHistory.length - 1}
+              distanceUnit={distanceUnit}
+              onSwitchToAr={() => { setDirectorMode('ar'); setSubTab('stakeout_director'); }}
+              onSwitchToMode={mode => { setDirectorMode(mode); setSubTab('stakeout_director'); }}
+              onOpenImport={() => setIsImportModalOpen(true)}
+              isMoving={isMoving}
+              motionHeading={motionHeading}
+              onStoreObservation={remark => {
+                if (currentPos) {
+                  const newWp: SurveyWaypoint = {
+                    id: `STK-${waypoints.length + 1}`,
+                    code: 'Map Stakeout Ground Marker',
+                    E: currentPos.utm.E,
+                    N: currentPos.utm.N,
+                    Z: currentPos.alt || 0,
+                    lat: currentPos.lat,
+                    lon: currentPos.lon,
+                    acc: currentPos.acc,
+                    zone: workingZone,
+                    time: Date.now(),
+                    remarks: remark,
+                    proximityRadius: 5
+                  };
+                  updateWaypointsWithHistory(prev => [...prev, newWp], `Recorded map stakeout point ${newWp.id}`);
+                  speakVoiceAnnouncement(`Map stakeout point ${newWp.id} recorded.`);
+                  toast.showSuccess(`Saved map stakeout check observation ${newWp.id}`);
+                } else {
+                  toast.showWarning('No current GPS fix available to record stakeout position.');
+                }
+              }}
+            />
+          )}
+
+          {/* Mode 2: AR Camera 3D Stakeout */}
+          {((directorMode === 'ar' && subTab === 'stakeout_director') || subTab === 'ar_stakeout') && (
+            <ArStakeoutView
+              currentPos={currentPos}
+              deviceHeading={currentPos?.heading ?? deviceHeading ?? 0}
+              waypoints={waypoints}
+              activeWaypointIndex={activeWaypointIndex}
+              onSelectWaypointIndex={setActiveWaypointIndex}
+              onUndoWaypoint={handleUndoWaypoints}
+              onRedoWaypoint={handleRedoWaypoints}
+              onDeleteWaypoint={handleDeleteWaypoint}
+              canUndo={historyIndex > 0}
+              canRedo={historyIndex < wpHistory.length - 1}
+              distanceUnit={distanceUnit}
+              onSwitchToMap={() => { setDirectorMode('map'); setSubTab('stakeout_director'); }}
+              onSwitchToMode={mode => { setDirectorMode(mode); setSubTab('stakeout_director'); }}
+              onOpenImport={() => setIsImportModalOpen(true)}
+              isMoving={isMoving}
+              motionHeading={motionHeading}
+              onStoreObservation={remark => {
+                if (currentPos) {
+                  const newWp: SurveyWaypoint = {
+                    id: `STK-${waypoints.length + 1}`,
+                    code: 'Stakeout Ground Marker',
+                    E: currentPos.utm.E,
+                    N: currentPos.utm.N,
+                    Z: currentPos.alt || 0,
+                    lat: currentPos.lat,
+                    lon: currentPos.lon,
+                    acc: currentPos.acc,
+                    zone: workingZone,
+                    time: Date.now(),
+                    remarks: remark,
+                    proximityRadius: 5
+                  };
+                  updateWaypointsWithHistory(prev => [...prev, newWp], `Recorded stakeout point ${newWp.id}`);
+                  speakVoiceAnnouncement(`Stakeout point ${newWp.id} recorded.`);
+                  toast.showSuccess(`Saved stakeout check observation ${newWp.id}`);
+                } else {
+                  toast.showWarning('No current GPS fix available to record stakeout position.');
+                }
+              }}
+            />
+          )}
+
+          {/* Mode 3: Tactical Compass & Proximity Radar HUD */}
+          {((directorMode === 'compass' && subTab === 'stakeout_director') || subTab === 'navigation') && (
+            <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
               {/* Go-To Guidance Director */}
@@ -2504,46 +2807,8 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
             )}
           </div>
         </div>
-      )}
-
-      {/* 4b. Augmented Reality (AR) Camera Stakeout View */}
-      {subTab === 'ar_stakeout' && (
-        <ArStakeoutView
-          currentPos={currentPos}
-          deviceHeading={deviceHeading || 0}
-          waypoints={waypoints}
-          activeWaypointIndex={activeWaypointIndex}
-          onSelectWaypointIndex={setActiveWaypointIndex}
-          onUndoWaypoint={handleUndoWaypoints}
-          onRedoWaypoint={handleRedoWaypoints}
-          onDeleteWaypoint={handleDeleteWaypoint}
-          canUndo={historyIndex > 0}
-          canRedo={historyIndex < wpHistory.length - 1}
-          distanceUnit={distanceUnit}
-          onStoreObservation={remark => {
-            if (currentPos) {
-              const newWp: SurveyWaypoint = {
-                id: `STK-${waypoints.length + 1}`,
-                code: 'Stakeout Ground Marker',
-                E: currentPos.utm.E,
-                N: currentPos.utm.N,
-                Z: currentPos.alt || 0,
-                lat: currentPos.lat,
-                lon: currentPos.lon,
-                acc: currentPos.acc,
-                zone: workingZone,
-                time: Date.now(),
-                remarks: remark,
-                proximityRadius: 5
-              };
-              updateWaypointsWithHistory(prev => [...prev, newWp], `Recorded stakeout point ${newWp.id}`);
-              speakVoiceAnnouncement(`Stakeout point ${newWp.id} recorded.`);
-              toast.showSuccess(`Saved stakeout check observation ${newWp.id}`);
-            } else {
-              toast.showWarning('No current GPS fix available to record stakeout position.');
-            }
-          }}
-        />
+          )}
+        </div>
       )}
 
       {/* 5. Trip Computer & Odometer */}
@@ -2713,6 +2978,14 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
                 </button>
               </div>
 
+              <button
+                onClick={() => setIsImportModalOpen(true)}
+                className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs font-semibold rounded-xl border border-blue-500/40 flex items-center gap-1.5 transition-all shadow-sm"
+                title="Import waypoints and stakeout targets from CSV, GeoJSON, GPX, or WKT files"
+              >
+                <Upload className="w-3.5 h-3.5 text-blue-400" />
+                Import Targets
+              </button>
               <button
                 onClick={handleDeduplicateWaypoints}
                 disabled={waypoints.length === 0}
@@ -2889,6 +3162,34 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* Waypoints & Stakeout Targets Import Modal */}
+      <ImportWaypointsModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        workingZone={workingZone}
+        onImportWaypoints={(importedPoints) => {
+          updateWaypointsWithHistory(
+            prev => [...prev, ...importedPoints],
+            `Imported ${importedPoints.length} waypoints`
+          );
+          toast.showSuccess(`Successfully imported ${importedPoints.length} stakeout waypoints.`);
+          speakVoiceAnnouncement(`Imported ${importedPoints.length} waypoints.`);
+        }}
+      />
+
+      {/* Universal Data Bridge Modal */}
+      <UniversalDataBridgeModal
+        isOpen={isUniversalBridgeOpen}
+        onClose={() => setIsUniversalBridgeOpen(false)}
+        initialMode={universalBridgeMode}
+        initialFormat={universalBridgeFormat}
+        activeAppId="gps"
+        activeAppName="GNSS Field Surveyor"
+        workingZone={workingZone}
+        waypointsOverride={waypoints}
+        onImportComplete={handleBridgeImportComplete}
+      />
     </div>
   );
 };

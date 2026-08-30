@@ -1,6 +1,6 @@
 {
-  "name": "BhuNex Pro - Geomatics & Cadastral Suite",
-  "short_name": "BhuNex",
+  "name": "BhuStudio - Geomatics & Cadastral Suite",
+  "short_name": "BhuStudio",
   "description": "Professional offline geomatics, geodesy, cadastral mapping, borehole logging, and coordinate transformation suite developed by Md Salim Ansari.",
   "start_url": "/",
   "display": "standalone",

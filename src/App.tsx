@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Navigation, AppTabId } from './components/Navigation';
+import { Navigation, AppTabId, APPS_CONFIG } from './components/Navigation';
 import { DesktopMenuBar } from './components/DesktopMenuBar';
 import { DesktopStatusBar } from './components/DesktopStatusBar';
 import { AndroidMobileLayout } from './components/AndroidMobileLayout';
@@ -8,6 +8,10 @@ import { SettingsModal } from './components/SettingsModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { TourSpotlight } from './components/TourSpotlight';
 import { AboutModal } from './components/AboutModal';
+import { AiGeomaticsModal } from './components/AiGeomaticsModal';
+import { UniversalDataBridgeModal } from './components/UniversalDataBridgeModal';
+import { SensorPrivacyMonitorModal } from './components/SensorPrivacyMonitorModal';
+import { ExportFormatId, DetectedImportResult } from './lib/universalDataBridge';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useToast } from './context/ToastContext';
 import { downloadBlob } from './lib/zip';
@@ -71,6 +75,8 @@ export function App() {
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isTourOpen, setIsTourOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isAiGeomaticsOpen, setIsAiGeomaticsOpen] = useState(false);
+  const [isPrivacyMonitorOpen, setIsPrivacyMonitorOpen] = useState(false);
 
   // Auto-Save Engine State (IndexedDB)
   const [lastAutoSaveTimeString, setLastAutoSaveTimeString] = useState<string>('');
@@ -282,6 +288,100 @@ export function App() {
     setActiveTab('gis');
   };
 
+  // Universal Data Bridge Modal State (Import / Export across all apps)
+  const [isUniversalBridgeOpen, setIsUniversalBridgeOpen] = useState(false);
+  const [universalBridgeMode, setUniversalBridgeMode] = useState<'import' | 'export'>('export');
+  const [universalBridgeFormat, setUniversalBridgeFormat] = useState<ExportFormatId>('geojson');
+
+  const openUniversalImport = () => {
+    setUniversalBridgeMode('import');
+    setIsUniversalBridgeOpen(true);
+  };
+
+  const openUniversalExport = (format?: ExportFormatId) => {
+    setUniversalBridgeMode('export');
+    if (format) setUniversalBridgeFormat(format);
+    setIsUniversalBridgeOpen(true);
+  };
+
+  const handleUniversalImportComplete = (result: DetectedImportResult, destinationApp: string) => {
+    if (destinationApp === 'gis' || destinationApp === 'studio') {
+      try {
+        const existingLayers = JSON.parse(localStorage.getItem('gis_studio_layers') || '[]');
+        const newLayer = {
+          id: `layer_${Date.now()}`,
+          name: result.formatName + ' (' + result.features.length + ' pts)',
+          visible: true,
+          color: '#c9a063',
+          fillColor: '#c9a063',
+          fillOpacity: 0.35,
+          strokeWidth: 2,
+          geomType: result.polygonsCount > 0 ? 'polygon' : result.linesCount > 0 ? 'line' : 'point',
+          features: result.features
+        };
+        localStorage.setItem('gis_studio_layers', JSON.stringify([newLayer, ...existingLayers]));
+        toast.showSuccess(`Imported ${result.featureCount} feature(s) into GIS Studio layer!`);
+        setActiveTab('gis');
+      } catch (err: any) {
+        toast.showError(`Import error: ${err.message}`);
+      }
+    } else if (destinationApp === 'gps') {
+      try {
+        const existingWps = JSON.parse(localStorage.getItem('survey_waypoints') || '[]');
+        const newWps = result.features.map((f, i) => {
+          const pt = f.pts[0] || { a: 0, b: 0 };
+          return {
+            id: f.name || `PT-${existingWps.length + i + 1}`,
+            code: (f.props?.code as string) || 'Imported Target',
+            E: (f.props?.utmE as number) || (f.kind === 'en' ? pt.a : 0),
+            N: (f.props?.utmN as number) || (f.kind === 'en' ? pt.b : 0),
+            Z: (f.props?.elevation as number) || (f.props?.Z as number) || 0,
+            lat: f.kind === 'll' ? pt.b : 0,
+            lon: f.kind === 'll' ? pt.a : 0,
+            acc: 1.0,
+            zone: workingZone,
+            time: Date.now(),
+            remarks: f.props ? JSON.stringify(f.props) : undefined,
+            proximityRadius: 5
+          };
+        });
+        localStorage.setItem('survey_waypoints', JSON.stringify([...existingWps, ...newWps]));
+        toast.showSuccess(`Added ${newWps.length} target waypoint(s) to GNSS Field Surveyor!`);
+        setActiveTab('gps');
+      } catch (err: any) {
+        toast.showError(`Import error: ${err.message}`);
+      }
+    } else if (destinationApp === 'cad') {
+      try {
+        const existingParcels = JSON.parse(localStorage.getItem('cadastral_parcels') || '[]');
+        const newParcels = result.features.filter(f => f.geom === 'polygon' || f.pts.length >= 3).map((f, i) => ({
+          khasra: f.name || `${existingParcels.length + i + 101}`,
+          owner: (f.props?.owner as string) || (f.props?.Owner as string) || 'Imported Landowner',
+          village: (f.props?.village as string) || 'Surveyed Mouza',
+          status: 'verified',
+          areaM2: (f.props?.areaSqm as number) || 1000,
+          areaHa: ((f.props?.areaSqm as number) || 1000) / 10000,
+          areaAcres: (((f.props?.areaSqm as number) || 1000) / 10000) * 2.47105,
+          pts: f.pts.map(p => ({
+            E: f.kind === 'en' ? p.a : 0,
+            N: f.kind === 'en' ? p.b : 0
+          }))
+        }));
+        if (newParcels.length > 0) {
+          localStorage.setItem('cadastral_parcels', JSON.stringify([...existingParcels, ...newParcels]));
+          toast.showSuccess(`Added ${newParcels.length} parcel(s) to Cadastral Mapper!`);
+        } else {
+          toast.showInfo(`Loaded ${result.featureCount} spatial geometries.`);
+        }
+        setActiveTab('cad');
+      } catch (err: any) {
+        toast.showError(`Import error: ${err.message}`);
+      }
+    } else {
+      setActiveTab((destinationApp as AppTabId) || 'gis');
+    }
+  };
+
   return (
     <div className={`min-h-screen ${isDarkMode ? 'bg-[#0a0a0a] text-[#d4d4d4]' : 'bg-[#f8fafc] text-[#1e293b]'} flex flex-col font-sans transition-colors duration-150 selection:bg-[#c9a063]/30 selection:text-[#f5f5f5]`}>
       {/* 1. Desktop Workstation Top Menu Bar & Ribbon (Desktop Only) */}
@@ -299,6 +399,9 @@ export function App() {
         openShortcuts={() => setIsShortcutsOpen(true)}
         openTour={() => setIsTourOpen(true)}
         openAbout={() => setIsAboutOpen(true)}
+        openAiCopilot={() => setIsAiGeomaticsOpen(true)}
+        openUniversalImport={openUniversalImport}
+        openUniversalExport={openUniversalExport}
         onExportProject={handleExportProject}
         onImportProject={handleImportProject}
         onClearAllData={handleClearAllData}
@@ -313,6 +416,9 @@ export function App() {
         setWorkingZone={setWorkingZone}
         openCommandPalette={() => setIsCommandPaletteOpen(true)}
         openSettings={() => setIsSettingsOpen(true)}
+        openAiCopilot={() => setIsAiGeomaticsOpen(true)}
+        openUniversalImport={openUniversalImport}
+        openUniversalExport={openUniversalExport}
         hasGpsFix={false}
         isDark={isDarkMode}
         setIsDark={setIsDarkMode}
@@ -329,6 +435,8 @@ export function App() {
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
           openSettings={() => setIsSettingsOpen(true)}
+          openUniversalImport={openUniversalImport}
+          openUniversalExport={openUniversalExport}
           workingZone={workingZone}
         />
 
@@ -455,9 +563,15 @@ export function App() {
         activeTab={activeTab}
         lastAutoSaveTime={lastAutoSaveTimeString}
         isAutoSaving={isAutoSaving}
+        onOpenPrivacyMonitor={() => setIsPrivacyMonitorOpen(true)}
       />
 
       {/* Modals & Overlays */}
+      <SensorPrivacyMonitorModal
+        isOpen={isPrivacyMonitorOpen}
+        onClose={() => setIsPrivacyMonitorOpen(false)}
+      />
+
       <CommandPalette
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
@@ -501,6 +615,24 @@ export function App() {
       <AboutModal
         isOpen={isAboutOpen}
         onClose={() => setIsAboutOpen(false)}
+      />
+
+      <AiGeomaticsModal
+        isOpen={isAiGeomaticsOpen}
+        onClose={() => setIsAiGeomaticsOpen(false)}
+        workingZone={workingZone}
+        activeTab={activeTab}
+      />
+
+      {/* Universal Data Bridge (Import Auto-Detect & Export Format Chooser) */}
+      <UniversalDataBridgeModal
+        isOpen={isUniversalBridgeOpen}
+        onClose={() => setIsUniversalBridgeOpen(false)}
+        initialMode={universalBridgeMode}
+        activeAppId={activeTab}
+        activeAppName={(Array.isArray(APPS_CONFIG) ? APPS_CONFIG.find(a => a.id === activeTab)?.name : undefined) || activeTab}
+        workingZone={workingZone}
+        onImportComplete={handleUniversalImportComplete}
       />
     </div>
   );

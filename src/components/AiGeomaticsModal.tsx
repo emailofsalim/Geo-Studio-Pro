@@ -44,7 +44,7 @@ export const AiGeomaticsModal: React.FC<AiGeomaticsModalProps> = ({
     {
       role: 'assistant',
       content:
-        'Hello! I am your **BhuNex App Guide & Geomatics Assistant** (Powered by Open-Source Geomatics Intelligence & Gemini).\n\nI can help you navigate and use the tools in BhuNex:\n- **Coordinate Conversions**: Transforming between Lat/Long, UTM Zone ' + workingZone + ', and Indian Kalianpur LCC 1SP.\n- **Cadastral & Revenue Mapping**: Entering Khasra/Plot numbers, converting Bigha-Katha-Dhur to Sq. Meters & Hectares.\n- **Total Station & GPS Surveys**: Setting up backsight stations, balancing traverses with Bowditch rule, calculating Vincenty distance.\n- **Borehole Stratigraphy & Mines**: Generating 3D strip logs and checking IBM 2018 mineral cutoff thresholds.\n- **Boundaries & Geofences**: Drawing plot offsets, corridor buffers, and proximity alarms.\n\nAsk me how to perform any survey or cadastral task in BhuNex!',
+        'Hello! I am your **BhuStudio AI App Guide & Geomatics Assistant** (Powered by Geomatics Intelligence & Gemini).\n\nI can assist you across all BhuStudio workspaces:\n- **Home & Templates**: Selecting standard schemas, inspecting survey ZIP packages, and downloading data dictionaries.\n- **Coordinate Conversions**: Transforming between Lat/Long, UTM Zone ' + workingZone + ', and Indian Kalianpur LCC 1SP.\n- **Cadastral & Revenue Mapping**: Entering Khasra/Plot numbers, converting Bigha-Katha-Dhur to Sq. Meters & Hectares in BhuNaksha.\n- **Total Station & GPS Surveys**: Setting up backsight stations, balancing traverses with Bowditch rule, calculating Vincenty distance.\n- **Borehole Stratigraphy & Mines**: Generating 3D strip logs and checking IBM 2018 mineral cutoff thresholds.\n- **Boundaries & Geofences**: Drawing statutory 7.5m mining lease offsets, corridor buffers, and proximity alarms.\n\nAsk me any question about how to use any feature in BhuStudio!',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       source: 'OpenSource-GeoEngine'
     }
@@ -156,7 +156,7 @@ export const AiGeomaticsModal: React.FC<AiGeomaticsModalProps> = ({
             <div>
               <div className="flex items-center gap-2.5 flex-wrap">
                 <h3 className="font-semibold text-sm text-white">
-                  BhuNex AI Assistant
+                  BhuStudio AI Assistant
                 </h3>
                 {isOnline ? (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">

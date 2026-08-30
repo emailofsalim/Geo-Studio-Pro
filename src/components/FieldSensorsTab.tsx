@@ -46,6 +46,7 @@ import {
   detectDeviceHardwareProfile
 } from '../lib/hardwareComms';
 import { useIsDarkMode } from '../hooks/useIsDarkMode';
+import { useManagedResource } from '../hooks/useHardwareResource';
 import { parseSurveyVoiceCommand, speakVoiceAnnouncement } from '../lib/voiceCommander';
 
 // Modular Hardware Sub-views
@@ -218,11 +219,31 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
     triggerHaptic([40, 40, 60]);
   }, [readingsLog, commitReadingsWithHistory]);
 
+  // Centralized Managed Hardware Resource Token
+  const managedResource = useManagedResource('field_sensors_suite', 'Field Sensors Suite');
+
   // -------------------------------------------------------------
-  // A. SENSOR LISTENERS
+  // A. SENSOR LISTENERS (Strictly On-Demand / Subtab-Driven)
   // -------------------------------------------------------------
-  const initOrientationListeners = useCallback(() => {
-    const handleOrientation = (e: DeviceOrientationEvent) => {
+  const isOrientationRequired =
+    activeSubTab === 'theodolite' ||
+    activeSubTab === 'level' ||
+    activeSubTab === 'diagnostics' ||
+    isSensorActive;
+
+  const isMotionRequired =
+    activeSubTab === 'pedometer' ||
+    isPacingActive ||
+    activeSubTab === 'diagnostics';
+
+  // Orientation Lifecycle (Electronic Theodolite, Spirit Level & Compass)
+  useEffect(() => {
+    if (!isOrientationRequired) {
+      setIsSensorActive(false);
+      return;
+    }
+
+    const unregister = managedResource.registerOrientation((e: DeviceOrientationEvent) => {
       let h = 0;
       if ((e as any).webkitCompassHeading !== undefined) {
         h = (e as any).webkitCompassHeading;
@@ -242,9 +263,18 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
       if (hapticLevelArmed && effP < 0.25 && effR < 0.25) {
         triggerHaptic([20]);
       }
-    };
+    });
 
-    const handleMotion = (e: DeviceMotionEvent) => {
+    return () => {
+      unregister();
+    };
+  }, [isOrientationRequired, tarePitch, tareRoll, hapticLevelArmed, managedResource]);
+
+  // Accelerometer / Motion Lifecycle (Surveyor Pacing Dead-Reckoning)
+  useEffect(() => {
+    if (!isMotionRequired) return;
+
+    const unregister = managedResource.registerMotion((e: DeviceMotionEvent) => {
       if (!e.accelerationIncludingGravity) return;
       const x = e.accelerationIncludingGravity.x || 0;
       const y = e.accelerationIncludingGravity.y || 0;
@@ -268,23 +298,44 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
         }
         lastAccelMagRef.current = mag;
       }
-    };
-
-    window.addEventListener('deviceorientation', handleOrientation, true);
-    window.addEventListener('devicemotion', handleMotion, true);
+    });
 
     return () => {
-      window.removeEventListener('deviceorientation', handleOrientation, true);
-      window.removeEventListener('devicemotion', handleMotion, true);
+      unregister();
     };
-  }, [isPacingActive, tarePitch, tareRoll, hapticLevelArmed]);
+  }, [isMotionRequired, isPacingActive, managedResource]);
+
+  // GNSS Geolocation Watcher (Only on Diagnostics or active GNSS request)
+  useEffect(() => {
+    if (activeSubTab !== 'diagnostics') return;
+
+    const stopTracking = managedResource.startLocationTracking(
+      pos => {
+        setGpsFix({
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          alt: pos.coords.altitude,
+          acc: pos.coords.accuracy,
+          speed: pos.coords.speed
+        });
+      },
+      err => {
+        console.debug('Field sensors GNSS status:', err.message);
+      },
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+    );
+
+    return () => {
+      stopTracking();
+    };
+  }, [activeSubTab, managedResource]);
 
   const requestOrientationPermission = async () => {
     if (typeof (DeviceOrientationEvent as any)?.requestPermission === 'function') {
       try {
         const res = await (DeviceOrientationEvent as any).requestPermission();
         if (res === 'granted') {
-          initOrientationListeners();
+          setIsSensorActive(true);
         } else {
           setSensorError('Device orientation permission denied.');
         }
@@ -292,34 +343,9 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
         setSensorError(err.message || 'Permission request failed');
       }
     } else {
-      initOrientationListeners();
+      setIsSensorActive(true);
     }
   };
-
-  useEffect(() => {
-    const cleanup = initOrientationListeners();
-    // Geolocation Watcher
-    if (navigator.geolocation) {
-      const watchId = navigator.geolocation.watchPosition(
-        pos => {
-          setGpsFix({
-            lat: pos.coords.latitude,
-            lon: pos.coords.longitude,
-            alt: pos.coords.altitude,
-            acc: pos.coords.accuracy,
-            speed: pos.coords.speed
-          });
-        },
-        () => {},
-        { enableHighAccuracy: true, maximumAge: 1000 }
-      );
-      return () => {
-        cleanup();
-        navigator.geolocation.clearWatch(watchId);
-      };
-    }
-    return cleanup;
-  }, [initOrientationListeners]);
 
   // Battery Status & Network Watcher
   useEffect(() => {
@@ -380,35 +406,30 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
     return () => clearInterval(interval);
   }, [isPacingActive, paceStartTime]);
 
-  // Screen Wake Lock Toggle
+  // Screen Wake Lock Toggle (Managed Hardware Lifecycle)
   const toggleWakeLock = async () => {
-    if ('wakeLock' in navigator) {
-      try {
-        if (!isWakeLocked) {
-          const sentinel = await (navigator as any).wakeLock.request('screen');
-          wakeLockSentinelRef.current = sentinel;
+    try {
+      if (!isWakeLocked) {
+        const acquired = await managedResource.acquireWakeLock('Survey Wake Lock');
+        if (acquired) {
           setIsWakeLocked(true);
-          sentinel.addEventListener('release', () => setIsWakeLocked(false));
           triggerHaptic([30, 20, 40]);
         } else {
-          if (wakeLockSentinelRef.current) {
-            wakeLockSentinelRef.current.release();
-            wakeLockSentinelRef.current = null;
-          }
-          setIsWakeLocked(false);
+          setSensorError('Screen Wake Lock is not supported or was rejected by browser.');
         }
-      } catch (err: any) {
-        setSensorError(`Wake Lock: ${err.message}`);
+      } else {
+        managedResource.releaseWakeLock();
+        setIsWakeLocked(false);
       }
-    } else {
-      setSensorError('Screen Wake Lock not supported on this browser.');
+    } catch (err: any) {
+      setSensorError(`Wake Lock: ${err.message}`);
     }
   };
 
-  // Sound Meter (Microphone)
+  // Sound Meter (Managed Microphone Lifecycle)
   const startMic = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await managedResource.acquireMicrophone({ audio: true }, 'Sound Level Analyzer');
       micStreamRef.current = stream;
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       audioCtxRef.current = audioCtx;
@@ -441,11 +462,25 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
 
   const stopMic = () => {
     if (micAnimFrameRef.current) cancelAnimationFrame(micAnimFrameRef.current);
-    if (micStreamRef.current) micStreamRef.current.getTracks().forEach(t => t.stop());
-    if (audioCtxRef.current) audioCtxRef.current.close().catch(() => {});
+    micAnimFrameRef.current = null;
+    managedResource.releaseMicrophone();
+    micStreamRef.current = null;
+    if (audioCtxRef.current) {
+      try {
+        audioCtxRef.current.close().catch(() => {});
+      } catch {}
+      audioCtxRef.current = null;
+    }
     setIsMicActive(false);
     setNoiseDb(null);
   };
+
+  // Automatically release microphone when navigating away from Sound subtab
+  useEffect(() => {
+    if (activeSubTab !== 'sound' && isMicActive) {
+      stopMic();
+    }
+  }, [activeSubTab, isMicActive]);
 
   // Calculations
   const activePitch = targetLocked && lockedReading ? lockedReading.pitch : pitch - tarePitch;

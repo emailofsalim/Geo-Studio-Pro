@@ -220,7 +220,7 @@ export function localGeomaticsCompiler(
 
   // 5. General Geomatics Knowledge & Guidance Assistant
   return {
-    answer: `### 🌐 BhuNex Geomatics Expert Analysis\n\n**Query:** "${prompt}"\n\n**Key Surveying & GIS Insights:**\n1. **Coordinate Reference System (CRS):** Active projection is **UTM Zone ${zone} (WGS84)**. Ensure all boundary traverses are corrected for grid scale factor ($k_0 \\approx 0.9996$).\n2. **Area Conversion Standard:**\n   - $1 \\text{ Hectare} = 10,000 \\text{ m}^2 = 2.47105 \\text{ Acres}$\n   - $1 \\text{ Standard Bigha} \\approx 2,529.28 \\text{ m}^2 = 20 \\text{ Kathas} = 400 \\text{ Dhurs}$\n3. **Closed Traverse Precision:** Apply **Bowditch Rule (Compass Rule)** for transit survey adjustments: \n   $$\\text{Correction}_L = -\\text{Total Closing Error}_L \\times \\frac{\\text{Length of Line}}{\\text{Total Perimeter}}$$\n4. **Recommended Next Actions in BhuNex:**\n   - To digitize spatial boundaries, select the **Polygon** or **Line** tool on the top toolbar.\n   - To enable real-world aerial imagery, turn on the **Google Map / Satellite** checkbox.\n   - To verify elevation changes, open the **Google Earth 3D Panel** to inspect the live topographic profile slice.`,
+    answer: `### 🌐 BhuStudio Geomatics Expert Analysis\n\n**Query:** "${prompt}"\n\n**Key Surveying & GIS Insights:**\n1. **Coordinate Reference System (CRS):** Active projection is **UTM Zone ${zone} (WGS84)**. Ensure all boundary traverses are corrected for grid scale factor ($k_0 \\approx 0.9996$).\n2. **Area Conversion Standard:**\n   - $1 \\text{ Hectare} = 10,000 \\text{ m}^2 = 2.47105 \\text{ Acres}$\n   - $1 \\text{ Standard Bigha} \\approx 2,529.28 \\text{ m}^2 = 20 \\text{ Kathas} = 400 \\text{ Dhurs}$\n3. **Closed Traverse Precision:** Apply **Bowditch Rule (Compass Rule)** for transit survey adjustments: \n   $$\\text{Correction}_L = -\\text{Total Closing Error}_L \\times \\frac{\\text{Length of Line}}{\\text{Total Perimeter}}$$\n4. **Recommended Next Actions in BhuStudio:**\n   - To digitize spatial boundaries, select the **Polygon** or **Line** tool on the top toolbar.\n   - To enable real-world aerial imagery, turn on the **Google Map / Satellite** checkbox.\n   - To verify elevation changes, open the **Google Earth 3D Panel** to inspect the live topographic profile slice.`,
     modelUsed: 'OpenSource-GeoEngine-v3.7',
     source: 'geomatics_engine'
   };
@@ -231,7 +231,7 @@ export async function executeGeomaticsAi(
   prompt: string,
   context: GeomaticsAiContext
 ): Promise<GeomaticsAiResult> {
-  const systemPrompt = `You are the AI Spatial Copilot for BhuNex GeoStudio. Answer surveying, GIS, cadastral, and mining engineering questions with precision. If geometry is needed, include a JSON codeblock with GeoFeature[] points (Easting/Northing in UTM Zone ${context.workingZone || '45N'} centered near E: ${context.centerCoord?.E || 255000}, N: ${context.centerCoord?.N || 2605000}).`;
+  const systemPrompt = `You are the AI Spatial Copilot for BhuStudio. Answer surveying, GIS, cadastral, and mining engineering questions with precision. If geometry is needed, include a JSON codeblock with GeoFeature[] points (Easting/Northing in UTM Zone ${context.workingZone || '45N'} centered near E: ${context.centerCoord?.E || 255000}, N: ${context.centerCoord?.N || 2605000}).`;
 
   // Step 1: Try open source online LLM
   try {

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   Camera,
   Play,
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { triggerHaptic } from '../../lib/haptics';
 import { useIsDarkMode } from '../../hooks/useIsDarkMode';
+import { useManagedResource } from '../../hooks/useHardwareResource';
 
 interface TheodoliteViewProps {
   heading: number;
@@ -37,6 +38,7 @@ export const TheodoliteView: React.FC<TheodoliteViewProps> = ({
   onLogReading
 }) => {
   const isDark = useIsDarkMode();
+  const managedResource = useManagedResource('theodolite_camera_view', 'Electronic Theodolite Sighting Reticle');
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [isTorchOn, setIsTorchOn] = useState<boolean>(false);
@@ -45,11 +47,23 @@ export const TheodoliteView: React.FC<TheodoliteViewProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
 
+  const safePlayVideo = (videoEl: HTMLVideoElement | null) => {
+    if (!videoEl) return;
+    try {
+      const playPromise = videoEl.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err: any) => {
+          if (err.name !== 'AbortError' && err.name !== 'NotAllowedError') {
+            console.debug('Theodolite Camera play notice:', err);
+          }
+        });
+      }
+    } catch {}
+  };
+
   const startCamera = async () => {
     try {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop());
-      }
+      stopCamera();
       const constraints: MediaStreamConstraints = {
         video: {
           facingMode: cameraFacing,
@@ -58,29 +72,33 @@ export const TheodoliteView: React.FC<TheodoliteViewProps> = ({
         },
         audio: false
       };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const stream = await managedResource.acquireCamera(constraints, 'Theodolite Optical Sighting');
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        safePlayVideo(videoRef.current);
       }
       setIsCameraActive(true);
 
       const track = stream.getVideoTracks()[0];
-      const capabilities: any = track.getCapabilities ? track.getCapabilities() : {};
+      const capabilities: any = track?.getCapabilities ? track.getCapabilities() : {};
       if (capabilities.torch) {
         setHasTorch(true);
       }
     } catch (err: any) {
-      console.error('Camera error:', err);
+      console.error('Theodolite camera error:', err);
       setIsCameraActive(false);
     }
   };
 
   const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
+    managedResource.releaseCamera();
+    streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+      try {
+        videoRef.current.pause();
+      } catch {}
     }
     setIsCameraActive(false);
     setIsTorchOn(false);

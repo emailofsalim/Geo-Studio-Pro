@@ -37,13 +37,13 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
             <div className="w-10 h-10 rounded-xl overflow-hidden border border-[#478bc7]/40 bg-[#0d2640] shadow-sm flex items-center justify-center p-0.5">
               <img
                 src="/icon-192.svg"
-                alt="BhuNex Logo"
+                alt="BhuStudio Logo"
                 className="w-full h-full object-contain rounded-lg"
                 referrerPolicy="no-referrer"
               />
             </div>
             <div>
-              <h3 className="font-serif italic text-lg text-white">About BhuNex</h3>
+              <h3 className="font-serif italic text-lg text-white">About BhuStudio</h3>
               <p className="text-[10px] uppercase tracking-[0.18em] text-[#8ecbf8] font-mono">Geomatics & Cadastral Suite</p>
             </div>
           </div>
@@ -60,8 +60,8 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
           {/* Main Hero Summary */}
           <div className="p-4 rounded-xl bg-gradient-to-br from-[#141414] to-[#181818] border border-white/5 space-y-2">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-white font-serif italic">BhuNex Pro</span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#c9a063]/20 text-[#c9a063] border border-[#c9a063]/30">v2.4 Production</span>
+              <span className="text-sm font-semibold text-white font-serif italic">BhuStudio</span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#c9a063]/20 text-[#c9a063] border border-[#c9a063]/30">v3.0 Production</span>
             </div>
             <p className="text-xs text-white/70 leading-relaxed font-light">
               High-precision, 100% offline geomatics, geodesy, cadastral mapping, borehole logging, and coordinate transformation workstation suite for surveyors and GIS professionals.
@@ -95,7 +95,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                 <div>
                   <div className="text-[11px] text-white/40 uppercase font-mono tracking-wider">Feedback & Queries</div>
                   <a
-                    href="mailto:emailofsalim@gmail.com?subject=BhuNex%20Feedback"
+                    href="mailto:emailofsalim@gmail.com?subject=BhuStudio%20Feedback"
                     className="text-xs sm:text-sm font-mono text-[#c9a063] hover:underline flex items-center gap-1.5"
                   >
                     <span>emailofsalim@gmail.com</span>
@@ -104,7 +104,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
               <a
-                href="mailto:emailofsalim@gmail.com?subject=BhuNex%20Feedback"
+                href="mailto:emailofsalim@gmail.com?subject=BhuStudio%20Feedback"
                 className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white text-xs font-medium transition-colors shrink-0"
               >
                 Send Email

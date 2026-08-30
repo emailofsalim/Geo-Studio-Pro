@@ -1,3 +1,13 @@
+/**
+ * =========================================================================================
+ * BHUSTUDIO - HOME & TEMPLATES WORKSPACE MODULE (LOCKED & FINALIZED)
+ * =========================================================================================
+ * Scope: Standard Templates, Archive Inspector (ZIP Package Inspector & Visualizer), Schema Builder.
+ * State: Fully wired with offline ZIP parser, Data Dictionary, and Demo Datasets.
+ * DO NOT MUTATE OR RESTRUCTURE THIS MODULE WHEN RECTIFYING OTHER APPS.
+ * =========================================================================================
+ */
+
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   Download,
@@ -37,7 +47,8 @@ import {
   XCircle,
   Trash2,
   HardDrive,
-  Laptop
+  Laptop,
+  Grid
 } from 'lucide-react';
 import { TEMPLATES, DATA_DICTIONARY, buildAllTemplatesZip } from '../lib/templates';
 import { downloadBlob, readZip, makeZip } from '../lib/zip';
@@ -52,7 +63,7 @@ import {
 } from '../lib/formats';
 import { utmToLonLat, lonLatToUtm } from '../lib/geodesy';
 import { GeoFeature, GeoPoint } from '../types';
-import { AppTabId } from './Navigation';
+import { AppTabId, APPS_CONFIG, PRIMARY_APPS, MORE_APPS } from './Navigation';
 import { useToast } from '../context/ToastContext';
 import { useIsDarkMode } from '../hooks/useIsDarkMode';
 
@@ -261,14 +272,14 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({
 
   const handleDownloadAllZip = () => {
     const zip = buildAllTemplatesZip();
-    downloadBlob(zip, 'GeoStudio_Templates.zip', 'application/zip');
-    toast.showSuccess('Downloaded complete GeoStudio Templates ZIP package.');
+    downloadBlob(zip, 'BhuStudio_Templates.zip', 'application/zip');
+    toast.showSuccess('Downloaded complete BhuStudio Templates ZIP package.');
   };
 
   const handleDownloadDataDictionary = () => {
     const cols = ['Template_Category', 'Column_Name', 'Description'];
     const rows = DATA_DICTIONARY.map(d => [d.template, d.col, d.desc]);
-    downloadBlob(csvEnc(toCSVtext(cols, rows)), 'GeoStudio_Data_Dictionary.csv', 'text/csv;charset=utf-8');
+    downloadBlob(csvEnc(toCSVtext(cols, rows)), 'BhuStudio_Data_Dictionary.csv', 'text/csv;charset=utf-8');
     toast.showSuccess('Downloaded Data Dictionary CSV.');
   };
 
@@ -671,7 +682,7 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({
       return;
     }
     const gj = featuresToGeoJSON(allFeats, zNum, isSouth);
-    downloadBlob(new TextEncoder().encode(gj), 'GeoStudio_Extracted_Archive.geojson', 'application/geo+json');
+    downloadBlob(new TextEncoder().encode(gj), 'BhuStudio_Extracted_Archive.geojson', 'application/geo+json');
     toast.showSuccess(`Exported ${allFeats.length} features to GeoJSON.`);
   };
 
@@ -683,8 +694,8 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({
       return;
     }
     const placemarks = allFeats.map(f => pmForFeature(f, zNum, isSouth)).join('');
-    const kml = kmlDoc(placemarks, 'GeoStudio Master Archive Package');
-    downloadBlob(new TextEncoder().encode(kml), 'GeoStudio_Extracted_Archive.kml', 'application/vnd.google-earth.kml+xml');
+    const kml = kmlDoc(placemarks, 'BhuStudio Master Archive Package');
+    downloadBlob(new TextEncoder().encode(kml), 'BhuStudio_Extracted_Archive.kml', 'application/vnd.google-earth.kml+xml');
     toast.showSuccess(`Exported ${allFeats.length} features to KML.`);
   };
 

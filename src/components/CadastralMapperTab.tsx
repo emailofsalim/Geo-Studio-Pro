@@ -38,6 +38,9 @@ import {
   extractAllFeaturesFromZip
 } from '../lib/formats';
 import { downloadBlob } from '../lib/zip';
+import { UniversalAppHeaderBar } from './UniversalAppHeaderBar';
+import { UniversalDataBridgeModal } from './UniversalDataBridgeModal';
+import { ExportFormatId, DetectedImportResult } from '../lib/universalDataBridge';
 import { VectorRadarMap } from './VectorRadarMap';
 import { deduplicateCadastralParcels } from '../lib/deduplication';
 import { useToast } from '../context/ToastContext';
@@ -238,6 +241,53 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [showParchhaModal, setShowParchhaModal] = useState(false);
   const toast = useToast();
+
+  // Universal Data Bridge Modal State
+  const [isUniversalBridgeOpen, setIsUniversalBridgeOpen] = useState(false);
+  const [universalBridgeMode, setUniversalBridgeMode] = useState<'import' | 'export'>('export');
+  const [universalBridgeFormat, setUniversalBridgeFormat] = useState<ExportFormatId>('dxf');
+
+  const handleOpenUniversalImport = () => {
+    setUniversalBridgeMode('import');
+    setIsUniversalBridgeOpen(true);
+  };
+
+  const handleOpenUniversalExport = (format?: ExportFormatId) => {
+    setUniversalBridgeMode('export');
+    if (format) setUniversalBridgeFormat(format);
+    setIsUniversalBridgeOpen(true);
+  };
+
+  const handleBridgeImportComplete = (result: DetectedImportResult) => {
+    const zNum = parseInt(workingZone, 10) || 45;
+    const isSouth = workingZone.endsWith('S');
+    const newParcels: CadastralParcel[] = result.features.filter(f => f.geom === 'polygon' || f.pts.length >= 3).map((f, idx) => {
+      const pts = f.pts.map(p => {
+        if (f.kind === 'en') return { E: p.a, N: p.b };
+        const u = lonLatToUtm(p.a, p.b, zNum, isSouth);
+        return { E: u.E, N: u.N };
+      });
+      const calc = polygonAreaPerimeter(pts);
+      const khasra = f.name || `${parcels.length + idx + 101}`;
+      return {
+        khasra,
+        owner: (f.props?.owner as string) || (f.props?.Owner as string) || 'Imported Landowner',
+        status: (f.props?.status as string) || 'Verified Title',
+        village: (f.props?.village as string) || 'Surveyed Mouza',
+        areaM2: calc.areaM2,
+        areaHa: calc.areaHa,
+        areaAcres: calc.areaAcres,
+        pts
+      };
+    });
+
+    if (newParcels.length > 0) {
+      setParcels(prev => [...prev, ...newParcels]);
+      toast.showSuccess(`Imported ${newParcels.length} parcel polygon(s) via Universal Data Bridge.`);
+    } else {
+      toast.showWarning(`No closed polygon boundaries found in ${result.formatName}.`);
+    }
+  };
 
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
@@ -599,6 +649,16 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Universal Import & Export Header Bar */}
+      <UniversalAppHeaderBar
+        appName="Cadastral Geometry & RoR Matcher"
+        appDescription="Khasra plot boundaries, revenue land schedule registers, Khatiyani parchment deeds, and universal cadastral data bridge."
+        workingZone={workingZone}
+        featureCount={parcels.length}
+        onUniversalImport={handleOpenUniversalImport}
+        onUniversalExport={handleOpenUniversalExport}
+      />
+
       {/* 1. Cadastral Land Schedule Cockpit */}
       <div className="bg-[#0f0f0f] rounded-2xl p-6 border border-white/5 shadow-sm space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-4">
@@ -923,6 +983,19 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* Universal Data Bridge Modal */}
+      <UniversalDataBridgeModal
+        isOpen={isUniversalBridgeOpen}
+        onClose={() => setIsUniversalBridgeOpen(false)}
+        initialMode={universalBridgeMode}
+        initialFormat={universalBridgeFormat}
+        activeAppId="cad"
+        activeAppName="Cadastral Geometry & RoR Matcher"
+        workingZone={workingZone}
+        parcelsOverride={parcels}
+        onImportComplete={handleBridgeImportComplete}
+      />
     </div>
   );
 };

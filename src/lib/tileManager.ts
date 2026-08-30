@@ -5,8 +5,10 @@ export type ImageryProvider =
   | 'google_hybrid'
   | 'google_terrain'
   | 'google_roadmap'
+  | 'google_streets'
   | 'esri_satellite'
-  | 'osm_standard';
+  | 'osm_standard'
+  | 'opentopo';
 
 export interface ImageryLayerConfig {
   enabled: boolean;
@@ -31,9 +33,13 @@ export interface TileBBox {
 
 // Convert lon/lat to Web Mercator tile index at zoom level z
 export function lonLatToTile(lon: number, lat: number, z: number): { x: number; y: number } {
+  // Clamp lat to Web Mercator valid range (-85.0511 to 85.0511)
+  const clampedLat = Math.max(-85.05112878, Math.min(85.05112878, Number.isFinite(lat) ? lat : 0));
+  const clampedLon = Math.max(-180, Math.min(180, Number.isFinite(lon) ? lon : 0));
+  
   const n = Math.pow(2, z);
-  const x = Math.floor(((lon + 180) / 360) * n);
-  const latRad = (lat * Math.PI) / 180;
+  const x = Math.floor(((clampedLon + 180) / 360) * n);
+  const latRad = (clampedLat * Math.PI) / 180;
   const y = Math.floor(
     ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n
   );
@@ -52,10 +58,11 @@ export function tileToBBox(x: number, y: number, z: number): TileBBox {
   return { minLon, maxLon, minLat, maxLat };
 }
 
-// Generate tile URL based on provider
-export function getTileUrl(provider: ImageryProvider, x: number, y: number, z: number): string {
+// Generate tile URL based on provider with reliable CDN mirrors
+export function getTileUrl(provider: string, x: number, y: number, z: number): string {
   const subdomains = ['mt0', 'mt1', 'mt2', 'mt3'];
-  const s = subdomains[(x + y) % subdomains.length];
+  const s = subdomains[Math.abs(x + y) % subdomains.length];
+  
   switch (provider) {
     case 'google_satellite':
       return `https://${s}.google.com/vt/lyrs=s&x=${x}&y=${y}&z=${z}`;
@@ -64,21 +71,28 @@ export function getTileUrl(provider: ImageryProvider, x: number, y: number, z: n
     case 'google_terrain':
       return `https://${s}.google.com/vt/lyrs=p&x=${x}&y=${y}&z=${z}`;
     case 'google_roadmap':
+    case 'google_streets':
+    case 'google_maps':
       return `https://${s}.google.com/vt/lyrs=m&x=${x}&y=${y}&z=${z}`;
     case 'esri_satellite':
+    case 'arcgis_satellite':
       return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
     case 'osm_standard':
+    case 'openstreetmap':
       return `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+    case 'opentopo':
+    case 'opentopomap':
+      return `https://tile.opentopomap.org/${z}/${x}/${y}.png`;
     default:
       return `https://${s}.google.com/vt/lyrs=s&x=${x}&y=${y}&z=${z}`;
   }
 }
 
-// Tile Cache to prevent refetching
+// Tile Cache with LRU eviction and memory bounds
 class TileCache {
   private cache = new Map<string, HTMLImageElement>();
   private failed = new Set<string>();
-  private maxEntries = 400;
+  private maxEntries = 500;
 
   public get(url: string, onLoaded?: () => void): HTMLImageElement | null {
     if (this.failed.has(url)) return null;
@@ -103,7 +117,6 @@ class TileCache {
     };
     img.src = url;
 
-    // Maintain LRU size
     if (this.cache.size >= this.maxEntries) {
       const firstKey = this.cache.keys().next().value;
       if (firstKey) this.cache.delete(firstKey);
@@ -116,20 +129,42 @@ class TileCache {
     this.cache.clear();
     this.failed.clear();
   }
+
+  public size() {
+    return this.cache.size;
+  }
 }
 
 export const globalTileCache = new TileCache();
 
 // Calculate optimal Web Mercator zoom level from scale (pixels per ground meter)
 export function getOptimalZoomLevel(scale: number, centerLat: number): number {
-  // Ground resolution at equator is ~156543 meters/pixel at z=0
-  const latCos = Math.cos((centerLat * Math.PI) / 180);
-  const metersPerPixel = 1 / Math.max(0.0001, scale);
-  // metersPerPixel = (156543.03 * latCos) / (2^z)
-  // 2^z = (156543.03 * latCos) / metersPerPixel
-  const zFloat = Math.log2((156543.03 * latCos) / metersPerPixel);
+  const safeLat = Number.isFinite(centerLat) ? Math.max(-80, Math.min(80, centerLat)) : 23.5;
+  const latCos = Math.cos((safeLat * Math.PI) / 180);
+  const metersPerPixel = 1 / Math.max(0.00005, scale);
+  const zFloat = Math.log2((156543.03 * Math.max(0.1, latCos)) / metersPerPixel);
   const z = Math.round(zFloat);
   return Math.max(1, Math.min(20, z));
+}
+
+// Convert world coordinate to Lon/Lat safely handling local coordinates
+export function safeWorldToLonLat(E: number, N: number, zoneNum: number = 45, isSouth: boolean = false): { lon: number; lat: number } {
+  // If already in geographic degree ranges
+  if (Math.abs(E) <= 180 && Math.abs(N) <= 90) {
+    return { lon: E, lat: N };
+  }
+  // Standard UTM ranges
+  if (E > 50000 && E < 1000000 && N > 0 && N < 10000000) {
+    try {
+      const res = utmToLonLat(E, N, zoneNum, isSouth);
+      if (Number.isFinite(res.lon) && Number.isFinite(res.lat)) {
+        return res;
+      }
+    } catch {}
+  }
+  // Fallback to zone central meridian and reasonable latitude
+  const centralLon = (zoneNum * 6) - 183;
+  return { lon: centralLon, lat: 23.5 };
 }
 
 // ---------------- Google Earth Style 3D Terrain & Elevation Profile ----------------

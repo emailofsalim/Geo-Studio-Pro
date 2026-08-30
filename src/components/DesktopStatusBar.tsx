@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Database, CheckCircle2 } from 'lucide-react';
+import { Database, ShieldCheck, ShieldAlert, Radio } from 'lucide-react';
+import { useHardwareResource } from '../hooks/useHardwareResource';
 
 interface DesktopStatusBarProps {
   workingZone: string;
@@ -7,6 +8,7 @@ interface DesktopStatusBarProps {
   activeTab: string;
   lastAutoSaveTime?: string;
   isAutoSaving?: boolean;
+  onOpenPrivacyMonitor?: () => void;
 }
 
 export const DesktopStatusBar: React.FC<DesktopStatusBarProps> = ({
@@ -14,9 +16,11 @@ export const DesktopStatusBar: React.FC<DesktopStatusBarProps> = ({
   distanceUnit,
   activeTab,
   lastAutoSaveTime,
-  isAutoSaving
+  isAutoSaving,
+  onOpenPrivacyMonitor
 }) => {
   const [localTime, setLocalTime] = useState('');
+  const { activeResourcesCount, activeResources, killAllSensors } = useHardwareResource();
 
   useEffect(() => {
     const updateTimes = () => {
@@ -40,6 +44,33 @@ export const DesktopStatusBar: React.FC<DesktopStatusBarProps> = ({
         <span className="text-white/70">
           <span className="text-white/40">Units:</span> {distanceUnit === 'm' ? 'Meters' : 'Feet'}
         </span>
+      </div>
+
+      {/* Center: Hardware Sensor & Privacy Monitor */}
+      <div className="flex items-center">
+        {onOpenPrivacyMonitor && (
+          <button
+            onClick={onOpenPrivacyMonitor}
+            className={`flex items-center gap-1.5 px-2 py-0.5 rounded-sm transition-colors ${
+              activeResourcesCount > 0
+                ? 'bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border border-amber-500/30'
+                : 'text-white/40 hover:text-white/70 hover:bg-white/[0.04]'
+            }`}
+            title="Sensor & Hardware Privacy Manager (Zero Idle Background Usage)"
+          >
+            {activeResourcesCount > 0 ? (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                <span className="font-semibold">{activeResourcesCount} Sensor{activeResourcesCount > 1 ? 's' : ''} Active</span>
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                <span>Sensors Idle (Privacy Mode)</span>
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Right: Storage & Sync Status */}

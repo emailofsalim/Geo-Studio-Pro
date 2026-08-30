@@ -117,19 +117,28 @@ export const TEMPLATES: Record<string, TemplateDefinition> = {
 };
 
 export const DATA_DICTIONARY = [
-  { template: 'common', col: 'Name / ID', desc: 'Unique identifier for the feature or station.' },
-  { template: 'common', col: 'Longitude', desc: 'WGS84 longitude in decimal degrees (-180 to 180).' },
-  { template: 'common', col: 'Latitude', desc: 'WGS84 latitude in decimal degrees (-90 to 90).' },
-  { template: 'common', col: 'Easting', desc: 'UTM Projected Easting coordinate in metres.' },
-  { template: 'common', col: 'Northing', desc: 'UTM Projected Northing coordinate in metres.' },
-  { template: 'common', col: 'Collar_RL', desc: 'Elevation / Reduced Level (RL) in metres above MSL.' },
-  { template: 'borehole', col: 'BH_ID', desc: 'Unique hole designation (e.g. BH-01).' },
-  { template: 'borehole', col: 'From_m / To_m', desc: 'Depth interval from collar top to base in metres.' },
-  { template: 'borehole', col: 'Lithology', desc: 'Geological rock / stratum classification (e.g. Bauxite, Laterite).' },
-  { template: 'borehole', col: 'Al2O3 / SiO2 / Fe2O3', desc: 'Chemical assay grades in weight percent (%).' },
-  { template: 'cadastral', col: 'Plot', desc: 'Revenue plot / parcel survey number.' },
-  { template: 'cadastral', col: 'Khata', desc: 'Revenue account / holding number.' },
-  { template: 'cadastral', col: 'Owner / Ownership', desc: 'Name of the land owner / raiyat and legal tenure type.' }
+  { template: 'common', col: 'Name / ID', desc: 'Unique identifier or designation for the feature, boundary pillar, or survey station.' },
+  { template: 'common', col: 'Longitude', desc: 'WGS84 geodetic longitude in decimal degrees (e.g., 84.601550). Valid range: -180.0 to +180.0.' },
+  { template: 'common', col: 'Latitude', desc: 'WGS84 geodetic latitude in decimal degrees (e.g., 23.541200). Valid range: -90.0 to +90.0.' },
+  { template: 'common', col: 'Easting', desc: 'Universal Transverse Mercator (UTM) Projected Easting coordinate in metres with false easting of 500,000 m.' },
+  { template: 'common', col: 'Northing', desc: 'Universal Transverse Mercator (UTM) Projected Northing coordinate in metres measured from equator.' },
+  { template: 'common', col: 'Collar_RL / Elevation', desc: 'Reduced Level (RL) or orthometric elevation in metres above Mean Sea Level (MSL).' },
+  { template: 'common', col: 'Description / Remarks', desc: 'Contextual field description, inspection notes, monument physical condition, or station details.' },
+  { template: 'mining', col: 'Pillar_Type', desc: 'Boundary marker construction (e.g., RCC Monument, Iron Peg, Painted Rock, Pillar A/B).' },
+  { template: 'borehole', col: 'BH_ID', desc: 'Unique borehole exploration collar identification number (e.g., BH-01, PBH-02).' },
+  { template: 'borehole', col: 'Lease', desc: 'Mining lease or mineral block name for statutory compliance and composite tracking.' },
+  { template: 'borehole', col: 'EOH', desc: 'End of Hole total drilled depth in metres from collar top.' },
+  { template: 'borehole', col: 'From_m / To_m', desc: 'Downhole stratigraphy core interval measured from collar surface in metres.' },
+  { template: 'borehole', col: 'Lithology', desc: 'Geological rock formation or stratum classification (e.g., Bauxite, Laterite, Hematite, Lithomarge, Coal).' },
+  { template: 'borehole', col: 'Al2O3 / SiO2 / Fe / TAA', desc: 'Chemical assay analysis grade values in weight percentage (wt%).' },
+  { template: 'cadastral', col: 'Plot', desc: 'Revenue cadastral parcel survey number (Khasra/Plot No.).' },
+  { template: 'cadastral', col: 'Khata', desc: 'Revenue tenancy ledger account number (Khata No.).' },
+  { template: 'cadastral', col: 'Village / Thana / ThanaNo', desc: 'Administrative cadastral hierarchy: Revenue Village name, Police Station (Thana), and Revenue Thana Number.' },
+  { template: 'cadastral', col: 'District / State', desc: 'District and State jurisdiction under which revenue records are maintained.' },
+  { template: 'cadastral', col: 'Part_Whole', desc: 'Cadastral parcel acquisition status indicator ("Whole" plot or "Part" plot acquisition).' },
+  { template: 'cadastral', col: 'Land_Class', desc: 'Agricultural land quality class (e.g., Dhan I, Dhan II, Tanr I, Tanr II, Bari, Gair Majrua).' },
+  { template: 'cadastral', col: 'Owner / Raiyat', desc: 'Legal titleholder, recorded raiyat, or tenure owner name from Khatiyan.' },
+  { template: 'cadastral', col: 'Ownership', desc: 'Legal tenure type (e.g., Raiyati, Gair Majrua Aam, Gair Majrua Khas, Forest Land, Govt).' }
 ];
 
 export function buildAllTemplatesZip(): Uint8Array {

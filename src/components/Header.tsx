@@ -19,6 +19,7 @@ interface HeaderProps {
   openCommandPalette: () => void;
   openSettings: () => void;
   openTour: () => void;
+  openAiCopilot?: () => void;
   setIsMobileOpen: (open: boolean) => void;
   hasGpsFix: boolean;
 }
@@ -30,6 +31,7 @@ export const Header: React.FC<HeaderProps> = ({
   openCommandPalette,
   openSettings,
   openTour,
+  openAiCopilot,
   setIsMobileOpen,
   hasGpsFix
 }) => {
@@ -90,6 +92,18 @@ export const Header: React.FC<HeaderProps> = ({
             ⌘K
           </kbd>
         </button>
+
+        {/* Global AI Geomatics Copilot */}
+        {openAiCopilot && (
+          <button
+            onClick={openAiCopilot}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#c9a063]/10 hover:bg-[#c9a063]/20 border border-[#c9a063]/30 text-[#c9a063] hover:text-[#d6b074] text-xs font-semibold transition-all shadow-xs"
+            title="Open AI Geomatics Assistant"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-[#c9a063] animate-pulse" />
+            <span className="hidden sm:inline">AI Copilot</span>
+          </button>
+        )}
 
         {/* Theme Toggle */}
         <button

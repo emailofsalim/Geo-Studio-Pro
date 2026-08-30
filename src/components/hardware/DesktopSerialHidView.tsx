@@ -222,14 +222,31 @@ export const DesktopSerialHidView: React.FC<DesktopSerialHidViewProps> = ({ onVo
         screenStreamRef.current = stream;
         if (screenVideoRef.current) {
           screenVideoRef.current.srcObject = stream;
-          screenVideoRef.current.play();
+          try {
+            const p = screenVideoRef.current.play();
+            if (p !== undefined) {
+              p.catch(err => {
+                if (err.name !== 'AbortError' && err.name !== 'NotAllowedError') {
+                  console.debug('Screen share playback notice:', err);
+                }
+              });
+            }
+          } catch {}
         }
         setIsScreenSharing(true);
-        stream.getVideoTracks()[0].addEventListener('ended', () => setIsScreenSharing(false));
+        stream.getVideoTracks()[0].addEventListener('ended', () => {
+          if (screenVideoRef.current) {
+            screenVideoRef.current.srcObject = null;
+          }
+          setIsScreenSharing(false);
+        });
       } else {
         if (screenStreamRef.current) {
           screenStreamRef.current.getTracks().forEach(t => t.stop());
           screenStreamRef.current = null;
+        }
+        if (screenVideoRef.current) {
+          screenVideoRef.current.srcObject = null;
         }
         setIsScreenSharing(false);
       }

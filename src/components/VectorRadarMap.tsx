@@ -15,7 +15,10 @@ import {
   Check,
   Globe,
   Wifi,
-  WifiOff
+  WifiOff,
+  Lock,
+  Unlock,
+  Navigation
 } from 'lucide-react';
 import { GeoFeature, LatLon } from '../types';
 import { lonLatToUtm, utmToLonLat, pointInPoly } from '../lib/geodesy';
@@ -28,6 +31,7 @@ import {
   tileToBBox,
   globalTileCache,
   getOptimalZoomLevel,
+  safeWorldToLonLat,
   ImageryProvider
 } from '../lib/tileManager';
 
@@ -37,6 +41,8 @@ interface VectorRadarMapProps {
   south?: boolean;
   onFeaturesChange?: (updated: GeoFeature[]) => void;
   title?: string;
+  isMapLocked?: boolean;
+  onToggleMapLock?: () => void;
 }
 
 export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
@@ -44,7 +50,9 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
   zone = 45,
   south = false,
   onFeaturesChange,
-  title = 'Interactive Vector Map'
+  title = 'Interactive Vector Map',
+  isMapLocked: externalMapLocked,
+  onToggleMapLock
 }) => {
   const isDark = useIsDarkMode();
   const isOnline = useOnlineStatus();
@@ -57,6 +65,42 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
   const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [lastMouse, setLastMouse] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Map Lock state
+  const [internalLocked, setInternalLocked] = useState(false);
+  const isLocked = externalMapLocked !== undefined ? externalMapLocked : internalLocked;
+  const toggleLock = () => {
+    if (onToggleMapLock) onToggleMapLock();
+    else setInternalLocked(l => !l);
+  };
+
+  // Live GPS Tracking State
+  const [liveGps, setLiveGps] = useState<{ E: number; N: number; lon: number; lat: number; accuracy?: number } | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
+
+  const handleLocateMe = () => {
+    if (!navigator.geolocation) return;
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const lon = pos.coords.longitude;
+        const lat = pos.coords.latitude;
+        const u = lonLatToUtm(lon, lat, zone, south);
+        setLiveGps({ E: u.E, N: u.N, lon, lat, accuracy: pos.coords.accuracy });
+        setIsLocating(false);
+        const cv = canvasRef.current;
+        if (cv) {
+          setScale(s => Math.max(0.5, s));
+          setOffset({
+            x: cv.width / 2 - u.E * scale,
+            y: cv.height / 2 - u.N * scale
+          });
+        }
+      },
+      () => setIsLocating(false),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
 
   // Map Imagery State
   const [showBasemap, setShowBasemap] = useState<boolean>(false);
@@ -175,7 +219,7 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
     ctx.fillRect(0, 0, cv.width, cv.height);
 
     // 1. Satellite / Street Imagery Layer Background
-    if (showBasemap && bbox) {
+    if (showBasemap && isOnline) {
       const tl = screenToWorld(0, 0, cv.height);
       const br = screenToWorld(cv.width, cv.height, cv.height);
       const minE = Math.min(tl.E, br.E);
@@ -183,14 +227,14 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
       const minN = Math.min(tl.N, br.N);
       const maxN = Math.max(tl.N, br.N);
 
-      const swLL = utmToLonLat(minE, minN, zone, south);
-      const neLL = utmToLonLat(maxE, maxN, zone, south);
+      const swLL = safeWorldToLonLat(minE, minN, zone, south);
+      const neLL = safeWorldToLonLat(maxE, maxN, zone, south);
 
       const centerLat = (swLL.lat + neLL.lat) / 2;
       const zoom = getOptimalZoomLevel(scale, centerLat);
 
-      const minTile = lonLatToTile(swLL.lon, neLL.lat, zoom);
-      const maxTile = lonLatToTile(neLL.lon, swLL.lat, zoom);
+      const minTile = lonLatToTile(Math.min(swLL.lon, neLL.lon), Math.max(swLL.lat, neLL.lat), zoom);
+      const maxTile = lonLatToTile(Math.max(swLL.lon, neLL.lon), Math.min(swLL.lat, neLL.lat), zoom);
 
       ctx.save();
       ctx.globalAlpha = basemapOpacity;
@@ -200,28 +244,39 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
       const minY = Math.max(0, Math.min(minTile.y, maxTile.y) - 1);
       const maxY = Math.min(Math.pow(2, zoom) - 1, Math.max(minTile.y, maxTile.y) + 1);
 
-      if ((maxX - minX + 1) * (maxY - minY + 1) <= 100) {
+      if ((maxX - minX + 1) * (maxY - minY + 1) <= 80) {
         for (let tx = minX; tx <= maxX; tx++) {
           for (let ty = minY; ty <= maxY; ty++) {
             const tileBBox = tileToBBox(tx, ty, zoom);
-            const tileSW_utm = lonLatToUtm(tileBBox.west, tileBBox.south, zone, south);
-            const tileNE_utm = lonLatToUtm(tileBBox.east, tileBBox.north, zone, south);
+            const tileSW_utm = lonLatToUtm(tileBBox.minLon, tileBBox.minLat, zone, south);
+            const tileNE_utm = lonLatToUtm(tileBBox.maxLon, tileBBox.maxLat, zone, south);
 
             const pTL = worldToScreen(tileSW_utm.E, tileNE_utm.N, cv.height);
             const pBR = worldToScreen(tileNE_utm.E, tileSW_utm.N, cv.height);
 
-            const tileWidth = pBR.x - pTL.x;
-            const tileHeight = pBR.y - pTL.y;
+            const drawX = Math.min(pTL.x, pBR.x);
+            const drawY = Math.min(pTL.y, pBR.y);
+            const drawW = Math.abs(pBR.x - pTL.x);
+            const drawH = Math.abs(pBR.y - pTL.y);
 
-            const url = getTileUrl(basemapProvider, tx, ty, zoom);
-            const cached = globalTileCache.get(url);
-
-            if (cached && cached.loaded && cached.img) {
-              ctx.drawImage(cached.img, pTL.x, pTL.y, tileWidth, tileHeight);
-            } else {
-              globalTileCache.load(url, () => {
+            if (
+              drawX + drawW >= 0 &&
+              drawX <= cv.width &&
+              drawY + drawH >= 0 &&
+              drawY <= cv.height &&
+              drawW > 0 &&
+              drawH > 0
+            ) {
+              const url = getTileUrl(basemapProvider, tx, ty, zoom);
+              const cachedImg = globalTileCache.get(url, () => {
                 setRenderTick(t => t + 1);
               });
+
+              if (cachedImg) {
+                try {
+                  ctx.drawImage(cachedImg, drawX, drawY, drawW, drawH);
+                } catch {}
+              }
             }
           }
         }
@@ -341,6 +396,37 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
       }
     });
 
+    // Draw Live GPS Pinpoint if available
+    if (liveGps) {
+      const p = worldToScreen(liveGps.E, liveGps.N, cv.height);
+      const accPx = (liveGps.accuracy || 5) * scale;
+
+      // Accuracy circle
+      ctx.save();
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.15)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.6)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(8, Math.min(200, accPx)), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Pinpoint dot
+      ctx.fillStyle = '#38bdf8';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Label
+      ctx.font = 'bold 10px monospace';
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText('LIVE GPS', p.x + 10, p.y - 4);
+      ctx.restore();
+    }
+
     // Draw Measurement Ruler
     if (rulerPoints.length > 0) {
       ctx.strokeStyle = '#ea580c';
@@ -430,15 +516,17 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
       return;
     }
 
-    setIsDragging(true);
-    setLastMouse({ x: e.clientX, y: e.clientY });
+    if (!isLocked) {
+      setIsDragging(true);
+      setLastMouse({ x: e.clientX, y: e.clientY });
+    }
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const cv = canvasRef.current;
     if (!cv) return;
 
-    if (isDragging) {
+    if (isDragging && !isLocked) {
       const dx = e.clientX - lastMouse.x;
       const dy = e.clientY - lastMouse.y;
       setOffset(prev => ({ x: prev.x + dx, y: prev.y - dy }));
@@ -493,6 +581,7 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
+    if (isLocked) return;
     const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
     setScale(prev => Math.max(0.0001, prev * factor));
   };
@@ -768,6 +857,29 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
             title="Delete hovered feature"
           >
             <Trash2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={toggleLock}
+            className={`p-1.5 rounded-lg text-xs flex items-center gap-1 font-semibold transition-all border ${
+              isLocked
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                : 'bg-white/5 text-white/70 hover:text-white border-white/5'
+            }`}
+            title={isLocked ? 'Map Locked (Pan & Zoom frozen)' : 'Lock Map Position'}
+          >
+            {isLocked ? <Lock className="w-3.5 h-3.5 text-amber-400" /> : <Unlock className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            onClick={handleLocateMe}
+            disabled={isLocating}
+            className={`p-1.5 rounded-lg text-xs flex items-center gap-1 font-semibold transition-all border ${
+              liveGps
+                ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                : 'bg-white/5 text-white/70 hover:text-white border-white/5'
+            }`}
+            title="Live GPS Location Fix"
+          >
+            <Navigation className={`w-3.5 h-3.5 text-sky-400 ${isLocating ? 'animate-spin' : ''}`} />
           </button>
           <button
             onClick={undo}

@@ -11,6 +11,7 @@ import {
   tileToBBox,
   getTileUrl,
   globalTileCache,
+  safeWorldToLonLat,
   SolarPosition,
   sampleElevation
 } from '../../lib/tileManager';
@@ -273,7 +274,7 @@ export const GisMapCanvas: React.FC<GisMapCanvasProps> = ({
     // ---------------- SATELLITE / GOOGLE MAPS TILE ENGINE ----------------
     if (imageryConfig.enabled && isOnline) {
       const centerW = screenToWorld(cv.width / 2, cv.height / 2, cv.height, cv.width);
-      const centerLL = utmToLonLat(centerW.E, centerW.N, zNum, isSouth);
+      const centerLL = safeWorldToLonLat(centerW.E, centerW.N, zNum, isSouth);
       const zoom = getOptimalZoomLevel(scale, centerLL.lat);
 
       // Compute bounding corners in UTM
@@ -289,13 +290,13 @@ export const GisMapCanvas: React.FC<GisMapCanvasProps> = ({
       const minN = Math.min(...allN);
       const maxN = Math.max(...allN);
 
-      const llMin = utmToLonLat(minE, minN, zNum, isSouth);
-      const llMax = utmToLonLat(maxE, maxN, zNum, isSouth);
+      const llMin = safeWorldToLonLat(minE, minN, zNum, isSouth);
+      const llMax = safeWorldToLonLat(maxE, maxN, zNum, isSouth);
 
       const tMin = lonLatToTile(Math.min(llMin.lon, llMax.lon), Math.max(llMin.lat, llMax.lat), zoom);
       const tMax = lonLatToTile(Math.max(llMin.lon, llMax.lon), Math.min(llMin.lat, llMax.lat), zoom);
 
-      // Limit tile span to max 36 tiles for performance
+      // Limit tile span to reasonable performance envelope
       const minX = Math.max(0, Math.min(tMin.x, tMax.x) - 1);
       const maxX = Math.min(Math.pow(2, zoom) - 1, Math.max(tMin.x, tMax.x) + 1);
       const minY = Math.max(0, Math.min(tMin.y, tMax.y) - 1);
@@ -303,7 +304,7 @@ export const GisMapCanvas: React.FC<GisMapCanvasProps> = ({
 
       const totalTiles = (maxX - minX + 1) * (maxY - minY + 1);
 
-      if (totalTiles <= 49) {
+      if (totalTiles <= 64) {
         ctx.save();
         ctx.globalAlpha = imageryConfig.opacity;
         ctx.filter = `brightness(${imageryConfig.brightness}) contrast(${imageryConfig.contrast})`;
@@ -323,14 +324,23 @@ export const GisMapCanvas: React.FC<GisMapCanvasProps> = ({
               const pTL = worldToScreen(utmTopLeft.E, utmTopLeft.N, cv.height, cv.width);
               const pBR = worldToScreen(utmBottomRight.E, utmBottomRight.N, cv.height, cv.width);
 
-              if (pTL.visible && pBR.visible) {
-                const w = pBR.x - pTL.x;
-                const h = pBR.y - pTL.y;
-                if (w > 0 && h > 0) {
-                  try {
-                    ctx.drawImage(img, pTL.x, pTL.y, w, h);
-                  } catch {}
-                }
+              const drawX = Math.min(pTL.x, pBR.x);
+              const drawY = Math.min(pTL.y, pBR.y);
+              const drawW = Math.abs(pBR.x - pTL.x);
+              const drawH = Math.abs(pBR.y - pTL.y);
+
+              // Draw if tile intersects screen viewport
+              if (
+                drawX + drawW >= 0 &&
+                drawX <= cv.width &&
+                drawY + drawH >= 0 &&
+                drawY <= cv.height &&
+                drawW > 0 &&
+                drawH > 0
+              ) {
+                try {
+                  ctx.drawImage(img, drawX, drawY, drawW, drawH);
+                } catch {}
               }
             }
           }

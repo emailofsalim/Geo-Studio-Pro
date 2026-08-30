@@ -74,6 +74,7 @@ import {
 } from '../lib/spatialAnalysis';
 import { deduplicateFeatures } from '../lib/deduplication';
 import { useToast } from '../context/ToastContext';
+import { globalTileCache } from '../lib/tileManager';
 
 // Subcomponents
 import { GisToolbar } from './gis/GisToolbar';
@@ -82,6 +83,9 @@ import { GisFeatureInspector } from './gis/GisFeatureInspector';
 import { GisAiCopilotDrawer } from './gis/GisAiCopilotDrawer';
 import { GoogleEarthPanel } from './gis/GoogleEarthPanel';
 import { GisTool, SelectedFeatureRef } from './gis/gisTypes';
+import { UniversalAppHeaderBar } from './UniversalAppHeaderBar';
+import { UniversalDataBridgeModal } from './UniversalDataBridgeModal';
+import { ExportFormatId, DetectedImportResult } from '../lib/universalDataBridge';
 import {
   ImageryLayerConfig,
   ImageryProvider,
@@ -243,9 +247,78 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
 
   // Map Lock State (controls pan/zoom and throttles background map refresh)
   const [isMapLocked, setIsMapLocked] = useState<boolean>(false);
+  // Live GPS tracking state
+  const [liveGps, setLiveGps] = useState<{ E: number; N: number; lon: number; lat: number; accuracy?: number } | null>(null);
+  const [isLocatingGps, setIsLocatingGps] = useState<boolean>(false);
+
   // Layer Inline Editing State
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
   const [editingLayerName, setEditingLayerName] = useState<string>('');
+
+  // Universal Data Bridge Modal State
+  const [isUniversalBridgeOpen, setIsUniversalBridgeOpen] = useState(false);
+  const [universalBridgeMode, setUniversalBridgeMode] = useState<'import' | 'export'>('export');
+  const [universalBridgeFormat, setUniversalBridgeFormat] = useState<ExportFormatId>('geojson');
+
+  const handleOpenUniversalImport = () => {
+    setUniversalBridgeMode('import');
+    setIsUniversalBridgeOpen(true);
+  };
+
+  const handleOpenUniversalExport = (format?: ExportFormatId) => {
+    setUniversalBridgeMode('export');
+    if (format) setUniversalBridgeFormat(format);
+    setIsUniversalBridgeOpen(true);
+  };
+
+  const handleBridgeImportComplete = (result: DetectedImportResult) => {
+    const newLayer: GisLayer = {
+      id: `layer_${Date.now()}`,
+      name: result.formatName + ' (' + result.features.length + ' feats)',
+      visible: true,
+      color: '#c9a063',
+      fillColor: '#c9a063',
+      fillOpacity: 0.3,
+      strokeWidth: 2,
+      geomType: result.polygonsCount > 0 ? 'polygon' : result.linesCount > 0 ? 'line' : 'point',
+      features: result.features
+    };
+    pushHistory([newLayer, ...layers], `Imported ${result.formatName}`);
+    setActiveLayerId(newLayer.id);
+    toast.showSuccess(`Added new layer "${newLayer.name}" with ${result.featureCount} features.`);
+  };
+
+  const handleLiveGpsLocate = () => {
+    if (!navigator.geolocation) {
+      toast.showError('Geolocation is not supported by your browser');
+      return;
+    }
+    setIsLocatingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const lon = pos.coords.longitude;
+        const lat = pos.coords.latitude;
+        const acc = pos.coords.accuracy;
+        const utm = lonLatToUtm(lon, lat, zNum, isSouth);
+        setLiveGps({ E: utm.E, N: utm.N, lon, lat, accuracy: acc });
+        setIsLocatingGps(false);
+        // Center canvas on location
+        const cv = document.querySelector('canvas');
+        const cvW = cv?.width || 800;
+        const cvH = cv?.height || 600;
+        setOffset({
+          x: cvW / 2 - utm.E * scale,
+          y: cvH / 2 - utm.N * scale
+        });
+        toast.showSuccess(`Centered on Live GPS fix (±${acc.toFixed(1)}m)`);
+      },
+      err => {
+        setIsLocatingGps(false);
+        toast.showError(`GPS fix error: ${err.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+    );
+  };
 
   const handleStartRenameLayer = (layer: GisLayer, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -1169,6 +1242,16 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Universal Import & Export Header Bar */}
+      <UniversalAppHeaderBar
+        appName="GIS Map Studio"
+        appDescription="Multi-layer spatial GIS canvas with topology QA, spatial operations, styling and multi-format geodata bridge."
+        workingZone={workingZone}
+        featureCount={layers.reduce((acc, l) => acc + l.features.length, 0)}
+        onUniversalImport={handleOpenUniversalImport}
+        onUniversalExport={handleOpenUniversalExport}
+      />
+
       {/* 1. Main Viewport & Layer Control Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Left 4 Columns: Smart Layer Panel & Styling Manager */}
@@ -1398,6 +1481,18 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
             onOpenGoogleEarth={() => setIsGoogleEarthOpen(o => !o)}
             pitchDeg={pitchDeg}
             isOnline={isOnline}
+            isMapLocked={isMapLocked}
+            onToggleMapLock={() => {
+              setIsMapLocked(l => !l);
+              toast.showSuccess(isMapLocked ? 'Map Unlocked: Pan and Zoom enabled' : 'Map Locked: Viewport & Tile refresh frozen');
+            }}
+            onRefreshMapTiles={() => {
+              globalTileCache.clear();
+              setImageryConfig(c => ({ ...c }));
+              toast.showSuccess('Refreshed imagery satellite tiles');
+            }}
+            onLiveGpsLocate={handleLiveGpsLocate}
+            isLocatingGps={isLocatingGps}
           />
 
           {/* Interactive Map Canvas */}
@@ -1409,8 +1504,10 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
               scale={scale}
               offset={offset}
               onUpdateScaleOffset={(s, off) => {
-                setScale(s);
-                setOffset(off);
+                if (!isMapLocked) {
+                  setScale(s);
+                  setOffset(off);
+                }
               }}
               selectedFeature={selectedFeature}
               onSelectFeature={setSelectedFeature}
@@ -1436,6 +1533,8 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
               onUpdateHeadingDeg={setHeadingDeg}
               solarPos={solarPos}
               solarEnabled={solarEnabled}
+              isMapLocked={isMapLocked}
+              liveGps={liveGps}
             />
 
             {/* Measurement Floating HUD */}
@@ -2070,6 +2169,20 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* Universal Data Bridge Modal */}
+      <UniversalDataBridgeModal
+        isOpen={isUniversalBridgeOpen}
+        onClose={() => setIsUniversalBridgeOpen(false)}
+        initialMode={universalBridgeMode}
+        initialFormat={universalBridgeFormat}
+        activeAppId="gis"
+        activeAppName="GIS Map Studio"
+        workingZone={workingZone}
+        featuresOverride={activeLayer.features}
+        layersOverride={layers}
+        onImportComplete={handleBridgeImportComplete}
+      />
     </div>
   );
 };

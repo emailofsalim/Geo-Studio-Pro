@@ -76,7 +76,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onImportProject = (_f: File) => {},
   onClearAllData = () => {}
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'general' | 'land' | 'storage' | 'about'>('general');
+  const [activeSubTab, setActiveSubTab] = useState<'general' | 'land' | 'map' | 'storage' | 'about'>('general');
+  const [defaultImagery, setDefaultImagery] = useState<string>(() => localStorage.getItem('geo_default_imagery') || 'google_satellite');
+  const [defaultBasemapOpacity, setDefaultBasemapOpacity] = useState<number>(() => {
+    const s = localStorage.getItem('geo_default_opacity');
+    return s ? parseFloat(s) : 0.85;
+  });
+
+  const handleSaveMapDefaults = (provider: string, opacity: number) => {
+    setDefaultImagery(provider);
+    setDefaultBasemapOpacity(opacity);
+    localStorage.setItem('geo_default_imagery', provider);
+    localStorage.setItem('geo_default_opacity', opacity.toString());
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -110,10 +122,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between bg-[#0a0a0a]">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-[#c9a063]/10 border border-[#c9a063]/30 text-[#c9a063] flex items-center justify-center font-serif italic text-sm font-bold">
-              BN
+              BS
             </div>
             <div>
-              <h3 className="font-serif italic text-lg text-white">BhuNex Workspace Settings</h3>
+              <h3 className="font-serif italic text-lg text-white">BhuStudio Workspace Settings</h3>
               <p className="text-[10px] uppercase tracking-[0.18em] text-white/40">UTM Projection, Land Units, and Preferences</p>
             </div>
           </div>
@@ -146,6 +158,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             Local Land Units
+          </button>
+          <button
+            onClick={() => setActiveSubTab('map')}
+            className={`py-3.5 border-b-2 transition-all shrink-0 ${
+              activeSubTab === 'map'
+                ? 'border-[#c9a063] text-[#c9a063] font-semibold'
+                : 'border-transparent text-white/40 hover:text-white/80'
+            }`}
+          >
+            Map & AI Defaults
           </button>
           <button
             onClick={() => setActiveSubTab('storage')}
@@ -301,6 +323,84 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
+          {activeSubTab === 'map' && (
+            <div className="space-y-5">
+              {/* Default Satellite Imagery Layer */}
+              <div className="p-5 rounded-xl bg-[#141414] border border-white/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-white">
+                    Default Satellite & Map Imagery Provider
+                  </label>
+                  <span className="text-xs font-mono font-semibold text-cyan-400 bg-cyan-950/40 px-2.5 py-0.5 rounded border border-cyan-500/30">
+                    Live Tiles
+                  </span>
+                </div>
+                <p className="text-xs text-white/50 leading-relaxed font-light">
+                  Choose the default basemap tile service loaded across GIS Map Studio, GPS Camera, and Vector Radar Canvases.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {[
+                    { id: 'google_satellite', name: 'Google Satellite', desc: 'High-res aerial imagery' },
+                    { id: 'google_hybrid', name: 'Google Hybrid', desc: 'Satellite with road overlay' },
+                    { id: 'google_streets', name: 'Google Streets', desc: 'Standard vector street map' },
+                    { id: 'osm_standard', name: 'OpenStreetMap', desc: 'Global community map' },
+                    { id: 'opentopo', name: 'OpenTopoMap', desc: 'Topographic contour lines' }
+                  ].map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => handleSaveMapDefaults(p.id, defaultBasemapOpacity)}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        defaultImagery === p.id
+                          ? 'border-[#c9a063] bg-[#c9a063]/10 text-white shadow-sm'
+                          : 'border-white/5 bg-[#0a0a0a] text-white/60 hover:text-white hover:border-white/20'
+                      }`}
+                    >
+                      <div className="text-xs font-semibold text-white">{p.name}</div>
+                      <div className="text-[10px] text-white/40 mt-0.5">{p.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Default Opacity Slider */}
+              <div className="p-5 rounded-xl bg-[#141414] border border-white/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-white">
+                    Default Basemap Opacity
+                  </label>
+                  <span className="text-xs font-mono font-semibold text-[#c9a063]">
+                    {Math.round(defaultBasemapOpacity * 100)}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1.0"
+                  step="0.05"
+                  value={defaultBasemapOpacity}
+                  onChange={e => handleSaveMapDefaults(defaultImagery, parseFloat(e.target.value))}
+                  className="w-full accent-[#c9a063] cursor-pointer"
+                />
+              </div>
+
+              {/* AI Assistant Configuration */}
+              <div className="p-5 rounded-xl bg-[#141414] border border-white/5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-white flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-[#c9a063]" />
+                    AI Geomatics Copilot
+                  </h4>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/40 text-emerald-400 border border-emerald-500/30">
+                    Active & Resilient
+                  </span>
+                </div>
+                <p className="text-xs text-white/50 leading-relaxed font-light">
+                  The AI Assistant is globally accessible across the entire application from the top bar beside search. It combines offline geodesy heuristics and Gemini intelligence to assist in traverse adjustments, mineral cutoffs, and area units.
+                </p>
+              </div>
+            </div>
+          )}
+
           {activeSubTab === 'storage' && (
             <div className="space-y-4">
               {/* Backup / Export */}
@@ -366,8 +466,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="p-5 rounded-xl bg-gradient-to-br from-[#141414] to-[#181818] border border-white/5 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <span className="font-serif italic text-lg text-white font-semibold">BhuNex Pro</span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#c9a063]/20 text-[#c9a063] border border-[#c9a063]/30">v2.4</span>
+                    <span className="font-serif italic text-lg text-white font-semibold">BhuStudio</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#c9a063]/20 text-[#c9a063] border border-[#c9a063]/30">v3.0</span>
                   </div>
                   <span className="text-[11px] text-white/40 font-mono">Geomatics & Cadastral Suite</span>
                 </div>
@@ -397,7 +497,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div>
                     <h5 className="text-xs font-semibold uppercase tracking-wider text-white">Feedback & Support</h5>
                     <a
-                      href="mailto:emailofsalim@gmail.com?subject=BhuNex%20Feedback"
+                      href="mailto:emailofsalim@gmail.com?subject=BhuStudio%20Feedback"
                       className="text-xs sm:text-sm font-mono text-[#c9a063] hover:underline flex items-center gap-1.5 mt-0.5"
                     >
                       <span>emailofsalim@gmail.com</span>
@@ -406,7 +506,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
                 <a
-                  href="mailto:emailofsalim@gmail.com?subject=BhuNex%20Feedback"
+                  href="mailto:emailofsalim@gmail.com?subject=BhuStudio%20Feedback"
                   className="px-4 py-2 rounded-full bg-[#c9a063] hover:bg-[#d6b074] text-black text-xs font-semibold uppercase tracking-wider transition-colors shrink-0"
                 >
                   Send Feedback

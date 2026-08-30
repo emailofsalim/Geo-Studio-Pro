@@ -27,10 +27,13 @@ import {
   Radio,
   Share2,
   Download,
-  Info
+  Info,
+  Map as MapIcon,
+  Upload
 } from 'lucide-react';
 import { SurveyWaypoint } from '../../types';
 import { useIsDarkMode } from '../../hooks/useIsDarkMode';
+import { useManagedResource } from '../../hooks/useHardwareResource';
 import { triggerHaptic, isVibrationSupported } from '../../lib/haptics';
 import { speakVoiceAnnouncement, isSpeechRecognitionSupported, isSpeechSynthesisSupported } from '../../lib/hardwareComms';
 import { calculateStakeoutGuidance, StakeoutGuidance } from '../../lib/voiceCommander';
@@ -58,6 +61,11 @@ interface ArStakeoutViewProps {
   distanceUnit?: 'm' | 'ft';
   toleranceMeters?: number;
   onStoreObservation?: (remark: string) => void;
+  onSwitchToMap?: () => void;
+  onSwitchToMode?: (mode: 'map' | 'ar' | 'compass') => void;
+  onOpenImport?: () => void;
+  isMoving?: boolean;
+  motionHeading?: number | null;
 }
 
 export const ArStakeoutView: React.FC<ArStakeoutViewProps> = ({
@@ -73,9 +81,15 @@ export const ArStakeoutView: React.FC<ArStakeoutViewProps> = ({
   canRedo = false,
   distanceUnit = 'm',
   toleranceMeters = 0.3,
-  onStoreObservation
+  onStoreObservation,
+  onSwitchToMap,
+  onSwitchToMode,
+  onOpenImport,
+  isMoving = false,
+  motionHeading = null
 }) => {
   const isDark = useIsDarkMode();
+  const managedResource = useManagedResource('ar_stakeout_view', 'Augmented Reality RTK Visual Stakeout');
 
   // 1. Camera Stream State
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -115,9 +129,9 @@ export const ArStakeoutView: React.FC<ArStakeoutViewProps> = ({
     ? calculateStakeoutGuidance(effE, effN, liveHeading, activeWp.E, activeWp.N, toleranceMeters, distanceUnit)
     : null;
 
-  // Track orientation changes
+  // Track orientation changes (Managed Hardware Lifecycle)
   useEffect(() => {
-    const handleOrientation = (e: DeviceOrientationEvent) => {
+    const unregister = managedResource.registerOrientation((e: DeviceOrientationEvent) => {
       let h = liveHeading;
       if ((e as any).webkitCompassHeading != null) {
         h = (e as any).webkitCompassHeading;
@@ -127,11 +141,12 @@ export const ArStakeoutView: React.FC<ArStakeoutViewProps> = ({
       setLiveHeading(Math.round(h * 10) / 10);
       setPitch(e.beta != null ? Math.round(e.beta * 10) / 10 : 0);
       setRoll(e.gamma != null ? Math.round(e.gamma * 10) / 10 : 0);
-    };
+    });
 
-    window.addEventListener('deviceorientation', handleOrientation, true);
-    return () => window.removeEventListener('deviceorientation', handleOrientation, true);
-  }, [liveHeading]);
+    return () => {
+      unregister();
+    };
+  }, [managedResource, liveHeading]);
 
   // Sync external device heading
   useEffect(() => {
@@ -140,27 +155,39 @@ export const ArStakeoutView: React.FC<ArStakeoutViewProps> = ({
     }
   }, [deviceHeading]);
 
-  // Initialize Camera
+  // Safe Video Playback Helper (prevents play() interruption error)
+  const safePlayVideo = (videoEl: HTMLVideoElement | null) => {
+    if (!videoEl) return;
+    try {
+      const playPromise = videoEl.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err: any) => {
+          if (err.name !== 'AbortError' && err.name !== 'NotAllowedError') {
+            console.debug('AR Camera play notice:', err);
+          }
+        });
+      }
+    } catch {}
+  };
+
+  // Initialize Camera (Managed Lifecycle)
   const startCamera = async () => {
     try {
       setCameraError(null);
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(t => t.stop());
-      }
+      stopCamera();
 
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const stream = await managedResource.acquireCamera({
         video: {
           facingMode,
           width: { ideal: 1920 },
           height: { ideal: 1080 }
         },
         audio: false
-      });
+      }, 'AR Stakeout Visual Stream');
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        safePlayVideo(videoRef.current);
         setCameraActive(true);
       }
     } catch (err: any) {
@@ -171,10 +198,12 @@ export const ArStakeoutView: React.FC<ArStakeoutViewProps> = ({
   };
 
   const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(t => t.stop());
+    managedResource.releaseCamera();
+    if (videoRef.current) {
       videoRef.current.srcObject = null;
+      try {
+        videoRef.current.pause();
+      } catch {}
     }
     setCameraActive(false);
     setTorchOn(false);
@@ -581,6 +610,50 @@ export const ArStakeoutView: React.FC<ArStakeoutViewProps> = ({
             <Radio className="w-3.5 h-3.5" />
             <span>Speak</span>
           </button>
+
+          <div className="bg-black/30 dark:bg-white/5 p-1 rounded-xl border border-white/10 flex items-center gap-1">
+            <button
+              onClick={() => {
+                if (onSwitchToMode) onSwitchToMode('map');
+                else if (onSwitchToMap) onSwitchToMap();
+              }}
+              className="px-2.5 py-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 text-xs font-medium flex items-center gap-1 transition-all"
+              title="Switch to 2D Map Tiles Stakeout"
+            >
+              <MapIcon className="w-3.5 h-3.5 text-[#c9a063]" />
+              <span>Map 2D</span>
+            </button>
+            <button
+              onClick={() => {
+                if (onSwitchToMode) onSwitchToMode('ar');
+              }}
+              className="px-2.5 py-1.5 rounded-lg bg-[#c9a063] text-black text-xs font-bold shadow-md flex items-center gap-1 transition-all"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>AR Cam 3D</span>
+            </button>
+            <button
+              onClick={() => {
+                if (onSwitchToMode) onSwitchToMode('compass');
+              }}
+              className="px-2.5 py-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 text-xs font-medium flex items-center gap-1 transition-all"
+              title="Switch to Tactical Compass & Sentinel Radar HUD"
+            >
+              <Navigation className="w-3.5 h-3.5 text-[#c9a063]" />
+              <span>Compass HUD</span>
+            </button>
+          </div>
+
+          {onOpenImport && (
+            <button
+              onClick={onOpenImport}
+              className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/90 border border-white/10 text-xs font-semibold flex items-center gap-1.5 transition-all"
+              title="Import Waypoints from CSV, GeoJSON, GPX, or WKT"
+            >
+              <Upload className="w-3.5 h-3.5 text-[#c9a063]" />
+              <span>Import Targets</span>
+            </button>
+          )}
         </div>
       </div>
 
