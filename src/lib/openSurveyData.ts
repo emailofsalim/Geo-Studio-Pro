@@ -560,7 +560,7 @@ export async function fetchLiveEnvironmentalReport(
   try {
     const rGeo = await fetch(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${safeLat.toFixed(5)}&lon=${safeLon.toFixed(5)}&zoom=14&addressdetails=1`,
-      { headers: { 'User-Agent': 'GeoStudio-Geomatics-App/1.0' } }
+      { headers: { 'User-Agent': 'BhuNexStudio-Geomatics-App/3.7' } }
     );
     if (rGeo.ok) {
       const geoJson = await rGeo.json();

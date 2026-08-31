@@ -272,14 +272,14 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({
 
   const handleDownloadAllZip = () => {
     const zip = buildAllTemplatesZip();
-    downloadBlob(zip, 'BhuStudio_Templates.zip', 'application/zip');
-    toast.showSuccess('Downloaded complete BhuStudio Templates ZIP package.');
+    downloadBlob(zip, 'BhuNexStudio_Templates.zip', 'application/zip');
+    toast.showSuccess('Downloaded complete BhuNex Studio Templates ZIP package.');
   };
 
   const handleDownloadDataDictionary = () => {
     const cols = ['Template_Category', 'Column_Name', 'Description'];
     const rows = DATA_DICTIONARY.map(d => [d.template, d.col, d.desc]);
-    downloadBlob(csvEnc(toCSVtext(cols, rows)), 'BhuStudio_Data_Dictionary.csv', 'text/csv;charset=utf-8');
+    downloadBlob(csvEnc(toCSVtext(cols, rows)), 'BhuNexStudio_Data_Dictionary.csv', 'text/csv;charset=utf-8');
     toast.showSuccess('Downloaded Data Dictionary CSV.');
   };
 
@@ -682,7 +682,7 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({
       return;
     }
     const gj = featuresToGeoJSON(allFeats, zNum, isSouth);
-    downloadBlob(new TextEncoder().encode(gj), 'BhuStudio_Extracted_Archive.geojson', 'application/geo+json');
+    downloadBlob(new TextEncoder().encode(gj), 'BhuNexStudio_Extracted_Archive.geojson', 'application/geo+json');
     toast.showSuccess(`Exported ${allFeats.length} features to GeoJSON.`);
   };
 
@@ -694,8 +694,8 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({
       return;
     }
     const placemarks = allFeats.map(f => pmForFeature(f, zNum, isSouth)).join('');
-    const kml = kmlDoc(placemarks, 'BhuStudio Master Archive Package');
-    downloadBlob(new TextEncoder().encode(kml), 'BhuStudio_Extracted_Archive.kml', 'application/vnd.google-earth.kml+xml');
+    const kml = kmlDoc(placemarks, 'BhuNex Studio Master Archive Package');
+    downloadBlob(new TextEncoder().encode(kml), 'BhuNexStudio_Extracted_Archive.kml', 'application/vnd.google-earth.kml+xml');
     toast.showSuccess(`Exported ${allFeats.length} features to KML.`);
   };
 
@@ -1560,23 +1560,6 @@ export const HomeTemplatesTab: React.FC<HomeTemplatesTabProps> = ({
                           </button>
                         </>
                       )}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={handleExportConsolidatedGeoJSON}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-white/[0.05] hover:bg-slate-200 dark:hover:bg-white/[0.1] text-[11px] font-medium text-slate-700 dark:text-white/80 border border-slate-200 dark:border-white/[0.08] transition-colors flex items-center gap-1"
-                      >
-                        <Code2 className="w-3.5 h-3.5 text-[#b45309] dark:text-[#c9a063]" />
-                        Export GeoJSON
-                      </button>
-                      <button
-                        onClick={handleExportConsolidatedKML}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-white/[0.05] hover:bg-slate-200 dark:hover:bg-white/[0.1] text-[11px] font-medium text-slate-700 dark:text-white/80 border border-slate-200 dark:border-white/[0.08] transition-colors flex items-center gap-1"
-                      >
-                        <Globe className="w-3.5 h-3.5 text-sky-500" />
-                        Export KML
-                      </button>
                     </div>
                   </div>
                 </div>

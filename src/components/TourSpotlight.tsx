@@ -28,8 +28,8 @@ export const TourSpotlight: React.FC<TourSpotlightProps> = ({ isOpen, onClose, s
 
   const tourSteps = [
     {
-      title: 'Welcome to BhuStudio',
-      desc: 'An all-in-one 100% offline geomatics, GNSS field surveyor, and cadastral mapping suite developed by Md Salim Ansari.',
+      title: 'Welcome to BhuNex Studio',
+      desc: 'An all-in-one offline geomatics, GNSS field surveyor, and cadastral mapping suite developed by Md Salim Ansari.',
       tab: 'templates' as AppTabId,
       icon: Sparkles
     },

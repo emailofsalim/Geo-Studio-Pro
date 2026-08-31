@@ -16,6 +16,8 @@ export interface GeoPoint {
 }
 
 export interface GeoFeature {
+  id?: string;
+  projectId?: string;
   name: string;
   geom: 'point' | 'line' | 'polygon';
   kind: 'll' | 'en';
@@ -27,6 +29,7 @@ export interface GeoFeature {
 
 export interface SurveyWaypoint {
   id: string;
+  projectId?: string;
   code: string;
   E: number;
   N: number;
@@ -201,6 +204,7 @@ export interface LandUnitPreset {
 
 export interface GisLayer {
   id: string;
+  projectId?: string;
   name: string;
   visible: boolean;
   color: string;

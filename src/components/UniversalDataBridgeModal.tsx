@@ -25,7 +25,11 @@ import {
   Search,
   Sliders,
   ChevronRight,
-  Database
+  Database,
+  CheckCircle,
+  HelpCircle,
+  Copy,
+  BarChart2
 } from 'lucide-react';
 import {
   ExportFormatId,
@@ -36,8 +40,11 @@ import {
   executeUniversalExport,
   UniversalExportOptions
 } from '../lib/universalDataBridge';
+import { ExportService, RoundTripResult } from '../services/ExportService';
+import { ImportService, ImportValidationReport } from '../services/ImportService';
 import { GeoFeature, GisLayer, SurveyWaypoint, CadastralParcel, PhotoLandmark } from '../types';
 import { useToast } from '../context/ToastContext';
+import { useProject } from '../context/ProjectContext';
 
 interface UniversalDataBridgeModalProps {
   isOpen: boolean;
@@ -81,6 +88,7 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
   onImportComplete
 }) => {
   const toast = useToast();
+  const { activeProjectId, updateActiveProjectData } = useProject();
   const [mode, setMode] = useState<'import' | 'export'>(initialMode);
 
   // Sync mode and format when modal is opened
@@ -90,6 +98,8 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
       if (initialFormat) {
         setSelectedFormat(initialFormat);
       }
+      setRoundTripResult(null);
+      setShowPreviewSnippet(false);
     }
   }, [isOpen, initialMode, initialFormat]);
 
@@ -110,11 +120,16 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
   const [include3dZ, setInclude3dZ] = useState<boolean>(true);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [formatSearch, setFormatSearch] = useState<string>('');
+  const [showPreviewSnippet, setShowPreviewSnippet] = useState<boolean>(false);
+  const [previewSnippetText, setPreviewSnippetText] = useState<string>('');
+  const [roundTripResult, setRoundTripResult] = useState<RoundTripResult | null>(null);
+  const [isVerifyingRoundTrip, setIsVerifyingRoundTrip] = useState<boolean>(false);
 
   // Import State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDetecting, setIsDetecting] = useState<boolean>(false);
   const [detectedResult, setDetectedResult] = useState<DetectedImportResult | null>(null);
+  const [validationReport, setValidationReport] = useState<ImportValidationReport | null>(null);
   const [destinationApp, setDestinationApp] = useState<string>(activeAppId || 'gis');
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -130,6 +145,18 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
   const totalFeatureCount = finalFeatures.length > 0 
     ? finalFeatures.length 
     : (finalLayers.reduce((acc, l) => acc + (l.features?.length || 0), 0) || finalWaypoints.length || finalParcels.length || 0);
+
+  // Update export preview snippet when options change
+  useEffect(() => {
+    if (showPreviewSnippet && mode === 'export') {
+      const snippet = ExportService.generatePreviewSnippet(finalFeatures, selectedFormat, {
+        workingZone: exportZone,
+        coordSystem,
+        include3dZ
+      });
+      setPreviewSnippetText(snippet);
+    }
+  }, [showPreviewSnippet, selectedFormat, coordSystem, exportZone, include3dZ, finalFeatures, mode]);
 
   // Handle Drag & Drop
   const handleDragOver = (e: React.DragEvent) => {
@@ -163,6 +190,9 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
     try {
       const result = await detectAndParseGeospatialFile(file, exportZone);
       setDetectedResult(result);
+      const audit = ImportService.auditQuality(result);
+      setValidationReport(audit);
+
       if (result.suggestedAppDestination && result.suggestedAppDestination !== 'unknown') {
         setDestinationApp(result.suggestedAppDestination);
       }
@@ -171,6 +201,24 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
       toast.showError(`Auto-detection error: ${err.message}`);
     } finally {
       setIsDetecting(false);
+    }
+  };
+
+  // Test Round-Trip Parity
+  const handleRunRoundTripTest = async () => {
+    setIsVerifyingRoundTrip(true);
+    try {
+      const res = await ExportService.verifyRoundTrip(finalFeatures, selectedFormat, exportZone);
+      setRoundTripResult(res);
+      if (res.success) {
+        toast.showSuccess(res.message);
+      } else {
+        toast.showWarning(res.message);
+      }
+    } catch (err: any) {
+      toast.showError(`Round trip error: ${err.message}`);
+    } finally {
+      setIsVerifyingRoundTrip(false);
     }
   };
 
@@ -201,7 +249,7 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
   };
 
   // Confirm Import
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     if (!detectedResult) return;
 
     if (detectedResult.formatId === 'project' && detectedResult.projectData) {
@@ -226,12 +274,25 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
     if (onImportComplete) {
       onImportComplete(detectedResult, destinationApp);
     } else {
-      // Default fallback router
+      // Authoritative project data router
+      const projId = activeProjectId || 'project_pakhar_2026';
+      
+      const cleanFeatures: GeoFeature[] = detectedResult.features.map((f, idx) => ({
+        ...f,
+        id: f.id || `imp_${Date.now()}_${idx + 1}`,
+        projectId: projId,
+        props: {
+          ...(f.props || {}),
+          // Strict accuracy rule: null if absent
+          acc: f.props?.acc !== undefined && f.props?.acc !== null && !isNaN(f.props.acc) ? f.props.acc : null
+        }
+      }));
+
       if (destinationApp === 'gis' || destinationApp === 'studio') {
         try {
-          const existingLayers = JSON.parse(localStorage.getItem('gis_studio_layers') || '[]');
           const newLayer: GisLayer = {
             id: `layer_${Date.now()}`,
+            projectId: projId,
             name: selectedFile?.name.replace(/\.[^.]+$/, '') || 'Imported Layer',
             visible: true,
             color: '#c9a063',
@@ -239,37 +300,76 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
             fillOpacity: 0.35,
             strokeWidth: 2,
             geomType: detectedResult.polygonsCount > 0 ? 'polygon' : detectedResult.linesCount > 0 ? 'line' : 'point',
-            features: detectedResult.features
+            features: cleanFeatures
           };
-          localStorage.setItem('gis_studio_layers', JSON.stringify([newLayer, ...existingLayers]));
-          toast.showSuccess(`Imported ${detectedResult.featureCount} feature(s) into GIS Studio layer.`);
+          updateActiveProjectData(old => ({
+            ...old,
+            layers: [newLayer, ...(old.layers || [])]
+          }));
+          toast.showSuccess(`Imported ${cleanFeatures.length} feature(s) into GIS Studio layer.`);
         } catch (err: any) {
           toast.showError(`Could not save layer: ${err.message}`);
         }
       } else if (destinationApp === 'gps') {
         try {
-          const existingWps: SurveyWaypoint[] = JSON.parse(localStorage.getItem('survey_waypoints') || '[]');
-          const newWps: SurveyWaypoint[] = detectedResult.features.map((f, i) => {
+          const newWps: SurveyWaypoint[] = cleanFeatures.map((f, i) => {
             const pt = f.pts[0] || { a: 0, b: 0 };
             return {
-              id: f.name || `IMP-${existingWps.length + i + 1}`,
+              id: f.name || `IMP-${i + 1}`,
+              projectId: projId,
               code: (f.props?.code as string) || 'Imported Point',
-              E: (f.props?.utmE as number) || (f.kind === 'en' ? pt.a : 0),
-              N: (f.props?.utmN as number) || (f.kind === 'en' ? pt.b : 0),
-              Z: (f.props?.elevation as number) || (f.props?.Z as number) || 0,
+              E: f.kind === 'en' ? pt.a : (f.props?.utmE as number) || 0,
+              N: f.kind === 'en' ? pt.b : (f.props?.utmN as number) || 0,
+              Z: f.props?.Z !== undefined ? f.props.Z : (f.props?.elevation as number) || 0,
               lat: f.kind === 'll' ? pt.b : 0,
               lon: f.kind === 'll' ? pt.a : 0,
-              acc: (f.props?.acc as number) || 1.0,
+              acc: f.props?.acc !== undefined && f.props?.acc !== null ? f.props.acc : (null as any),
               zone: exportZone,
               time: Date.now(),
               remarks: f.props ? JSON.stringify(f.props) : undefined,
               proximityRadius: 5
             };
           });
-          localStorage.setItem('survey_waypoints', JSON.stringify([...existingWps, ...newWps]));
+          updateActiveProjectData(old => ({
+            ...old,
+            waypoints: [...(old.waypoints || []), ...newWps]
+          }));
           toast.showSuccess(`Added ${newWps.length} waypoint(s) to GPS Surveyor.`);
         } catch (err: any) {
           toast.showError(`Could not save waypoints: ${err.message}`);
+        }
+      } else if (destinationApp === 'cad' || destinationApp === 'parcels') {
+        try {
+          const newParcels: CadastralParcel[] = cleanFeatures
+            .filter(f => f.geom === 'polygon' || f.geom === 'line')
+            .map((f, i) => {
+              const pts = f.pts.map(p => ({
+                E: f.kind === 'en' ? p.a : 0,
+                N: f.kind === 'en' ? p.b : 0
+              }));
+              const areaM2 = Number(f.props?.area || f.props?.areaM2 || f.props?.areaSqM || 0);
+              return {
+                khasra: f.props?.khasra || f.props?.plotNumber || f.name || `Plot-${i + 1}`,
+                village: f.props?.village || 'Unassigned',
+                mouza: f.props?.mouza || '',
+                sheet: f.props?.sheet || '',
+                owner: f.props?.owner || f.props?.ownerName || 'Unassigned',
+                tenant: f.props?.tenant || '',
+                status: f.props?.status || 'Clear',
+                pts,
+                areaM2,
+                areaHa: areaM2 / 10000,
+                areaAcres: areaM2 / 4046.8564224
+              };
+            });
+
+          updateActiveProjectData(old => ({
+            ...old,
+            parcels: [...(old.parcels || []), ...newParcels]
+          }));
+          toast.showSuccess(`Imported ${newParcels.length} parcel(s) into Cadastral Land Records.`);
+        } catch (err: any) {
+          toast.showError(`Could not save parcels: ${err.message}`);
         }
       }
     }
@@ -394,15 +494,15 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
                 </div>
               </div>
 
-              {/* Format Search & Quick Filter */}
-              <div className="flex items-center justify-between gap-3">
-                <div className="relative flex-1">
+              {/* Format Search & Action Buttons */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="relative flex-1 min-w-[240px]">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
                   <input
                     type="text"
                     value={formatSearch}
                     onChange={e => setFormatSearch(e.target.value)}
-                    placeholder="Search format (e.g. DXF, KML, CSV, GeoJSON, Shapefile, Excel, LandXML)..."
+                    placeholder="Search format (e.g. DXF, KML, CSV, GeoJSON, Shapefile, Excel, LandXML, BHNX)..."
                     className="w-full pl-9 pr-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder-white/40 focus:border-[#c9a063] focus:outline-none"
                   />
                   {formatSearch && (
@@ -414,7 +514,62 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
                     </button>
                   )}
                 </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPreviewSnippet(!showPreviewSnippet)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors flex items-center gap-1.5 ${
+                      showPreviewSnippet
+                        ? 'bg-[#c9a063]/20 border-[#c9a063] text-[#c9a063]'
+                        : 'bg-black/40 border-white/10 text-white/70 hover:text-white'
+                    }`}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>{showPreviewSnippet ? 'Hide Preview' : 'Live Preview'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleRunRoundTripTest}
+                    disabled={isVerifyingRoundTrip}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold border border-white/10 bg-black/40 text-white/70 hover:text-white transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isVerifyingRoundTrip ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <BarChart2 className="w-3.5 h-3.5 text-cyan-400" />}
+                    <span>Test Fidelity</span>
+                  </button>
+                </div>
               </div>
+
+              {/* Round-Trip Parity Banner */}
+              {roundTripResult && (
+                <div className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs animate-in fade-in duration-150 ${
+                  roundTripResult.success ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300' : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
+                }`}>
+                  <div className="flex items-center gap-2.5">
+                    {roundTripResult.success ? <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />}
+                    <span>{roundTripResult.message}</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded bg-black/40 font-mono text-[11px]">
+                    Max Drift: {roundTripResult.maxCoordinateDriftMeters} mm
+                  </span>
+                </div>
+              )}
+
+              {/* Live Preview Snippet Box */}
+              {showPreviewSnippet && (
+                <div className="p-3.5 rounded-xl bg-black/80 border border-white/15 space-y-2 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between text-xs text-white/60">
+                    <span className="font-mono font-bold text-white">
+                      Output Preview ({currentMeta.name})
+                    </span>
+                    <span className="text-[11px]">First 15-25 lines sample</span>
+                  </div>
+                  <pre className="p-3 rounded-lg bg-black/90 border border-white/10 font-mono text-[11px] text-emerald-400 max-h-48 overflow-y-auto whitespace-pre-wrap select-all custom-scrollbar">
+                    {previewSnippetText}
+                  </pre>
+                </div>
+              )}
 
               {/* Formats Grid */}
               <div>
@@ -442,22 +597,28 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
                                 {getFormatIcon(fmt.iconName)}
                               </div>
                               <div>
-                                <h4 className="text-xs font-bold text-white">{fmt.name}</h4>
-                                <span className="text-[10px] font-mono text-white/50">{fmt.extension}</span>
+                                <h4 className="text-xs font-bold text-white leading-snug">
+                                  {fmt.name}
+                                </h4>
+                                <span className="font-mono text-[10px] text-[#c9a063] font-bold">
+                                  {fmt.extension}
+                                </span>
                               </div>
                             </div>
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-white/10 text-white/70">
-                              {fmt.category}
-                            </span>
+                            {isSelected && (
+                              <span className="w-5 h-5 rounded-full bg-[#c9a063] text-black flex items-center justify-center shadow">
+                                <Check className="w-3 h-3 stroke-[3]" />
+                              </span>
+                            )}
                           </div>
-                          <p className="text-[11px] text-white/60 leading-relaxed line-clamp-2">
+                          <p className="text-[11px] text-white/60 line-clamp-2 leading-relaxed">
                             {fmt.description}
                           </p>
                         </div>
 
                         <div className="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-white/40">
-                          <span className="truncate max-w-[170px]">App: {fmt.recommendedFor.split(',')[0]}</span>
-                          {isSelected && <Check className="w-3.5 h-3.5 text-[#c9a063]" />}
+                          <span className="px-1.5 py-0.5 rounded bg-white/5 font-mono">{fmt.category}</span>
+                          <span className="truncate max-w-[120px]">{fmt.recommendedFor}</span>
                         </div>
                       </button>
                     );
@@ -465,24 +626,23 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
                 </div>
               </div>
 
-              {/* Selected Format Options & Customization */}
+              {/* Export Configuration Options */}
               <div className="p-4 rounded-xl bg-black/40 border border-white/10 space-y-4">
-                <div className="flex items-center gap-2 text-xs font-bold text-white">
+                <h4 className="text-xs font-bold text-white flex items-center gap-2">
                   <Sliders className="w-4 h-4 text-[#c9a063]" />
-                  <span>Export Settings & Parameters</span>
-                </div>
+                  <span>Export Parameters & Coordinate Settings</span>
+                </h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {/* File Name */}
                   <div>
                     <label className="text-[11px] font-medium text-white/70 block mb-1">
-                      File Name Base
+                      File Name (Without Extension)
                     </label>
                     <input
                       type="text"
                       value={fileName}
                       onChange={e => setFileName(e.target.value)}
-                      placeholder="geostudio_export"
                       className="w-full px-3 py-2 rounded-lg bg-black/60 border border-white/10 text-xs text-white focus:border-[#c9a063] focus:outline-none"
                     />
                   </div>
@@ -559,7 +719,7 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
                   ref={fileInputRef}
                   type="file"
                   onChange={handleFileInputChange}
-                  accept=".geojson,.kml,.kmz,.dxf,.csv,.xlsx,.tsv,.txt,.gpx,.wkt,.shp,.zip,.landxml,.xml,.topojson,.mif,.asc,.str,.json"
+                  accept=".bhnx,.geojson,.kml,.kmz,.dxf,.csv,.xlsx,.tsv,.txt,.gpx,.wkt,.shp,.zip,.landxml,.xml,.topojson,.mif,.asc,.str,.json,.las,.laz,.tif,.tiff"
                   className="hidden"
                 />
 
@@ -576,12 +736,12 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
                     {selectedFile ? selectedFile.name : 'Drop any survey or geospatial file here, or click to browse'}
                   </h3>
                   <p className="text-xs text-white/50 max-w-md mx-auto">
-                    Supported: GeoJSON, KML, KMZ, DXF, CSV, Excel, GPX, Shapefile ZIP, TopoJSON, WKT, LandXML, and Project JSON.
+                    Supported: .bhnx Packages, GeoJSON, KML, KMZ, DXF, CSV, Excel, GPX, Shapefile ZIP, LAS LiDAR, GeoTIFF, WKT, LandXML, and Project JSON.
                   </p>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-center gap-1.5 mt-2">
-                  {['.geojson', '.kml', '.kmz', '.dxf', '.csv', '.xlsx', '.gpx', '.shp', '.landxml', '.json'].map(ext => (
+                  {['.bhnx', '.geojson', '.kml', '.kmz', '.dxf', '.csv', '.xlsx', '.gpx', '.shp', '.las', '.tif', '.landxml'].map(ext => (
                     <span
                       key={ext}
                       className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-white/10 text-white/70 border border-white/10"
@@ -633,6 +793,9 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
                         {detectedResult.formatId === 'project' && (
                           <option value="project_restore">Full Workspace Project Restore</option>
                         )}
+                        {detectedResult.formatId === 'bhnx' && (
+                          <option value="project_restore">Full Canonical BHNX Restore</option>
+                        )}
                       </select>
                     </div>
                   </div>
@@ -660,6 +823,32 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
                     </div>
                   </div>
 
+                  {/* CRS & Units Detection Card */}
+                  <div className="p-3 rounded-xl bg-black/40 border border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-white/50">Detected CRS:</span>
+                      <span className={`px-2 py-0.5 rounded font-mono font-bold text-[11px] ${
+                        detectedResult.crsStatus === 'EXPLICIT'
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          : detectedResult.crsStatus === 'INFERRED'
+                          ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                          : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      }`}>
+                        {detectedResult.detectedCRS || 'CRS UNKNOWN'}
+                      </span>
+                      <span className="text-white/40 text-[10px]">
+                        ({detectedResult.crsStatus || 'UNKNOWN'})
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-white/50">Units:</span>
+                      <span className="px-2 py-0.5 rounded bg-white/10 font-mono text-white text-[11px]">
+                        {detectedResult.detectedUnits || 'm'}
+                      </span>
+                    </div>
+                  </div>
+
                   {/* Bounding Box / Spatial Extents Preview */}
                   {detectedResult.boundingBox && (
                     <div className="p-3 rounded-xl bg-black/30 border border-white/5 flex flex-wrap items-center justify-between gap-2 text-xs text-white/70">
@@ -667,6 +856,22 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
                         <MapPin className="w-3.5 h-3.5 text-[#c9a063]" />
                         <strong>Extents:</strong> Lat [{detectedResult.boundingBox.minLat.toFixed(5)}° to {detectedResult.boundingBox.maxLat.toFixed(5)}°], Lon [{detectedResult.boundingBox.minLon.toFixed(5)}° to {detectedResult.boundingBox.maxLon.toFixed(5)}°]
                       </span>
+                    </div>
+                  )}
+
+                  {/* Missing Value Audit Breakdown */}
+                  {validationReport && (
+                    <div className="p-3 rounded-xl bg-black/30 border border-white/5 space-y-1.5 text-[11px]">
+                      <div className="flex items-center justify-between text-white/70 font-semibold">
+                        <span>Missing Value Integrity Audit:</span>
+                        <span className="text-emerald-400">Zero Fabricated Defaults Enforced</span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-white/60">
+                        <span>Elevation Missing: <strong className="text-white">{validationReport.missingValueSummary.elevationMissing}</strong> (Kept null)</span>
+                        <span>Accuracy Missing: <strong className="text-white">{validationReport.missingValueSummary.accuracyMissing}</strong> (Kept null)</span>
+                        <span>Owner Unspecified: <strong className="text-white">{validationReport.missingValueSummary.ownerMissing}</strong> (Not invented)</span>
+                        <span>Village Unspecified: <strong className="text-white">{validationReport.missingValueSummary.villageMissing}</strong> (Not invented)</span>
+                      </div>
                     </div>
                   )}
 

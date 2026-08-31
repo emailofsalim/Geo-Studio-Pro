@@ -1,5 +1,5 @@
 // ============================================================================
-// Centralized Hardware & Sensor Resource Manager (GeoStudio Suite)
+// Centralized Hardware & Sensor Resource Manager (BhuNex Studio Suite)
 // ----------------------------------------------------------------------------
 // Enforces strictly On-Demand / Feature-Required lifecycle for:
 // - Camera (Video streams, torch, multi-tier constraints)

@@ -465,7 +465,7 @@ export function boreCardHTML(hole: BoreholeHole, profile: MineProfile) {
   h += `
     </table>
     <div style="margin-top:8px;padding-top:5px;border-top:1px solid #C3CDD4;font-size:7px;color:#617584;line-height:11px">
-      Profile: ${xmlesc(profile.name)} | Geo Studio | UTM ${hole.zone}${hole.south ? 'S' : 'N'} / WGS84
+      Profile: ${xmlesc(profile.name)} | BhuNex Studio | UTM ${hole.zone}${hole.south ? 'S' : 'N'} / WGS84
     </div>
   </div>`;
 

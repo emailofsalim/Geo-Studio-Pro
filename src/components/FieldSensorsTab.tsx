@@ -675,7 +675,7 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `GeoStudio_Sensors_Log_${Date.now()}.csv`);
+    link.setAttribute('download', `BhuNexStudio_Sensors_Log_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

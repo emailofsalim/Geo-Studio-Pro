@@ -14,9 +14,18 @@ import {
   Menu,
   Crosshair,
   Upload,
-  Download
+  Download,
+  FolderKanban,
+  User,
+  LayoutDashboard,
+  CheckCircle2,
+  Loader2,
+  AlertTriangle,
+  WifiOff
 } from 'lucide-react';
 import { AppTabId, APPS_CONFIG } from './Navigation';
+import { useAuth } from '../context/AuthContext';
+import { useProject } from '../context/ProjectContext';
 
 interface AndroidMobileLayoutProps {
   activeTab: AppTabId;
@@ -26,6 +35,7 @@ interface AndroidMobileLayoutProps {
   openCommandPalette: () => void;
   openSettings: () => void;
   openAiCopilot?: () => void;
+  openProfile?: () => void;
   openUniversalImport?: () => void;
   openUniversalExport?: (format?: any) => void;
   hasGpsFix?: boolean;
@@ -40,11 +50,14 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
   openCommandPalette,
   openSettings,
   openAiCopilot,
+  openProfile,
   openUniversalImport,
   openUniversalExport,
   isDark = true,
   setIsDark = () => {}
 }) => {
+  const { user, isGuest, setIsAuthModalOpen } = useAuth();
+  const { activeProject, closeProject, saveStatus, saveActiveProjectWorkspace } = useProject();
   const [isAppsDrawerOpen, setIsAppsDrawerOpen] = useState(false);
   const [drawerSearch, setDrawerSearch] = useState('');
 
@@ -52,10 +65,9 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
 
   // Essential Field Tools matching user's requested primary navigation
   const primaryMobileNav: { id: AppTabId; label: string; icon: any }[] = [
-    { id: 'templates', label: 'Home', icon: FileSpreadsheet },
-    { id: 'camera', label: 'Camera', icon: Camera },
+    { id: 'home', label: 'Projects', icon: FolderKanban },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'gps', label: 'GNSS', icon: CompassIcon },
-    { id: 'bore', label: 'Borehole', icon: MapPin },
     { id: 'gis', label: 'GIS Map', icon: Layers }
   ];
 
@@ -65,43 +77,70 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
       app.category.toLowerCase().includes(drawerSearch.toLowerCase())
   );
 
+  const handleOpenProfile = () => {
+    if (openProfile) openProfile();
+    else setIsAuthModalOpen(true);
+  };
+
   return (
     <>
       {/* Clean Mobile App Header */}
       <header className="md:hidden sticky top-0 z-40 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-white/[0.08] select-none h-12 px-3 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
           <button
-            onClick={() => setActiveTab('templates')}
-            className="p-1 -ml-1 rounded-xl hover:opacity-90 active:scale-95 transition-all flex items-center justify-center group"
+            onClick={() => {
+              closeProject();
+              setActiveTab('home');
+            }}
+            className="p-1 -ml-1 rounded-xl hover:opacity-90 active:scale-95 transition-all flex items-center justify-center group shrink-0"
             aria-label="Go to Home"
-            title="BhuStudio Home & Templates"
+            title="BhuNex Studio Home & Projects"
           >
-            <div className="w-8 h-8 rounded-xl overflow-hidden border border-[#377cb8]/40 bg-[#0e2c4d] shadow-2xs flex items-center justify-center p-0.5 group-hover:border-[#8ecbf8]/80 transition-colors">
+            <div className="w-8 h-8 rounded-xl overflow-hidden border border-[#c9a063]/40 bg-[#1c1810] shadow-2xs flex items-center justify-center p-0.5 group-hover:border-[#c9a063] transition-colors">
               <img
                 src="/icon-192.svg"
-                alt="BhuStudio Logo"
+                alt="BhuNex Studio Logo"
                 className="w-full h-full object-contain rounded-lg"
                 referrerPolicy="no-referrer"
               />
             </div>
           </button>
 
-          <div>
-            <div className="text-xs font-semibold text-white tracking-tight flex items-center gap-1.5">
-              <span>{currentApp.name}</span>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-white tracking-tight flex items-center gap-1.5 truncate">
+              <span className="truncate">{activeProject ? activeProject.name : currentApp.name}</span>
             </div>
-            <div className="text-[10px] text-white/40 font-mono leading-none">
-              UTM {workingZone}
+            <div className="text-[10px] text-white/40 font-mono leading-none truncate">
+              {activeProject ? `${activeProject.category} • UTM ${activeProject.workingZone}` : `UTM ${workingZone}`}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5 shrink-0">
+          {activeProject && (
+            <button
+              onClick={() => saveActiveProjectWorkspace()}
+              className="p-1 rounded bg-white/[0.04] border border-white/[0.08] text-xs flex items-center justify-center"
+              title={`Save Status: ${saveStatus}`}
+            >
+              {saveStatus === 'SAVING' ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+              ) : saveStatus === 'UNSAVED_CHANGES' ? (
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              ) : saveStatus === 'SAVE_FAILED' ? (
+                <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+              ) : saveStatus === 'OFFLINE' ? (
+                <WifiOff className="w-3.5 h-3.5 text-slate-400" />
+              ) : (
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              )}
+            </button>
+          )}
           {openUniversalImport && (
             <button
               onClick={openUniversalImport}
               className="p-1.5 rounded-lg text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all flex items-center justify-center"
-              title="Universal Import (Auto-Detect)"
+              title="Universal Import"
             >
               <Upload className="w-4 h-4" />
             </button>
@@ -111,7 +150,7 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
             <button
               onClick={() => openUniversalExport()}
               className="p-1.5 rounded-lg text-[#c9a063] bg-[#c9a063]/10 border border-[#c9a063]/20 hover:bg-[#c9a063]/20 transition-all flex items-center justify-center"
-              title="Universal Export (Select Format)"
+              title="Universal Export"
             >
               <Download className="w-4 h-4" />
             </button>
@@ -125,30 +164,23 @@ export const AndroidMobileLayout: React.FC<AndroidMobileLayoutProps> = ({
             <Search className="w-4 h-4" />
           </button>
 
-          {openAiCopilot && (
-            <button
-              onClick={openAiCopilot}
-              className="p-1.5 rounded-lg text-[#c9a063] bg-[#c9a063]/10 border border-[#c9a063]/30 hover:bg-[#c9a063]/20 transition-all flex items-center justify-center"
-              title="AI Geomatics Assistant"
-            >
-              <Sparkles className="w-4 h-4 text-[#c9a063] animate-pulse" />
-            </button>
-          )}
-
+          {/* Mobile Profile Button */}
           <button
-            onClick={() => setIsDark(!isDark)}
-            className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
-            title={isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+            onClick={handleOpenProfile}
+            className="p-1 rounded-full bg-white/[0.05] border border-white/[0.1] flex items-center justify-center"
+            title="Profile & Account"
           >
-            {isDark ? <Sun className="w-4 h-4 text-[#c9a063]" /> : <Moon className="w-4 h-4" />}
-          </button>
-
-          <button
-            onClick={openSettings}
-            className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
-            title="Settings"
-          >
-            <Settings className="w-4 h-4" />
+            {user?.photoUrl ? (
+              <img
+                src={user.photoUrl}
+                alt={user.name}
+                className="w-6 h-6 rounded-full object-cover border border-[#c9a063]/60"
+              />
+            ) : (
+              <div className="w-6 h-6 rounded-full bg-[#c9a063]/20 text-[#c9a063] flex items-center justify-center">
+                <User className="w-3.5 h-3.5" />
+              </div>
+            )}
           </button>
         </div>
       </header>

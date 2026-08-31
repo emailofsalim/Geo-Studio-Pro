@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './context/ToastContext';
+import { AuthProvider } from './context/AuthContext';
+import { ProjectProvider } from './context/ProjectContext';
 import './index.css';
 
 // Prevent non-critical ResizeObserver and media playback interruption warnings from interrupting execution
@@ -34,11 +36,16 @@ window.addEventListener('unhandledrejection', (event) => {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary fallbackTitle="GeoStudio System Initializer Fault">
+    <ErrorBoundary fallbackTitle="BhuNex Studio System Initializer Fault">
       <ToastProvider>
-        <App />
+        <AuthProvider>
+          <ProjectProvider>
+            <App />
+          </ProjectProvider>
+        </AuthProvider>
       </ToastProvider>
     </ErrorBoundary>
   </StrictMode>
 );
+
 

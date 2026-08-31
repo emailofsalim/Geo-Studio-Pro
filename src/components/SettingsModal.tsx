@@ -122,10 +122,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between bg-[#0a0a0a]">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-[#c9a063]/10 border border-[#c9a063]/30 text-[#c9a063] flex items-center justify-center font-serif italic text-sm font-bold">
-              BS
+              BNS
             </div>
             <div>
-              <h3 className="font-serif italic text-lg text-white">BhuStudio Workspace Settings</h3>
+              <h3 className="font-serif italic text-lg text-white">BhuNex Studio Workspace Settings</h3>
               <p className="text-[10px] uppercase tracking-[0.18em] text-white/40">UTM Projection, Land Units, and Preferences</p>
             </div>
           </div>
@@ -466,8 +466,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="p-5 rounded-xl bg-gradient-to-br from-[#141414] to-[#181818] border border-white/5 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <span className="font-serif italic text-lg text-white font-semibold">BhuStudio</span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#c9a063]/20 text-[#c9a063] border border-[#c9a063]/30">v3.0</span>
+                    <span className="font-serif italic text-lg text-white font-semibold">BhuNex Studio</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#c9a063]/20 text-[#c9a063] border border-[#c9a063]/30">v3.7 Production</span>
                   </div>
                   <span className="text-[11px] text-white/40 font-mono">Geomatics & Cadastral Suite</span>
                 </div>
@@ -497,7 +497,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div>
                     <h5 className="text-xs font-semibold uppercase tracking-wider text-white">Feedback & Support</h5>
                     <a
-                      href="mailto:emailofsalim@gmail.com?subject=BhuStudio%20Feedback"
+                      href="mailto:emailofsalim@gmail.com?subject=BhuNex%20Studio%20Feedback"
                       className="text-xs sm:text-sm font-mono text-[#c9a063] hover:underline flex items-center gap-1.5 mt-0.5"
                     >
                       <span>emailofsalim@gmail.com</span>
@@ -506,7 +506,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
                 <a
-                  href="mailto:emailofsalim@gmail.com?subject=BhuStudio%20Feedback"
+                  href="mailto:emailofsalim@gmail.com?subject=BhuNex%20Studio%20Feedback"
                   className="px-4 py-2 rounded-full bg-[#c9a063] hover:bg-[#d6b074] text-black text-xs font-semibold uppercase tracking-wider transition-colors shrink-0"
                 >
                   Send Feedback

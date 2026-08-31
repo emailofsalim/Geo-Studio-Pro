@@ -102,7 +102,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
                   {this.props.fallbackTitle || 'A component error occurred'}
                 </h3>
                 <p className="text-xs text-white/60">
-                  GeoStudio caught a rendering or computational exception. Your workspace and session state remain preserved in IndexedDB.
+                  BhuNex Studio caught a rendering or computational exception. Your workspace and session state remain preserved in IndexedDB.
                 </p>
               </div>
             </div>

@@ -78,7 +78,7 @@ export const SensorPrivacyMonitorModal: React.FC<SensorPrivacyMonitorModalProps>
       csv += `${iso},"${local}",${item.resourceType},${item.action},${item.consumerId},"${item.featureName}","${det}"\n`;
     });
 
-    downloadBlob(csv, `GeoStudio_Sensor_Audit_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
+    downloadBlob(csv, `BhuNexStudio_Sensor_Audit_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
     toast.showSuccess(`Exported ${auditLog.length} sensor audit log events.`);
   };
 
@@ -481,7 +481,7 @@ export const SensorPrivacyMonitorModal: React.FC<SensorPrivacyMonitorModalProps>
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-3 border-t border-white/[0.08] bg-white/[0.01] text-xs text-white/50">
-          <div>GeoStudio Hardware Resource Manager v3.0</div>
+          <div>BhuNex Studio Hardware Resource Manager v3.7</div>
           <button
             type="button"
             onClick={onClose}

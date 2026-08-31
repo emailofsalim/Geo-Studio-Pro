@@ -75,6 +75,7 @@ import {
 } from '../lib/haptics';
 import { deduplicateSurveyWaypoints } from '../lib/deduplication';
 import { useToast } from '../context/ToastContext';
+import { useProject } from '../context/ProjectContext';
 import { ArStakeoutView } from './hardware/ArStakeoutView';
 import { MapTilesStakeoutView } from './hardware/MapTilesStakeoutView';
 import { ImportWaypointsModal } from './ImportWaypointsModal';
@@ -145,8 +146,8 @@ const DEFAULT_INITIAL_WAYPOINTS: SurveyWaypoint[] = [
 // Generate GPX 1.1 XML string
 function exportToGPX(waypoints: SurveyWaypoint[], trackName: string, trackPoints: TrackPoint[]): string {
   let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-  xml += `<gpx version="1.1" creator="GeoStudio Geomatics Engine" xmlns="http://www.topografix.com/GPX/1/1">\n`;
-  xml += `  <metadata>\n    <name>${trackName || 'GeoStudio Survey Session'}</name>\n    <time>${new Date().toISOString()}</time>\n  </metadata>\n`;
+  xml += `<gpx version="1.1" creator="BhuNex Studio Geomatics Engine" xmlns="http://www.topografix.com/GPX/1/1">\n`;
+  xml += `  <metadata>\n    <name>${trackName || 'BhuNex Studio Survey Session'}</name>\n    <time>${new Date().toISOString()}</time>\n  </metadata>\n`;
 
   // Waypoints
   waypoints.forEach(wp => {
@@ -209,6 +210,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
 }) => {
   const toast = useToast();
   const managedResource = useManagedResource('gps_surveyor_tab', 'GNSS RTK & Waypoints Surveyor');
+  const { activeProject, activeProjectId, activeProjectData, updateActiveProjectData } = useProject();
 
   // Hook for active Dark / Light mode detection
   const isDark = useIsDarkMode();
@@ -242,31 +244,26 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   const skyplotCanvasRef = useRef<HTMLCanvasElement>(null);
   const [radarZoom, setRadarZoom] = useState(30); // metres from centre to perimeter
 
-  // Waypoint Collector State
+  // Project-Isolated Waypoint Collector State
   const [waypoints, setWaypoints] = useState<SurveyWaypoint[]>(() => {
-    try {
-      const s = localStorage.getItem('gs_waypoints_v2');
-      if (s) {
-        const parsed = JSON.parse(s);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-      return DEFAULT_INITIAL_WAYPOINTS;
-    } catch {
-      return DEFAULT_INITIAL_WAYPOINTS;
-    }
+    return activeProjectData?.waypoints && activeProjectData.waypoints.length > 0
+      ? activeProjectData.waypoints
+      : DEFAULT_INITIAL_WAYPOINTS;
   });
 
+  // Keep waypoints synced with active project
+  useEffect(() => {
+    if (activeProjectData?.waypoints) {
+      setWaypoints(activeProjectData.waypoints);
+    }
+  }, [activeProjectId, activeProjectData?.waypoints]);
+
   // Waypoints Undo / Redo History Stack
-  const [wpHistory, setWpHistory] = useState<SurveyWaypoint[][]>(() => {
-    try {
-      const s = localStorage.getItem('gs_waypoints_v2');
-      if (s) {
-        const parsed = JSON.parse(s);
-        if (Array.isArray(parsed) && parsed.length > 0) return [parsed];
-      }
-    } catch {}
-    return [DEFAULT_INITIAL_WAYPOINTS];
-  });
+  const [wpHistory, setWpHistory] = useState<SurveyWaypoint[][]>([
+    activeProjectData?.waypoints && activeProjectData.waypoints.length > 0
+      ? activeProjectData.waypoints
+      : DEFAULT_INITIAL_WAYPOINTS
+  ]);
   const [historyIndex, setHistoryIndex] = useState<number>(0);
 
   const [activeWaypointIndex, setActiveWaypointIndex] = useState<number>(0);
@@ -282,10 +279,13 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   const [voiceNavIntervalSec, setVoiceNavIntervalSec] = useState<number>(5);
   const lastSpokenNavTimeRef = useRef<number>(0);
 
-  // Helper to commit changes to waypoints with Undo/Redo tracking
+  // Helper to commit changes to waypoints with Undo/Redo tracking and authoritative project update
   const updateWaypointsWithHistory = useCallback((action: SurveyWaypoint[] | ((prev: SurveyWaypoint[]) => SurveyWaypoint[]), message?: string) => {
+    const currentProjId = activeProjectId || activeProject?.id || 'project_pakhar_2026';
     setWaypoints(prev => {
-      const next = typeof action === 'function' ? action(prev) : action;
+      const nextRaw = typeof action === 'function' ? action(prev) : action;
+      const next = nextRaw.map(w => ({ ...w, projectId: currentProjId }));
+
       setWpHistory(hist => {
         const sliced = hist.slice(0, historyIndex + 1);
         sliced.push(next);
@@ -293,12 +293,16 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
         return sliced;
       });
       setHistoryIndex(prevIdx => Math.min(prevIdx + 1, 49));
-      try {
-        localStorage.setItem('gs_waypoints_v2', JSON.stringify(next));
-      } catch {}
+
+      // Update authoritative ProjectContext state (which saves to IndexedDB)
+      updateActiveProjectData(old => ({
+        ...old,
+        waypoints: next
+      }));
+
       return next;
     });
-  }, [historyIndex]);
+  }, [historyIndex, activeProjectId, activeProject, updateActiveProjectData]);
 
   const handleUndoWaypoints = useCallback(() => {
     if (historyIndex > 0) {
@@ -306,16 +310,17 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       const targetState = wpHistory[targetIdx];
       setWaypoints(targetState);
       setHistoryIndex(targetIdx);
-      try {
-        localStorage.setItem('gs_waypoints_v2', JSON.stringify(targetState));
-      } catch {}
+      updateActiveProjectData(old => ({
+        ...old,
+        waypoints: targetState
+      }));
       toast.showInfo(`Undid action (${targetState.length} waypoints in registry)`);
       speakVoiceAnnouncement('Undo applied.');
       triggerHaptic([20, 20]);
     } else {
       toast.showInfo('No previous actions to undo.');
     }
-  }, [historyIndex, wpHistory, toast]);
+  }, [historyIndex, wpHistory, toast, updateActiveProjectData]);
 
   const handleRedoWaypoints = useCallback(() => {
     if (historyIndex < wpHistory.length - 1) {
@@ -323,16 +328,17 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       const targetState = wpHistory[targetIdx];
       setWaypoints(targetState);
       setHistoryIndex(targetIdx);
-      try {
-        localStorage.setItem('gs_waypoints_v2', JSON.stringify(targetState));
-      } catch {}
+      updateActiveProjectData(old => ({
+        ...old,
+        waypoints: targetState
+      }));
       toast.showInfo(`Redid action (${targetState.length} waypoints in registry)`);
       speakVoiceAnnouncement('Redo applied.');
       triggerHaptic([20, 20]);
     } else {
       toast.showInfo('No actions to redo.');
     }
-  }, [historyIndex, wpHistory, toast]);
+  }, [historyIndex, wpHistory, toast, updateActiveProjectData]);
 
   const handleDeleteWaypoint = useCallback((id: string) => {
     updateWaypointsWithHistory(prev => prev.filter(w => w.id !== id), `Deleted waypoint ${id}`);
@@ -471,24 +477,19 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
 
-  // Save state to localStorage
+  // Save proximity settings and events per project state
   useEffect(() => {
-    try {
-      localStorage.setItem('gs_waypoints_v2', JSON.stringify(waypoints));
-    } catch {}
-  }, [waypoints]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('gs_proximity_settings_v1', JSON.stringify(proximitySettings));
-    } catch {}
-  }, [proximitySettings]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('gs_proximity_events_v1', JSON.stringify(alarmEvents));
-    } catch {}
-  }, [alarmEvents]);
+    if (activeProjectId) {
+      updateActiveProjectData(old => ({
+        ...old,
+        customInputs: {
+          ...old.customInputs,
+          proximitySettings,
+          alarmEvents
+        }
+      }));
+    }
+  }, [proximitySettings, alarmEvents, activeProjectId, updateActiveProjectData]);
 
   // Play test audio alert helper
   const handlePlayTestSound = () => {
@@ -536,7 +537,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     alarmEvents.forEach(evt => {
       csv += `${new Date(evt.timestamp).toISOString()},"${new Date(evt.timestamp).toLocaleString()}",${csvEnc(evt.waypointId)},${csvEnc(evt.waypointCode)},${evt.type},${evt.distance.toFixed(2)},${evt.radius.toFixed(1)}\n`;
     });
-    downloadBlob(csv, `GeoStudio_Proximity_Alerts_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
+    downloadBlob(csv, `BhuNexStudio_Proximity_Alerts_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
   };
 
   // Compass listener (Managed Hardware Lifecycle)
@@ -1228,11 +1229,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       return;
     }
     const { cleanWaypoints, summary } = deduplicateSurveyWaypoints(waypoints, 0.1);
-
-    setWaypoints(cleanWaypoints);
-    try {
-      localStorage.setItem('gs_waypoints_v2', JSON.stringify(cleanWaypoints));
-    } catch {}
+    updateWaypointsWithHistory(cleanWaypoints, `Deduplicated waypoints`);
 
     if (summary.removedCount > 0) {
       toast.showSuccess(
@@ -1261,7 +1258,7 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       return;
     }
     const gpx = exportToGPX(waypoints, trackName, trackPoints);
-    downloadBlob(new TextEncoder().encode(gpx), `${trackName || 'GeoStudio'}.gpx`, 'application/gpx+xml');
+    downloadBlob(new TextEncoder().encode(gpx), `${trackName || 'BhuNexStudio'}.gpx`, 'application/gpx+xml');
     toast.showSuccess(`Exported GPX file with ${waypoints.length} waypoints & ${trackPoints.length} track points`);
   };
 
@@ -1306,8 +1303,10 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
       onSendToGis(features);
     } else {
       try {
+        const currentProjId = activeProjectId || activeProject?.id || 'project_pakhar_2026';
         const newLayer = {
           id: `layer_${Date.now()}`,
+          projectId: currentProjId,
           name: `GNSS Waypoints (${waypoints.length})`,
           visible: true,
           color: '#10b981',
@@ -1315,10 +1314,12 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
           fillOpacity: 0.8,
           strokeWidth: 2,
           geomType: 'point' as const,
-          features
+          features: features.map(f => ({ ...f, projectId: currentProjId }))
         };
-        const existing = JSON.parse(localStorage.getItem('gis_studio_layers') || '[]');
-        localStorage.setItem('gis_studio_layers', JSON.stringify([newLayer, ...existing]));
+        updateActiveProjectData(old => ({
+          ...old,
+          layers: [newLayer, ...(old.layers || [])]
+        }));
         toast.showSuccess(`Transferred ${waypoints.length} waypoints into GIS Map Studio layers`);
       } catch (e: any) {
         toast.showError(`Failed to transfer layer: ${e.message}`);
@@ -1335,12 +1336,14 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     if (onSendToCalculator) {
       onSendToCalculator(csv);
     } else {
-      try {
-        localStorage.setItem('calc_import_csv', csv);
-        toast.showSuccess(`Transferred ${waypoints.length} coordinates to Survey Calculator`);
-      } catch (e: any) {
-        toast.showError(`Failed to transfer to calculator: ${e.message}`);
-      }
+      updateActiveProjectData(old => ({
+        ...old,
+        customInputs: {
+          ...old.customInputs,
+          calc_import_csv: csv
+        }
+      }));
+      toast.showSuccess(`Transferred ${waypoints.length} coordinates to Survey Calculator`);
     }
   };
 
@@ -1350,9 +1353,13 @@ export const GpsSurveyorTab: React.FC<GpsSurveyorTabProps> = ({
     if (onSendToOffset) {
       onSendToOffset(pts);
     } else {
-      try {
-        localStorage.setItem('offset_import_pts', JSON.stringify(pts));
-      } catch {}
+      updateActiveProjectData(old => ({
+        ...old,
+        customInputs: {
+          ...old.customInputs,
+          offset_import_pts: pts
+        }
+      }));
     }
   };
 

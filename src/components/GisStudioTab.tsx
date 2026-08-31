@@ -74,6 +74,7 @@ import {
 } from '../lib/spatialAnalysis';
 import { deduplicateFeatures } from '../lib/deduplication';
 import { useToast } from '../context/ToastContext';
+import { useProject } from '../context/ProjectContext';
 import { globalTileCache } from '../lib/tileManager';
 
 // Subcomponents
@@ -239,6 +240,7 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
 }) => {
   const toast = useToast();
   const isDark = useIsDarkMode();
+  const { activeProject, activeProjectId, activeProjectData, updateActiveProjectData } = useProject();
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
 
@@ -304,17 +306,19 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
     toast.showSuccess(`Renamed layer to "${trimmed}"`);
   };
 
-  // Layers State & History Stack
+  // Project-Isolated Layers State & History Stack
   const [layers, setLayers] = useState<GisLayer[]>(() => {
-    try {
-      const stored = localStorage.getItem('gis_studio_layers');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {}
-    return DEFAULT_LAYERS;
+    return activeProjectData?.layers && activeProjectData.layers.length > 0
+      ? activeProjectData.layers
+      : DEFAULT_LAYERS;
   });
+
+  // Keep layers in sync when active project switches
+  useEffect(() => {
+    if (activeProjectData?.layers) {
+      setLayers(activeProjectData.layers);
+    }
+  }, [activeProjectId, activeProjectData?.layers]);
 
   const [activeLayerId, setActiveLayerId] = useState<string>(layers[0]?.id || '');
   const activeLayer: GisLayer = useMemo(() => layers.find(l => l.id === activeLayerId) || layers[0] || {
@@ -330,21 +334,35 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
   }, [layers, activeLayerId]);
 
   // History Stack (Undo/Redo)
-  const [history, setHistory] = useState<GisLayer[][]>([layers]);
+  const [history, setHistory] = useState<GisLayer[][]>([
+    activeProjectData?.layers && activeProjectData.layers.length > 0
+      ? activeProjectData.layers
+      : DEFAULT_LAYERS
+  ]);
   const [historyIndex, setHistoryIndex] = useState<number>(0);
 
   const pushHistory = useCallback((newLayers: GisLayer[], desc?: string) => {
+    const currentProjId = activeProjectId || activeProject?.id || 'project_pakhar_2026';
+    const scopedLayers = newLayers.map(l => ({
+      ...l,
+      projectId: currentProjId,
+      features: (l.features || []).map((f: any) => ({ ...f, projectId: currentProjId }))
+    }));
+
     setHistory(prev => {
       const sliced = prev.slice(0, historyIndex + 1);
-      const updated = [...sliced, JSON.parse(JSON.stringify(newLayers))];
+      const updated = [...sliced, JSON.parse(JSON.stringify(scopedLayers))];
       return updated.slice(-30); // keep up to 30 snapshots
     });
     setHistoryIndex(prev => Math.min(prev + 1, 29));
-    setLayers(newLayers);
-    try {
-      localStorage.setItem('gis_studio_layers', JSON.stringify(newLayers));
-    } catch {}
-  }, [historyIndex]);
+    setLayers(scopedLayers);
+
+    // Update authoritative ProjectContext state
+    updateActiveProjectData(old => ({
+      ...old,
+      layers: scopedLayers
+    }));
+  }, [historyIndex, activeProjectId, activeProject, updateActiveProjectData]);
 
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
@@ -352,9 +370,13 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
       const targetState = history[nextIdx];
       setHistoryIndex(nextIdx);
       setLayers(JSON.parse(JSON.stringify(targetState)));
+      updateActiveProjectData(old => ({
+        ...old,
+        layers: targetState
+      }));
       toast.showInfo('Undo executed');
     }
-  }, [historyIndex, history, toast]);
+  }, [historyIndex, history, toast, updateActiveProjectData]);
 
   const handleRedo = useCallback(() => {
     if (historyIndex < history.length - 1) {
@@ -362,9 +384,13 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
       const targetState = history[nextIdx];
       setHistoryIndex(nextIdx);
       setLayers(JSON.parse(JSON.stringify(targetState)));
+      updateActiveProjectData(old => ({
+        ...old,
+        layers: targetState
+      }));
       toast.showInfo('Redo executed');
     }
-  }, [historyIndex, history, toast]);
+  }, [historyIndex, history, toast, updateActiveProjectData]);
 
   // Keyboard Shortcuts Listener
   useEffect(() => {
@@ -970,7 +996,7 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
         });
       }
       const zipBlob = await makeZip(files);
-      downloadBlob(zipBlob, `GeoStudio_All_GIS_Layers_${Date.now()}.zip`);
+      downloadBlob(zipBlob, `BhuNexStudio_All_GIS_Layers_${Date.now()}.zip`);
       toast.showSuccess('Packaged and downloaded all GIS layers in a single ZIP.');
     } catch (err: any) {
       toast.showError('Failed to package all layers.');
@@ -1048,7 +1074,7 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
 
         offCv.toBlob(blob => {
           if (blob) {
-            downloadBlob(blob, `GeoStudio_Map_${multiplier}x_${Date.now()}.png`);
+            downloadBlob(blob, `BhuNexStudio_Map_${multiplier}x_${Date.now()}.png`);
             toast.showSuccess(`Exported ${multiplier}x High-Resolution Map PNG.`);
           }
         }, 'image/png');
@@ -1080,9 +1106,9 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
       doc.rect(15, 36, pdfOrientation === 'landscape' ? 267 : 180, pdfOrientation === 'landscape' ? 140 : 210);
 
       doc.setFontSize(9);
-      doc.text('Map canvas sheet generated with BhuNex GIS Map Studio', 15, pdfOrientation === 'landscape' ? 185 : 260);
+      doc.text('Map canvas sheet generated with BhuNex Studio GIS', 15, pdfOrientation === 'landscape' ? 185 : 260);
 
-      doc.save(`GeoStudio_Plan_${Date.now()}.pdf`);
+      doc.save(`BhuNexStudio_Plan_${Date.now()}.pdf`);
       toast.showSuccess('Generated official Map PDF document.');
     } catch (e: any) {
       toast.showError('Failed to generate PDF map.');

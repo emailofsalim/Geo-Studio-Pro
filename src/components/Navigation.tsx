@@ -23,10 +23,16 @@ import {
   Grid,
   Upload,
   Download,
-  Sparkles
+  Sparkles,
+  FolderKanban,
+  LayoutDashboard,
+  Pickaxe
 } from 'lucide-react';
+import { useProject } from '../context/ProjectContext';
 
 export type AppTabId =
+  | 'home'
+  | 'dashboard'
   | 'templates'
   | 'gis'
   | 'sensors'
@@ -81,23 +87,23 @@ interface NavigationProps {
 }
 
 export const APPS_CONFIG: AppDefinition[] = [
-  // 5 Primary Field & Core Apps (Pinned on Navigation Bar)
+  // Primary Navigation: Home / Projects & Core Modules
   {
-    id: 'templates',
-    name: 'Home & Templates',
-    shortName: 'Home',
+    id: 'home',
+    name: 'My Projects (Home)',
+    shortName: 'Projects',
     category: 'Primary',
-    description: 'Central project dashboard, industry schemas, standard survey templates & ZIP manager',
-    icon: FileSpreadsheet,
+    description: 'Manage isolated workspaces, create projects, switch active client survey or view archive',
+    icon: FolderKanban,
     isPrimary: true
   },
   {
-    id: 'camera',
-    name: 'GPS Map Camera',
-    shortName: 'Camera',
+    id: 'dashboard',
+    name: 'Project Dashboard',
+    shortName: 'Dashboard',
     category: 'Primary',
-    description: 'Field inspection camera with real-time HUD telemetry, satellite PIP, and geostamping',
-    icon: Camera,
+    description: 'Active project overview, modules catalog, statistics counters & data quick-actions',
+    icon: LayoutDashboard,
     isPrimary: true
   },
   {
@@ -110,6 +116,24 @@ export const APPS_CONFIG: AppDefinition[] = [
     isPrimary: true
   },
   {
+    id: 'gis',
+    name: 'GIS Map Studio',
+    shortName: 'GIS Map',
+    category: 'Primary',
+    description: 'Vector GIS canvas, layer styling, buffer generation, and high-res satellite imagery',
+    icon: Layers,
+    isPrimary: true
+  },
+  {
+    id: 'cad',
+    name: 'Cadastral Land Mapper',
+    shortName: 'Cadastral',
+    category: 'Primary',
+    description: 'Khasra parcel plots, land ownership register, area unit conversion & title schedules',
+    icon: Layers2,
+    isPrimary: true
+  },
+  {
     id: 'bore',
     name: 'Borehole Stratigraphy',
     shortName: 'Borehole',
@@ -119,12 +143,12 @@ export const APPS_CONFIG: AppDefinition[] = [
     isPrimary: true
   },
   {
-    id: 'gis',
-    name: 'GIS Map Studio',
-    shortName: 'GIS Map',
+    id: 'camera',
+    name: 'GPS Map Camera',
+    shortName: 'Camera',
     category: 'Primary',
-    description: 'Vector GIS canvas, layer styling, buffer generation, and high-res satellite imagery',
-    icon: Layers,
+    description: 'Field inspection camera with real-time HUD telemetry, satellite PIP, and geostamping',
+    icon: Camera,
     isPrimary: true
   },
 
@@ -170,14 +194,6 @@ export const APPS_CONFIG: AppDefinition[] = [
     category: 'Cadastre & Exploration',
     description: 'Indian revenue cadastral parcel digitizer with automatic area calculations',
     icon: Scan
-  },
-  {
-    id: 'cad',
-    name: 'Cadastral Mapper',
-    shortName: 'Cadastre',
-    category: 'Cadastre & Exploration',
-    description: 'Khatian tenancy register, village boundary plots, and land classification manager',
-    icon: Layers2
   },
 
   // More Options: Geometry & Tools
@@ -242,6 +258,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   openUniversalExport,
   workingZone = '45N'
 }) => {
+  const { activeProject, closeProject } = useProject();
   const mobileOpen = isOpen !== undefined ? isOpen : isMobileOpen;
   const [isMoreExpanded, setIsMoreExpanded] = useState<boolean>(true);
   const [isRailMoreMenuOpen, setIsRailMoreMenuOpen] = useState<boolean>(false);
@@ -316,6 +333,41 @@ export const Navigation: React.FC<NavigationProps> = ({
             </button>
           )}
         </div>
+
+        {/* Active Project Banner */}
+        {!isRail && activeProject && (
+          <div className="px-3 py-2.5 bg-[#141414] border-b border-white/[0.06]">
+            <div className="flex items-center justify-between gap-1 mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#c9a063] flex items-center gap-1">
+                <FolderKanban className="w-3 h-3" /> Active Project
+              </span>
+              <button
+                onClick={() => {
+                  closeProject();
+                  setActiveTab('home');
+                }}
+                className="text-[10px] text-slate-400 hover:text-white underline"
+                title="Switch Project"
+              >
+                Switch
+              </button>
+            </div>
+            <div
+              onClick={() => setActiveTab('dashboard')}
+              className="cursor-pointer group"
+              title="Click to view Project Dashboard"
+            >
+              <div className="text-xs font-bold text-white truncate group-hover:text-[#c9a063] transition-colors">
+                {activeProject.name}
+              </div>
+              <div className="text-[10px] text-slate-400 truncate flex items-center gap-1 mt-0.5">
+                <span>{activeProject.category}</span>
+                <span>•</span>
+                <span className="font-mono">{activeProject.workingZone}</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Navigation Items Scroll Area */}
         <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-2.5 space-y-3 custom-scrollbar">

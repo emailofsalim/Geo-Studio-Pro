@@ -185,7 +185,7 @@ export interface NfcSurveyMonument {
 
 export function formatNfcMonumentRecord(data: NfcSurveyMonument): string {
   return JSON.stringify({
-    app: 'GeoStudio-NFC-Survey',
+    app: 'BhuNexStudio-NFC-Survey',
     ver: '1.0',
     id: data.pointId,
     type: data.surveyType,
@@ -205,7 +205,7 @@ export function formatNfcMonumentRecord(data: NfcSurveyMonument): string {
 export function parseNfcMonumentRecord(text: string): NfcSurveyMonument | null {
   try {
     const obj = JSON.parse(text);
-    if (obj.app === 'GeoStudio-NFC-Survey' || obj.id || obj.pointId) {
+    if (obj.app === 'BhuNexStudio-NFC-Survey' || obj.app === 'GeoStudio-NFC-Survey' || obj.id || obj.pointId) {
       return {
         pointId: obj.id || obj.pointId || 'NFC-MARKER',
         surveyType: obj.type || obj.surveyType || 'Control Point',

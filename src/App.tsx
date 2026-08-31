@@ -14,6 +14,7 @@ import { SensorPrivacyMonitorModal } from './components/SensorPrivacyMonitorModa
 import { ExportFormatId, DetectedImportResult } from './lib/universalDataBridge';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useToast } from './context/ToastContext';
+import { useProject } from './context/ProjectContext';
 import { downloadBlob } from './lib/zip';
 import { saveSessionSnapshot, getLastAutoSaveMeta, loadLatestSessionSnapshot } from './lib/indexedDbStorage';
 
@@ -37,6 +38,7 @@ import { HelpFaqTab } from './components/HelpFaqTab';
 
 export function App() {
   const toast = useToast();
+  const { activeProject, activeProjectId, activeProjectData, updateActiveProjectData, saveActiveProjectWorkspace } = useProject();
 
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -91,34 +93,14 @@ export function App() {
     });
   }, []);
 
-  // 30-Second Periodic Session Auto-Save to IndexedDB
+  // 30-Second Periodic Session Auto-Save to IndexedDB Project Store
   useEffect(() => {
     const runAutoSave = async () => {
       try {
         setIsAutoSaving(true);
-        // Gather all workspace inputs and caches from localStorage
-        const appData: Record<string, any> = {};
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key) {
-            try {
-              const val = localStorage.getItem(key);
-              appData[key] = val ? JSON.parse(val) : val;
-            } catch {
-              appData[key] = localStorage.getItem(key);
-            }
-          }
-        }
-
-        const snapshot = await saveSessionSnapshot({
-          activeTab,
-          workingZone,
-          distanceUnit,
-          isDarkMode,
-          appData
-        });
-
-        setLastAutoSaveTimeString(snapshot.timeString);
+        await saveActiveProjectWorkspace();
+        const now = new Date().toLocaleTimeString();
+        setLastAutoSaveTimeString(now);
       } catch (err) {
         console.warn('Session auto-save error:', err);
       } finally {
@@ -129,7 +111,7 @@ export function App() {
     // Auto-save every 30 seconds (30000 ms)
     const interval = setInterval(runAutoSave, 30000);
     return () => clearInterval(interval);
-  }, [activeTab, workingZone, distanceUnit, isDarkMode]);
+  }, [saveActiveProjectWorkspace]);
 
   // Apply dark mode class to root HTML
   useEffect(() => {
@@ -267,20 +249,24 @@ export function App() {
   };
 
   const handleAddFeaturesToGis = (features: any[], layerName: string) => {
+    const projId = activeProjectId || 'project_pakhar_2026';
     const newLayer = {
       id: `layer_${Date.now()}`,
+      projectId: projId,
       name: layerName,
       visible: true,
       color: '#c9a063',
       fillColor: '#c9a063',
       fillOpacity: 0.35,
       strokeWidth: 2,
-      geomType: 'point',
-      features
+      geomType: 'point' as const,
+      features: features.map(f => ({ ...f, projectId: projId }))
     };
     try {
-      const existing = JSON.parse(localStorage.getItem('gis_studio_layers') || '[]');
-      localStorage.setItem('gis_studio_layers', JSON.stringify([newLayer, ...existing]));
+      updateActiveProjectData(old => ({
+        ...old,
+        layers: [newLayer, ...(old.layers || [])]
+      }));
       toast.showSuccess(`Transferred ${features.length} feature(s) to GIS Studio layer "${layerName}".`);
     } catch (err: any) {
       toast.showError(`Could not send features to GIS: ${err.message}`);
@@ -305,21 +291,25 @@ export function App() {
   };
 
   const handleUniversalImportComplete = (result: DetectedImportResult, destinationApp: string) => {
+    const projId = activeProjectId || 'project_pakhar_2026';
     if (destinationApp === 'gis' || destinationApp === 'studio') {
       try {
-        const existingLayers = JSON.parse(localStorage.getItem('gis_studio_layers') || '[]');
         const newLayer = {
           id: `layer_${Date.now()}`,
+          projectId: projId,
           name: result.formatName + ' (' + result.features.length + ' pts)',
           visible: true,
           color: '#c9a063',
           fillColor: '#c9a063',
           fillOpacity: 0.35,
           strokeWidth: 2,
-          geomType: result.polygonsCount > 0 ? 'polygon' : result.linesCount > 0 ? 'line' : 'point',
-          features: result.features
+          geomType: (result.polygonsCount > 0 ? 'polygon' : result.linesCount > 0 ? 'line' : 'point') as any,
+          features: result.features.map(f => ({ ...f, projectId: projId }))
         };
-        localStorage.setItem('gis_studio_layers', JSON.stringify([newLayer, ...existingLayers]));
+        updateActiveProjectData(old => ({
+          ...old,
+          layers: [newLayer, ...(old.layers || [])]
+        }));
         toast.showSuccess(`Imported ${result.featureCount} feature(s) into GIS Studio layer!`);
         setActiveTab('gis');
       } catch (err: any) {
@@ -327,11 +317,11 @@ export function App() {
       }
     } else if (destinationApp === 'gps') {
       try {
-        const existingWps = JSON.parse(localStorage.getItem('survey_waypoints') || '[]');
         const newWps = result.features.map((f, i) => {
           const pt = f.pts[0] || { a: 0, b: 0 };
           return {
-            id: f.name || `PT-${existingWps.length + i + 1}`,
+            id: f.name || `PT-${i + 1}`,
+            projectId: projId,
             code: (f.props?.code as string) || 'Imported Target',
             E: (f.props?.utmE as number) || (f.kind === 'en' ? pt.a : 0),
             N: (f.props?.utmN as number) || (f.kind === 'en' ? pt.b : 0),
@@ -345,7 +335,10 @@ export function App() {
             proximityRadius: 5
           };
         });
-        localStorage.setItem('survey_waypoints', JSON.stringify([...existingWps, ...newWps]));
+        updateActiveProjectData(old => ({
+          ...old,
+          waypoints: [...(old.waypoints || []), ...newWps]
+        }));
         toast.showSuccess(`Added ${newWps.length} target waypoint(s) to GNSS Field Surveyor!`);
         setActiveTab('gps');
       } catch (err: any) {
@@ -353,9 +346,10 @@ export function App() {
       }
     } else if (destinationApp === 'cad') {
       try {
-        const existingParcels = JSON.parse(localStorage.getItem('cadastral_parcels') || '[]');
         const newParcels = result.features.filter(f => f.geom === 'polygon' || f.pts.length >= 3).map((f, i) => ({
-          khasra: f.name || `${existingParcels.length + i + 101}`,
+          id: `parcel_${Date.now()}_${i}`,
+          projectId: projId,
+          khasra: f.name || `${i + 101}`,
           owner: (f.props?.owner as string) || (f.props?.Owner as string) || 'Imported Landowner',
           village: (f.props?.village as string) || 'Surveyed Mouza',
           status: 'verified',
@@ -368,7 +362,10 @@ export function App() {
           }))
         }));
         if (newParcels.length > 0) {
-          localStorage.setItem('cadastral_parcels', JSON.stringify([...existingParcels, ...newParcels]));
+          updateActiveProjectData(old => ({
+            ...old,
+            parcels: [...(old.parcels || []), ...newParcels]
+          }));
           toast.showSuccess(`Added ${newParcels.length} parcel(s) to Cadastral Mapper!`);
         } else {
           toast.showInfo(`Loaded ${result.featureCount} spatial geometries.`);

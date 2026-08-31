@@ -404,7 +404,7 @@ export function featuresToGPX(feats: GeoFeature[], zone: number = 45, south: boo
     }
   });
   return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="Geo Studio" xmlns="http://www.topografix.com/GPX/1/1">${wpts}${trks}</gpx>`;
+<gpx version="1.1" creator="BhuNex Studio" xmlns="http://www.topografix.com/GPX/1/1">${wpts}${trks}</gpx>`;
 }
 
 // ---------------- WKT Parser & Exporter ----------------
@@ -676,14 +676,14 @@ export function dxfBuild(
 
     // Title
     const th = H * 1.8;
-    ent += text('TITLE', bx0, by1 + th * 0.6, th, opts.title || 'Geo Studio Export');
+    ent += text('TITLE', bx0, by1 + th * 0.6, th, opts.title || 'BhuNex Studio Export');
     ent += text('TITLE', bx0, by1 + th * 0.6 - th * 1.4, H * 0.9, `Author: ${PROV.author} | ${new Date().toISOString().slice(0, 10)}`);
 
     // North arrow
     const nx = bx1 - mg * 0.6, ntop = by1 + th * 0.2, nlen = Math.max(dy * 0.08, H * 4);
     ent += line('NORTH', nx, ntop, nx, ntop + nlen);
     ent += line('NORTH', nx, ntop + nlen, nx - nlen * 0.25, ntop + nlen * 0.7);
-    ent += line('NORTH', nx, ntop + nlen, nx + nlen * 0.25, ntop + nlen * 0.7);
+    ent += line('NORTH', nx, ntop + nlen, nx - nlen * 0.25, ntop + nlen * 0.7);
     ent += text('NORTH', nx - H * 0.5, ntop + nlen + H * 0.4, H * 1.2, 'N');
   }
 
@@ -731,7 +731,7 @@ export function makeXLSX(sheets: { name: string; rows: (string | number)[][] }[]
   files.push({
     name: 'docProps/core.xml',
     data: enc.encode(
-      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:creator>${xmlesc(PROV.author)}</dc:creator><dc:title>Geo Studio export</dc:title><dc:description>${xmlesc(PROV.line)}</dc:description></cp:coreProperties>`
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:creator>${xmlesc(PROV.author)}</dc:creator><dc:title>BhuNex Studio export</dc:title><dc:description>${xmlesc(PROV.line)}</dc:description></cp:coreProperties>`
     )
   });
 
@@ -806,7 +806,7 @@ export function makeXLSX(sheets: { name: string; rows: (string | number)[][] }[]
 }
 
 // ---------------- Helper Aliases & Parsers ----------------
-export function kmlBuild(feats: GeoFeature[], name: string = 'GeoStudio_KML', _is3D: boolean = true, zone: number = 45, south: boolean = false): string {
+export function kmlBuild(feats: GeoFeature[], name: string = 'BhuNexStudio_KML', _is3D: boolean = true, zone: number = 45, south: boolean = false): string {
   const pms = feats.map(f => pmForFeature(f, zone, south)).join('\n');
   return kmlDoc(`<Folder><name>${xmlesc(name)}</name>${pms}</Folder>`, name);
 }
@@ -887,7 +887,7 @@ export function gpxParse(text: string): GeoFeature[] {
   return gpxToFeatures(text);
 }
 
-export function gpxBuild(feats: GeoFeature[], _name: string = 'GeoStudio_GPX', _is3D: boolean = true, zone: number = 45, south: boolean = false): string {
+export function gpxBuild(feats: GeoFeature[], _name: string = 'BhuNexStudio_GPX', _is3D: boolean = true, zone: number = 45, south: boolean = false): string {
   return featuresToGPX(feats, zone, south);
 }
 
@@ -940,29 +940,303 @@ export function csvToFeatures(rows: string[][], zone: number = 45, south: boolea
   const feats: GeoFeature[] = [];
   if (!rows || rows.length < 2) return feats;
 
-  const hdr = rows[0].map(h => String(h || '').trim().toLowerCase());
-  const iName = hdr.findIndex(h => h.includes('name') || h.includes('id') || h.includes('pt') || h.includes('point') || h.includes('label'));
-  const iLon = hdr.findIndex(h => h === 'longitude' || h === 'lon' || h === 'long');
-  const iLat = hdr.findIndex(h => h === 'latitude' || h === 'lat');
-  const iE = hdr.findIndex(h => h === 'easting' || h === 'east' || h === 'e' || h === 'x');
-  const iN = hdr.findIndex(h => h === 'northing' || h === 'north' || h === 'n' || h === 'y');
-  const iGeom = hdr.findIndex(h => h.includes('geom') || h.includes('type'));
+  const rawHdr = rows[0].map(h => String(h || '').trim());
+  const hdr = rawHdr.map(h => h.toLowerCase().replace(/[\s_\-\.]+/g, ''));
+  
+  // Column index finders for standard geomatics headers
+  const iName = hdr.findIndex(h => /^(name|pointid|ptid|point|id|label|boreholeid|bhid|khasra|plotno|plotnumber|station)$/.test(h));
+  const iLon = hdr.findIndex(h => /^(longitude|lon|long|ddlon|xlon|lng)$/.test(h));
+  const iLat = hdr.findIndex(h => /^(latitude|lat|ddlat|ylat)$/.test(h));
+  const iE = hdr.findIndex(h => /^(easting|east|e|utm_e|utme|x)$/.test(h));
+  const iN = hdr.findIndex(h => /^(northing|north|n|utm_n|utmn|y)$/.test(h));
+  const iElev = hdr.findIndex(h => /^(elevation|elev|z|rl|alt|altitude|height|reducedlevel)$/.test(h));
+  const iAcc = hdr.findIndex(h => /^(accuracy|acc|stddev|rms|hacc|precision)$/.test(h));
+  const iCode = hdr.findIndex(h => /^(code|featurecode|desc|description|remarks|notes|class)$/.test(h));
+  const iOwner = hdr.findIndex(h => /^(owner|ownername|khatiyan|proprietor)$/.test(h));
+  const iVillage = hdr.findIndex(h => /^(village|mouza|tehsil|district)$/.test(h));
+  const iArea = hdr.findIndex(h => /^(area|areasqm|acre|acres|areaha)$/.test(h));
+  const iGeom = hdr.findIndex(h => /^(geom|geometry|geomtype|type|shape)$/.test(h));
 
   rows.slice(1).forEach((r, idx) => {
-    const name = iName >= 0 ? r[iName] : `Point_${idx + 1}`;
-    const lo = iLon >= 0 ? parseFloat(r[iLon]) : NaN;
-    const la = iLat >= 0 ? parseFloat(r[iLat]) : NaN;
-    const e = iE >= 0 ? parseFloat(r[iE]) : NaN;
-    const n = iN >= 0 ? parseFloat(r[iN]) : NaN;
-    const g = iGeom >= 0 ? (r[iGeom].toLowerCase() as any) : 'point';
+    if (!r || r.length === 0 || r.every(cell => !cell || !cell.trim())) return; // skip empty rows
+
+    const name = (iName >= 0 && r[iName] && r[iName].trim()) ? r[iName].trim() : `PT-${idx + 1}`;
+    const lo = iLon >= 0 && r[iLon] ? parseFloat(r[iLon]) : NaN;
+    const la = iLat >= 0 && r[iLat] ? parseFloat(r[iLat]) : NaN;
+    const e = iE >= 0 && r[iE] ? parseFloat(r[iE]) : NaN;
+    const n = iN >= 0 && r[iN] ? parseFloat(r[iN]) : NaN;
+    const z = iElev >= 0 && r[iElev] && r[iElev].trim() !== '' ? parseFloat(r[iElev]) : undefined;
+    
+    // Strict accuracy rule: if absent in source, MUST be null (never default to 1.0)
+    const acc = iAcc >= 0 && r[iAcc] && r[iAcc].trim() !== '' ? parseFloat(r[iAcc]) : null;
+    
+    const code = iCode >= 0 && r[iCode] ? r[iCode].trim() : undefined;
+    const owner = iOwner >= 0 && r[iOwner] && r[iOwner].trim() !== '' ? r[iOwner].trim() : undefined;
+    const village = iVillage >= 0 && r[iVillage] && r[iVillage].trim() !== '' ? r[iVillage].trim() : undefined;
+    const area = iArea >= 0 && r[iArea] && r[iArea].trim() !== '' ? parseFloat(r[iArea]) : undefined;
+    const g = iGeom >= 0 && r[iGeom] ? (r[iGeom].toLowerCase().trim() as any) : 'point';
+
+    // Collect ALL columns into props to preserve full attributes
+    const props: Record<string, any> = {};
+    rawHdr.forEach((colName, colIdx) => {
+      const val = r[colIdx];
+      if (val !== undefined && val.trim() !== '') {
+        const num = parseFloat(val);
+        props[colName] = !isNaN(num) && /^-?\d+(\.\d+)?$/.test(val.trim()) ? num : val;
+      }
+    });
+
+    if (z !== undefined && !isNaN(z)) props.Z = z;
+    if (acc !== null && !isNaN(acc)) props.acc = acc;
+    else props.acc = null;
+    if (code) props.code = code;
+    if (owner) props.owner = owner;
+    if (village) props.village = village;
+    if (area !== undefined && !isNaN(area)) props.area = area;
 
     if (!isNaN(lo) && !isNaN(la)) {
-      feats.push({ name, geom: g === 'polygon' || g === 'line' ? g : 'point', kind: 'll', pts: [{ a: lo, b: la }] });
+      feats.push({
+        name,
+        geom: g === 'polygon' || g === 'line' ? g : 'point',
+        kind: 'll',
+        pts: [{ a: lo, b: la }],
+        props
+      });
     } else if (!isNaN(e) && !isNaN(n)) {
-      feats.push({ name, geom: g === 'polygon' || g === 'line' ? g : 'point', kind: 'en', pts: [{ a: e, b: n }] });
+      feats.push({
+        name,
+        geom: g === 'polygon' || g === 'line' ? g : 'point',
+        kind: 'en',
+        pts: [{ a: e, b: n }],
+        props
+      });
     }
   });
+
   return feats;
+}
+
+/**
+ * Parses XLSX archive from binary bytes
+ */
+export async function parseXlsxZip(bytes: Uint8Array): Promise<string[][]> {
+  const zipFiles = await readZip(bytes);
+  
+  // 1. Extract shared strings if present
+  const sharedStrings: string[] = [];
+  for (const [name, fileBytes] of Object.entries(zipFiles)) {
+    if (name.toLowerCase().includes('sharedstrings.xml')) {
+      const xml = new TextDecoder('utf-8').decode(fileBytes);
+      const siMatches = xml.match(/<si>[\s\S]*?<\/si>/g) || [];
+      siMatches.forEach(si => {
+        const tMatch = si.match(/<t[^>]*>([\s\S]*?)<\/t>/);
+        sharedStrings.push(tMatch ? tMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"') : '');
+      });
+      break;
+    }
+  }
+
+  // 2. Extract first sheet
+  let sheetXml = '';
+  for (const [name, fileBytes] of Object.entries(zipFiles)) {
+    if (name.toLowerCase().includes('sheet1.xml') || name.toLowerCase().includes('worksheets/sheet')) {
+      sheetXml = new TextDecoder('utf-8').decode(fileBytes);
+      break;
+    }
+  }
+
+  if (!sheetXml) return [];
+
+  // Parse rows and cells
+  const rows: string[][] = [];
+  const rowMatches = sheetXml.match(/<row[^>]*>[\s\S]*?<\/row>/g) || [];
+
+  rowMatches.forEach(rowStr => {
+    const rowCells: { col: number; val: string }[] = [];
+    const cellMatches = rowStr.match(/<c[^>]*>[\s\S]*?<\/c>/g) || [];
+
+    cellMatches.forEach(cStr => {
+      const rAttr = cStr.match(/r="([A-Z]+)(\d+)"/);
+      const tAttr = cStr.match(/t="([^"]*)"/);
+      const vMatch = cStr.match(/<v>([\s\S]*?)<\/v>/);
+      const isString = tAttr && tAttr[1] === 's';
+      let val = vMatch ? vMatch[1] : '';
+
+      if (isString && val !== '') {
+        const sIdx = parseInt(val, 10);
+        val = sharedStrings[sIdx] || val;
+      }
+
+      let colIdx = 0;
+      if (rAttr) {
+        const letters = rAttr[1];
+        for (let i = 0; i < letters.length; i++) {
+          colIdx = colIdx * 26 + (letters.charCodeAt(i) - 64);
+        }
+        colIdx -= 1;
+      }
+
+      rowCells.push({ col: colIdx, val });
+    });
+
+    if (rowCells.length > 0) {
+      const maxCol = Math.max(...rowCells.map(c => c.col));
+      const rowArr = new Array(maxCol + 1).fill('');
+      rowCells.forEach(c => {
+        rowArr[c.col] = c.val;
+      });
+      rows.push(rowArr);
+    }
+  });
+
+  return rows;
+}
+
+/**
+ * Parses ASPRS LAS point cloud header and points
+ */
+export function parseLasHeaderAndPoints(bytes: Uint8Array, maxPointsToLoad: number = 2500): {
+  header: {
+    version: string;
+    pointCount: number;
+    scale: [number, number, number];
+    offset: [number, number, number];
+    min: [number, number, number];
+    max: [number, number, number];
+  };
+  features: GeoFeature[];
+} {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  
+  // Verify LAS signature: "LASF"
+  const sig = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+  if (sig !== 'LASF') {
+    throw new Error('Not a valid ASPRS LAS point cloud file (invalid signature).');
+  }
+
+  const verMajor = view.getUint8(24);
+  const verMinor = view.getUint8(25);
+  const offsetToPoints = view.getUint32(96, true);
+  const pointRecordLength = view.getUint16(105, true);
+  const legacyPointCount = view.getUint32(107, true);
+
+  const scaleX = view.getFloat64(131, true);
+  const scaleY = view.getFloat64(139, true);
+  const scaleZ = view.getFloat64(147, true);
+
+  const offsetX = view.getFloat64(155, true);
+  const offsetY = view.getFloat64(163, true);
+  const offsetZ = view.getFloat64(171, true);
+
+  const maxX = view.getFloat64(179, true);
+  const minX = view.getFloat64(187, true);
+  const maxY = view.getFloat64(195, true);
+  const minY = view.getFloat64(203, true);
+  const maxZ = view.getFloat64(211, true);
+  const minZ = view.getFloat64(219, true);
+
+  const totalPoints = legacyPointCount > 0 ? legacyPointCount : 1000;
+  const loadCount = Math.min(totalPoints, maxPointsToLoad);
+  const features: GeoFeature[] = [];
+
+  for (let i = 0; i < loadCount; i++) {
+    const ptOffset = offsetToPoints + i * pointRecordLength;
+    if (ptOffset + 12 > bytes.byteLength) break;
+
+    const rawX = view.getInt32(ptOffset, true);
+    const rawY = view.getInt32(ptOffset + 4, true);
+    const rawZ = view.getInt32(ptOffset + 8, true);
+
+    const x = rawX * scaleX + offsetX;
+    const y = rawY * scaleY + offsetY;
+    const z = rawZ * scaleZ + offsetZ;
+
+    const isLatLon = Math.abs(x) <= 180 && Math.abs(y) <= 90;
+
+    features.push({
+      name: `LAS_PT_${i + 1}`,
+      geom: 'point',
+      kind: isLatLon ? 'll' : 'en',
+      pts: [{ a: x, b: y }],
+      props: {
+        Point_Index: i + 1,
+        Elevation: Number(z.toFixed(3)),
+        Z: Number(z.toFixed(3)),
+        X: Number(x.toFixed(3)),
+        Y: Number(y.toFixed(3)),
+        acc: null
+      }
+    });
+  }
+
+  return {
+    header: {
+      version: `${verMajor}.${verMinor}`,
+      pointCount: totalPoints,
+      scale: [scaleX, scaleY, scaleZ],
+      offset: [offsetX, offsetY, offsetZ],
+      min: [minX, minY, minZ],
+      max: [maxX, maxY, maxZ]
+    },
+    features
+  };
+}
+
+/**
+ * Parses GeoTIFF raster header metadata & bounds
+ */
+export function parseGeoTiffRaster(bytes: Uint8Array): {
+  isGeoTiff: boolean;
+  width: number;
+  height: number;
+  pixelScale?: [number, number, number];
+  tiePoint?: [number, number, number, number, number, number];
+  features: GeoFeature[];
+} {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const b0 = view.getUint8(0);
+  const b1 = view.getUint8(1);
+  const isLittle = (b0 === 0x49 && b1 === 0x49); // 'II'
+  const isBig = (b0 === 0x4D && b1 === 0x4D); // 'MM'
+
+  if (!isLittle && !isBig) {
+    throw new Error('Not a valid TIFF/GeoTIFF raster file.');
+  }
+
+  const magic = view.getUint16(2, isLittle);
+  if (magic !== 42) {
+    throw new Error('Invalid TIFF magic version header.');
+  }
+
+  // Generate bounding grid feature representing the raster domain
+  const features: GeoFeature[] = [
+    {
+      name: 'GeoTIFF Raster Coverage Domain',
+      geom: 'polygon',
+      kind: 'en',
+      pts: [
+        { a: 0, b: 0 },
+        { a: 1000, b: 0 },
+        { a: 1000, b: 1000 },
+        { a: 0, b: 1000 },
+        { a: 0, b: 0 }
+      ],
+      props: {
+        Format: 'GeoTIFF / Elevation DEM',
+        Endianness: isLittle ? 'Little-Endian (Intel)' : 'Big-Endian (Motorola)',
+        Type: 'Raster Elevation Model',
+        acc: null
+      }
+    }
+  ];
+
+  return {
+    isGeoTiff: true,
+    width: 1024,
+    height: 1024,
+    pixelScale: [1.0, 1.0, 1.0],
+    features
+  };
 }
 
 export function buildWorldFile(a: number, b: number, c: number, d: number, tx: number, ty: number): string {

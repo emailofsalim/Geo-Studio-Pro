@@ -27,7 +27,10 @@ import {
   makeXLSX,
   safeFileName,
   csvToFeatures,
-  cleanDxfText
+  cleanDxfText,
+  parseXlsxZip,
+  parseLasHeaderAndPoints,
+  parseGeoTiffRaster
 } from './formats';
 import { lonLatToUtm, utmToLonLat, polygonAreaPerimeter } from './geodesy';
 import { downloadBlob, makeZip, readZip } from './zip';
@@ -302,7 +305,7 @@ export const SUPPORTED_EXPORT_FORMATS: FormatMeta[] = [
   },
   {
     id: 'project',
-    name: 'GeoStudio Project Archive',
+    name: 'BhuNex Studio Project Archive',
     extension: '.json',
     mimeType: 'application/json',
     category: 'Archive',
@@ -316,7 +319,7 @@ export const SUPPORTED_EXPORT_FORMATS: FormatMeta[] = [
 export interface DetectedImportResult {
   formatId: string;
   formatName: string;
-  formatCategory: 'GIS' | 'CAD' | 'Google Earth' | 'GPS' | 'Spreadsheet' | 'Engineering' | 'Archive' | 'Unknown';
+  formatCategory: 'GIS' | 'CAD' | 'Google Earth' | 'GPS' | 'Spreadsheet' | 'Engineering' | 'Archive' | 'LiDAR' | 'Raster' | 'Unknown';
   extension: string;
   confidence: number;
   features: GeoFeature[];
@@ -325,6 +328,9 @@ export interface DetectedImportResult {
   linesCount: number;
   polygonsCount: number;
   attributeKeys: string[];
+  detectedCRS?: string;
+  crsStatus?: 'EXPLICIT' | 'INFERRED' | 'UNKNOWN';
+  detectedUnits?: 'm' | 'ft' | 'us-ft' | 'deg' | 'Unknown';
   boundingBox?: {
     minLat: number;
     maxLat: number;
@@ -339,6 +345,7 @@ export interface DetectedImportResult {
   projectData?: any;
   rawRows?: string[][];
   warnings?: string[];
+  errors?: string[];
   suggestedAppDestination: string;
 }
 
@@ -367,62 +374,182 @@ export async function detectAndParseGeospatialFile(
   const { zone, south } = parseUtmZoneStr(workingZoneStr);
   const warnings: string[] = [];
 
-  // 1. Handle Binary ZIP / Shapefile / KMZ files
-  if (fileName.endsWith('.kmz') || fileName.endsWith('.zip') || fileName.endsWith('.shp')) {
+  // 1. Handle Binary Formats (ZIP, BHNX, KMZ, Shapefile, XLSX, LAS, GeoTIFF)
+  if (
+    fileName.endsWith('.bhnx') ||
+    fileName.endsWith('.kmz') ||
+    fileName.endsWith('.zip') ||
+    fileName.endsWith('.shp') ||
+    fileName.endsWith('.xlsx') ||
+    fileName.endsWith('.las') ||
+    fileName.endsWith('.laz') ||
+    fileName.endsWith('.tif') ||
+    fileName.endsWith('.tiff')
+  ) {
     try {
       const buffer = await file.arrayBuffer();
+      const u8 = new Uint8Array(buffer);
 
-      // Check if KMZ
-      if (fileName.endsWith('.kmz')) {
-        const zipFiles = await readZip(buffer);
-        let kmlContent = '';
-        for (const [zName, zBytes] of Object.entries(zipFiles)) {
-          if (zName.toLowerCase().endsWith('.kml')) {
-            kmlContent = new TextDecoder('utf-8').decode(zBytes);
-            break;
-          }
-        }
-        if (kmlContent) {
-          const feats = kmlParse(kmlContent);
-          return buildDetectedResult('kmz', 'Google Earth KMZ Archive', 'Google Earth', '.kmz', 0.98, feats, 'gis', {
-            warnings
+      // Check ASPRS LAS Point Cloud
+      if (fileName.endsWith('.las') || fileName.endsWith('.laz') || (u8.length >= 4 && u8[0] === 0x4C && u8[1] === 0x41 && u8[2] === 0x53 && u8[3] === 0x46)) {
+        try {
+          const las = parseLasHeaderAndPoints(u8);
+          return buildDetectedResult('las', 'ASPRS LAS LiDAR Point Cloud', 'Engineering', '.las', 0.98, las.features, 'gis', {
+            warnings: [`Loaded ${las.features.length} point records from LAS v${las.header.version} cloud header.`],
+            detectedCRS: 'Projected Grid / LiDAR CRS',
+            crsStatus: 'INFERRED',
+            detectedUnits: 'm'
           });
+        } catch (lasErr: any) {
+          warnings.push(`LAS parser notice: ${lasErr.message}`);
         }
       }
 
-      // Check if Shapefile ZIP or standalone SHP
-      if (fileName.endsWith('.zip') || fileName.endsWith('.shp')) {
+      // Check GeoTIFF / TIFF Raster
+      if (fileName.endsWith('.tif') || fileName.endsWith('.tiff') || (u8.length >= 4 && ((u8[0] === 0x49 && u8[1] === 0x49) || (u8[0] === 0x4D && u8[1] === 0x4D)))) {
         try {
-          const parsed = await parseShapefile(new Uint8Array(buffer));
-          if (parsed && parsed.length > 0) {
-            return buildDetectedResult(
-              'shp',
-              'ESRI Shapefile Archive',
-              'GIS',
-              '.shp.zip',
-              0.96,
-              parsed,
-              'gis',
-              { warnings }
-            );
+          const tiff = parseGeoTiffRaster(u8);
+          return buildDetectedResult('geotiff', 'GeoTIFF Elevation Raster', 'GIS', '.tif', 0.95, tiff.features, 'gis', {
+            warnings: ['GeoTIFF raster bounding domain loaded for elevation analysis.'],
+            detectedCRS: 'WGS 84 / Projected Grid',
+            crsStatus: 'INFERRED',
+            detectedUnits: 'm'
+          });
+        } catch (tifErr: any) {
+          warnings.push(`GeoTIFF parser notice: ${tifErr.message}`);
+        }
+      }
+
+      // Check ZIP-based containers (BHNX, XLSX, KMZ, Shapefile ZIP)
+      if (u8.length >= 4 && u8[0] === 0x50 && u8[1] === 0x4B) {
+        const zipFiles = await readZip(buffer);
+
+        // Check for BHNX Canonical Package
+        if (fileName.endsWith('.bhnx') || zipFiles['manifest.json']) {
+          try {
+            const manifestBytes = zipFiles['manifest.json'];
+            if (manifestBytes) {
+              const manifestStr = new TextDecoder('utf-8').decode(manifestBytes);
+              const manifest = JSON.parse(manifestStr);
+              if (manifest.format === 'bhnx_package' || manifest.projectId) {
+                const projectBytes = zipFiles['project.json'];
+                const projectData = projectBytes ? JSON.parse(new TextDecoder('utf-8').decode(projectBytes)) : manifest;
+                return {
+                  formatId: 'bhnx',
+                  formatName: 'BhuNex Studio Canonical Package (.bhnx)',
+                  formatCategory: 'Archive',
+                  extension: '.bhnx',
+                  confidence: 1.0,
+                  features: [],
+                  featureCount: manifest.summary?.layersCount || Object.keys(projectData.storageDump || {}).length,
+                  pointsCount: manifest.summary?.waypointsCount || 0,
+                  linesCount: 0,
+                  polygonsCount: manifest.summary?.parcelsCount || 0,
+                  attributeKeys: Object.keys(manifest),
+                  detectedCRS: manifest.crs?.name || 'WGS 84 / UTM Zone 45N',
+                  crsStatus: 'EXPLICIT',
+                  detectedUnits: 'm',
+                  projectData,
+                  suggestedAppDestination: 'project_restore',
+                  warnings
+                };
+              }
+            }
+          } catch (bhnxErr: any) {
+            warnings.push(`BHNX archive parse warning: ${bhnxErr.message}`);
           }
-        } catch (shpErr: any) {
-          // If shapefile parse failed, check if zip contains other recognized files (e.g. kml, dxf, geojson)
-          const zipFiles = await readZip(buffer);
+        }
+
+        // Check for Microsoft Excel (.xlsx)
+        if (fileName.endsWith('.xlsx') || zipFiles['xl/worksheets/sheet1.xml']) {
+          try {
+            const rows = await parseXlsxZip(u8);
+            if (rows.length >= 2) {
+              const feats = csvToFeatures(rows, zone, south);
+              return {
+                formatId: 'xlsx',
+                formatName: 'Microsoft Excel Workbook (.xlsx)',
+                formatCategory: 'Spreadsheet',
+                extension: '.xlsx',
+                confidence: 0.96,
+                features: feats,
+                featureCount: feats.length,
+                pointsCount: feats.filter(f => f.geom === 'point').length,
+                linesCount: feats.filter(f => f.geom === 'line').length,
+                polygonsCount: feats.filter(f => f.geom === 'polygon').length,
+                attributeKeys: rows[0] || [],
+                rawRows: rows,
+                detectedCRS: feats.some(f => f.kind === 'll') ? 'WGS 84 (EPSG:4326)' : (feats.length > 0 ? `WGS 84 / UTM Zone ${zone}${south ? 'S' : 'N'}` : 'CRS UNKNOWN'),
+                crsStatus: feats.some(f => f.kind === 'll') ? 'EXPLICIT' : 'INFERRED',
+                detectedUnits: feats.some(f => f.kind === 'll') ? 'deg' : 'm',
+                boundingBox: computeBoundingBox(feats),
+                suggestedAppDestination: 'gps',
+                warnings
+              };
+            }
+          } catch (xlsxErr: any) {
+            warnings.push(`XLSX parse warning: ${xlsxErr.message}`);
+          }
+        }
+
+        // Check for KMZ
+        if (fileName.endsWith('.kmz')) {
+          let kmlContent = '';
           for (const [zName, zBytes] of Object.entries(zipFiles)) {
-            const innerName = zName.toLowerCase();
-            const innerText = new TextDecoder('utf-8').decode(zBytes);
-            if (innerName.endsWith('.kml')) {
-              const feats = kmlParse(innerText);
-              return buildDetectedResult('kml', 'Zipped KML Document', 'Google Earth', '.kml', 0.92, feats, 'gis');
+            if (zName.toLowerCase().endsWith('.kml')) {
+              kmlContent = new TextDecoder('utf-8').decode(zBytes);
+              break;
             }
-            if (innerName.endsWith('.geojson') || innerName.endsWith('.json')) {
-              const feats = geoJsonParse(innerText);
-              return buildDetectedResult('geojson', 'Zipped GeoJSON', 'GIS', '.geojson', 0.92, feats, 'gis');
+          }
+          if (kmlContent) {
+            const feats = kmlParse(kmlContent);
+            return buildDetectedResult('kmz', 'Google Earth KMZ Archive', 'Google Earth', '.kmz', 0.98, feats, 'gis', {
+              warnings,
+              detectedCRS: 'WGS 84 (EPSG:4326)',
+              crsStatus: 'EXPLICIT',
+              detectedUnits: 'deg'
+            });
+          }
+        }
+
+        // Check for Shapefile ZIP
+        if (fileName.endsWith('.zip') || fileName.endsWith('.shp')) {
+          try {
+            const parsed = await parseShapefile(u8);
+            if (parsed && parsed.length > 0) {
+              return buildDetectedResult(
+                'shp',
+                'ESRI Shapefile Archive',
+                'GIS',
+                '.shp.zip',
+                0.96,
+                parsed,
+                'gis',
+                {
+                  warnings,
+                  detectedCRS: 'WGS 84 (EPSG:4326)',
+                  crsStatus: 'EXPLICIT',
+                  detectedUnits: 'deg'
+                }
+              );
             }
-            if (innerName.endsWith('.dxf')) {
-              const feats = dxfParse(innerText);
-              return buildDetectedResult('dxf', 'Zipped AutoCAD DXF', 'CAD', '.dxf', 0.92, feats, 'cad');
+          } catch (shpErr: any) {
+            // Fallback: check inner files
+            for (const [zName, zBytes] of Object.entries(zipFiles)) {
+              const innerName = zName.toLowerCase();
+              const innerText = new TextDecoder('utf-8').decode(zBytes);
+              if (innerName.endsWith('.kml')) {
+                const feats = kmlParse(innerText);
+                return buildDetectedResult('kml', 'Zipped KML Document', 'Google Earth', '.kml', 0.92, feats, 'gis');
+              }
+              if (innerName.endsWith('.geojson') || innerName.endsWith('.json')) {
+                const feats = geoJsonParse(innerText);
+                return buildDetectedResult('geojson', 'Zipped GeoJSON', 'GIS', '.geojson', 0.92, feats, 'gis');
+              }
+              if (innerName.endsWith('.dxf')) {
+                const feats = dxfParse(innerText);
+                return buildDetectedResult('dxf', 'Zipped AutoCAD DXF', 'CAD', '.dxf', 0.92, feats, 'cad');
+              }
             }
           }
         }
@@ -436,14 +563,14 @@ export async function detectAndParseGeospatialFile(
   const textContent = await file.text();
   const trimmed = stripBOM(textContent).trim();
 
-  // A. Check for GeoStudio Project JSON
+  // A. Check for Project JSON Backup
   if (trimmed.startsWith('{')) {
     try {
       const parsedJson = JSON.parse(trimmed);
       if (parsedJson.storageDump || (parsedJson.version && parsedJson.settings)) {
         return {
           formatId: 'project',
-          formatName: 'GeoStudio Full Project Backup',
+          formatName: 'BhuNex Studio Full Project Backup',
           formatCategory: 'Archive',
           extension: '.json',
           confidence: 1.0,
@@ -453,6 +580,9 @@ export async function detectAndParseGeospatialFile(
           linesCount: 0,
           polygonsCount: 0,
           attributeKeys: Object.keys(parsedJson.settings || {}),
+          detectedCRS: 'WGS 84 / UTM Zone 45N',
+          crsStatus: 'EXPLICIT',
+          detectedUnits: 'm',
           projectData: parsedJson,
           suggestedAppDestination: 'project_restore',
           warnings
@@ -463,15 +593,22 @@ export async function detectAndParseGeospatialFile(
       if (parsedJson.type === 'Topology' || parsedJson.objects) {
         const feats = topoJsonParse(trimmed);
         return buildDetectedResult('topojson', 'TopoJSON Topology Mesh', 'GIS', '.topojson', 0.95, feats, 'gis', {
-          warnings
+          warnings,
+          detectedCRS: 'WGS 84 (EPSG:4326)',
+          crsStatus: 'EXPLICIT',
+          detectedUnits: 'deg'
         });
       }
 
       // Check for GeoJSON
       if (parsedJson.type === 'FeatureCollection' || parsedJson.type === 'Feature' || parsedJson.features || parsedJson.geometry) {
         const feats = geoJsonParse(trimmed);
+        const crsName = parsedJson.crs?.properties?.name || 'WGS 84 (EPSG:4326)';
         return buildDetectedResult('geojson', 'OGC GeoJSON FeatureCollection', 'GIS', '.geojson', 0.98, feats, 'gis', {
-          warnings
+          warnings,
+          detectedCRS: crsName,
+          crsStatus: parsedJson.crs ? 'EXPLICIT' : 'INFERRED',
+          detectedUnits: crsName.includes('4326') || crsName.includes('CRS84') ? 'deg' : 'm'
         });
       }
     } catch {
@@ -485,7 +622,10 @@ export async function detectAndParseGeospatialFile(
     if (trimmed.includes('<kml') || trimmed.includes('<Placemark') || trimmed.includes('<Document')) {
       const feats = kmlParse(trimmed);
       return buildDetectedResult('kml', 'Google Earth KML Document', 'Google Earth', '.kml', 0.97, feats, 'gis', {
-        warnings
+        warnings,
+        detectedCRS: 'WGS 84 (EPSG:4326)',
+        crsStatus: 'EXPLICIT',
+        detectedUnits: 'deg'
       });
     }
 
@@ -493,7 +633,10 @@ export async function detectAndParseGeospatialFile(
     if (trimmed.includes('<gpx') || trimmed.includes('<wpt') || trimmed.includes('<trk') || trimmed.includes('<rte')) {
       const feats = gpxParse(trimmed);
       return buildDetectedResult('gpx', 'GPS Exchange Format (GPX)', 'GPS', '.gpx', 0.97, feats, 'gps', {
-        warnings
+        warnings,
+        detectedCRS: 'WGS 84 (EPSG:4326)',
+        crsStatus: 'EXPLICIT',
+        detectedUnits: 'deg'
       });
     }
 
@@ -501,7 +644,10 @@ export async function detectAndParseGeospatialFile(
     if (trimmed.includes('<LandXML') || trimmed.includes('<Parcels') || trimmed.includes('<Alignments') || trimmed.includes('<CogoPoints')) {
       const feats = landXmlParse(trimmed);
       return buildDetectedResult('landxml', 'LandXML Civil Engineering', 'Engineering', '.landxml', 0.95, feats, 'cad', {
-        warnings
+        warnings,
+        detectedCRS: `WGS 84 / UTM Zone ${zone}${south ? 'S' : 'N'}`,
+        crsStatus: 'INFERRED',
+        detectedUnits: 'm'
       });
     }
 
@@ -509,7 +655,10 @@ export async function detectAndParseGeospatialFile(
     if (trimmed.includes('<osm') || trimmed.includes('<node') || trimmed.includes('<way')) {
       const feats = osmXmlParse(trimmed);
       return buildDetectedResult('osm', 'OpenStreetMap XML', 'GIS', '.osm', 0.92, feats, 'gis', {
-        warnings
+        warnings,
+        detectedCRS: 'WGS 84 (EPSG:4326)',
+        crsStatus: 'EXPLICIT',
+        detectedUnits: 'deg'
       });
     }
 
@@ -517,7 +666,10 @@ export async function detectAndParseGeospatialFile(
     if (trimmed.includes('<gml:') || trimmed.includes('xmlns:gml') || trimmed.includes('<CityModel')) {
       const feats = gmlXmlParse(trimmed);
       return buildDetectedResult('gml', 'Geography Markup Language (GML)', 'GIS', '.gml', 0.9, feats, 'gis', {
-        warnings
+        warnings,
+        detectedCRS: 'WGS 84 / UTM Projected Grid',
+        crsStatus: 'INFERRED',
+        detectedUnits: 'm'
       });
     }
   }
@@ -532,8 +684,12 @@ export async function detectAndParseGeospatialFile(
     trimmed.includes('0\nLWPOLYLINE')
   ) {
     const feats = dxfParse(trimmed);
+    const hasProjectedCoords = feats.some(f => f.pts.some(p => p.a > 100000 && p.b > 100000));
     return buildDetectedResult('dxf', 'AutoCAD DXF Vector Drawing', 'CAD', '.dxf', 0.96, feats, 'cad', {
-      warnings
+      warnings: hasProjectedCoords ? [] : ['DXF drawing coordinates appear to use a local or custom CAD origin.'],
+      detectedCRS: hasProjectedCoords ? `WGS 84 / UTM Zone ${zone}${south ? 'S' : 'N'}` : 'CRS UNKNOWN (Local CAD Grid)',
+      crsStatus: hasProjectedCoords ? 'INFERRED' : 'UNKNOWN',
+      detectedUnits: 'm'
     });
   }
 
@@ -543,8 +699,12 @@ export async function detectAndParseGeospatialFile(
     fileName.endsWith('.wkt')
   ) {
     const feats = wktParse(trimmed);
+    const isLatLon = feats.some(f => f.kind === 'll');
     return buildDetectedResult('wkt', 'OGC Well-Known Text (WKT)', 'GIS', '.wkt', 0.94, feats, 'gis', {
-      warnings
+      warnings,
+      detectedCRS: isLatLon ? 'WGS 84 (EPSG:4326)' : `WGS 84 / UTM Zone ${zone}${south ? 'S' : 'N'}`,
+      crsStatus: isLatLon ? 'EXPLICIT' : 'INFERRED',
+      detectedUnits: isLatLon ? 'deg' : 'm'
     });
   }
 
@@ -554,7 +714,10 @@ export async function detectAndParseGeospatialFile(
       const feats = surpacMiningStringParse(trimmed);
       if (feats.length > 0) {
         return buildDetectedResult('str', 'Surpac Mining String (.str)', 'Engineering', '.str', 0.9, feats, 'bore', {
-          warnings
+          warnings,
+          detectedCRS: `WGS 84 / UTM Zone ${zone}${south ? 'S' : 'N'}`,
+          crsStatus: 'INFERRED',
+          detectedUnits: 'm'
         });
       }
     } catch {}
@@ -566,7 +729,10 @@ export async function detectAndParseGeospatialFile(
       const feats = asciiGridDemParse(fileName, trimmed, zone, south);
       if (feats.length > 0) {
         return buildDetectedResult('asc', 'ASCII Elevation Grid DEM', 'GIS', '.asc', 0.91, feats, 'gis', {
-          warnings
+          warnings,
+          detectedCRS: `WGS 84 / UTM Zone ${zone}${south ? 'S' : 'N'}`,
+          crsStatus: 'INFERRED',
+          detectedUnits: 'm'
         });
       }
     } catch {}
@@ -578,7 +744,10 @@ export async function detectAndParseGeospatialFile(
       const feats = mapinfoMifMidParse(trimmed, '');
       if (feats.length > 0) {
         return buildDetectedResult('mif', 'MapInfo MIF/MID Vector', 'GIS', '.mif', 0.9, feats, 'gis', {
-          warnings
+          warnings,
+          detectedCRS: `WGS 84 / UTM Zone ${zone}${south ? 'S' : 'N'}`,
+          crsStatus: 'INFERRED',
+          detectedUnits: 'm'
         });
       }
     } catch {}
@@ -590,6 +759,12 @@ export async function detectAndParseGeospatialFile(
     if (rows.length >= 2) {
       const feats = csvToFeatures(rows, zone, south);
       const headerRow = rows[0] || [];
+      const hasLatLon = feats.some(f => f.kind === 'll');
+      const hasProjected = feats.some(f => f.kind === 'en' && f.pts.some(p => p.a > 100000 && p.b > 100000));
+      
+      const crsStatus = hasLatLon ? 'EXPLICIT' : (hasProjected ? 'INFERRED' : 'UNKNOWN');
+      const detectedCRS = hasLatLon ? 'WGS 84 (EPSG:4326)' : (hasProjected ? `WGS 84 / UTM Zone ${zone}${south ? 'S' : 'N'}` : 'CRS UNKNOWN');
+
       return {
         formatId: 'csv',
         formatName: 'CSV Coordinate Table',
@@ -603,9 +778,12 @@ export async function detectAndParseGeospatialFile(
         polygonsCount: feats.filter(f => f.geom === 'polygon').length,
         attributeKeys: headerRow,
         rawRows: rows,
+        detectedCRS,
+        crsStatus,
+        detectedUnits: hasLatLon ? 'deg' : 'm',
         boundingBox: computeBoundingBox(feats),
         suggestedAppDestination: feats.length > 0 ? 'gps' : 'convert',
-        warnings
+        warnings: crsStatus === 'UNKNOWN' ? ['Coordinates could not be mapped to standard geographic or UTM ranges. Please confirm the coordinate system.'] : warnings
       };
     }
   } catch {}
@@ -623,6 +801,9 @@ export async function detectAndParseGeospatialFile(
     linesCount: 0,
     polygonsCount: 0,
     attributeKeys: [],
+    detectedCRS: 'CRS UNKNOWN',
+    crsStatus: 'UNKNOWN',
+    detectedUnits: 'Unknown',
     suggestedAppDestination: 'gis',
     warnings: ['Could not automatically recognize vector geometry or table structure in this file.']
   };
@@ -634,12 +815,18 @@ export async function detectAndParseGeospatialFile(
 function buildDetectedResult(
   formatId: string,
   formatName: string,
-  formatCategory: 'GIS' | 'CAD' | 'Google Earth' | 'GPS' | 'Spreadsheet' | 'Engineering' | 'Archive' | 'Unknown',
+  formatCategory: 'GIS' | 'CAD' | 'Google Earth' | 'GPS' | 'Spreadsheet' | 'Engineering' | 'Archive' | 'LiDAR' | 'Raster' | 'Unknown',
   extension: string,
   confidence: number,
   features: GeoFeature[],
   suggestedAppDestination: string,
-  extra: { warnings?: string[]; zoneDetected?: string } = {}
+  extra: {
+    warnings?: string[];
+    zoneDetected?: string;
+    detectedCRS?: string;
+    crsStatus?: 'EXPLICIT' | 'INFERRED' | 'UNKNOWN';
+    detectedUnits?: 'm' | 'ft' | 'us-ft' | 'deg' | 'Unknown';
+  } = {}
 ): DetectedImportResult {
   let pointsCount = 0;
   let linesCount = 0;
@@ -668,6 +855,9 @@ function buildDetectedResult(
     linesCount,
     polygonsCount,
     attributeKeys: Array.from(attrSet),
+    detectedCRS: extra.detectedCRS,
+    crsStatus: extra.crsStatus || (extra.detectedCRS ? 'EXPLICIT' : 'UNKNOWN'),
+    detectedUnits: extra.detectedUnits || 'm',
     boundingBox: computeBoundingBox(features),
     suggestedAppDestination,
     zoneDetected: extra.zoneDetected,
@@ -916,7 +1106,7 @@ export async function executeUniversalExport(options: UniversalExportOptions): P
             ['Total Features', exportFeatures.length],
             ['Total Points', rows.length],
             ['Working UTM Zone', `UTM ${zone}${south ? 'S' : 'N'}`],
-            ['Software', 'BhuStudio Universal Geomatics Suite']
+            ['Software', 'BhuNex Studio Universal Geomatics Suite']
           ]
         }
       ]);
@@ -1026,7 +1216,7 @@ ${parcelsXml}  </Parcels>
       // Build Surpac .str format
       let strLines: string[] = [];
       strLines.push(`Surpac Geological String File, ${cleanBase}, 1`);
-      strLines.push(`0, 0.0, 0.0, 0.0, Generated by BhuStudio Universal Engine, ${new Date().toISOString()}`);
+      strLines.push(`0, 0.0, 0.0, 0.0, Generated by BhuNex Studio Universal Engine, ${new Date().toISOString()}`);
       
       let stringNum = 1;
       exportFeatures.forEach((f, fIdx) => {

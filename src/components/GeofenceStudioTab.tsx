@@ -48,6 +48,7 @@ import {
   HAPTIC_PATTERNS
 } from '../lib/haptics';
 import { useToast } from '../context/ToastContext';
+import { useProject } from '../context/ProjectContext';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import {
   getTileUrl,
@@ -250,30 +251,28 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
   const toast = useToast();
   const managedResource = useManagedResource('geofence_studio_tab', 'Geofence Breach & Proximity Radar');
   const isDark = useIsDarkMode();
+  const { activeProject, activeProjectId, activeProjectData, updateActiveProjectData } = useProject();
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
 
-  // Geofence Zones State
+  // Project-Isolated Geofence Zones State
   const [zones, setZones] = useState<GeofenceZone[]>(() => {
-    try {
-      const saved = localStorage.getItem('geo_geofence_zones');
-      return saved ? JSON.parse(saved) : SAMPLE_GEOFENCES;
-    } catch {
-      return SAMPLE_GEOFENCES;
-    }
+    return activeProjectData?.geofences && activeProjectData.geofences.length > 0
+      ? activeProjectData.geofences
+      : SAMPLE_GEOFENCES;
   });
+
+  // Sync zones when active project changes
+  useEffect(() => {
+    if (activeProjectData?.geofences) {
+      setZones(activeProjectData.geofences);
+    }
+  }, [activeProjectId, activeProjectData?.geofences]);
 
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(zones[0]?.id || null);
   const [isEditingZone, setIsEditingZone] = useState<boolean>(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [vibrationEnabled, setVibrationEnabled] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem('geo_geofence_haptics');
-      return saved !== null ? saved === 'true' : true;
-    } catch {
-      return true;
-    }
-  });
+  const [vibrationEnabled, setVibrationEnabled] = useState<boolean>(true);
 
   // Live Position / Rover State
   const [trackingMode, setTrackingMode] = useState<'sim' | 'gps' | 'idle'>('sim');
@@ -331,10 +330,17 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
     hasMoved: false
   });
 
-  // Persist Zones
+  // Persist Zones to active project
   useEffect(() => {
-    localStorage.setItem('geo_geofence_zones', JSON.stringify(zones));
-  }, [zones]);
+    if (activeProjectId) {
+      const currentProjId = activeProjectId || activeProject?.id || 'project_pakhar_2026';
+      const scopedZones = zones.map(z => ({ ...z, projectId: currentProjId }));
+      updateActiveProjectData(old => ({
+        ...old,
+        geofences: scopedZones
+      }));
+    }
+  }, [zones, activeProjectId, activeProject, updateActiveProjectData]);
 
   // Convert all coordinates to UTM for accurate metric spatial math
   const metricZones = useMemo(() => {
