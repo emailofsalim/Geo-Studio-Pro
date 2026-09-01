@@ -399,10 +399,10 @@ export const GisToolbar: React.FC<GisToolbarProps> = ({
         <button
           onClick={onOpenAiCopilot}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 hover:from-amber-500/30 hover:to-yellow-500/30 border border-amber-500/40 text-amber-500 dark:text-amber-300 font-bold text-xs rounded-xl shadow-sm transition-all"
-          title="Open Smart AI Spatial Copilot"
+          title="Spatial Copilot — generate parcels, grids and buffers on this map"
         >
           <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-          <span>AI Copilot</span>
+          <span>Spatial Copilot</span>
         </button>
 
         {/* Export Map */}

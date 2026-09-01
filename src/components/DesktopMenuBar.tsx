@@ -679,7 +679,7 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
           <button
             onClick={openAiCopilot}
             className="h-8 px-2.5 rounded-md bg-[#c9a063]/10 hover:bg-[#c9a063]/20 border border-[#c9a063]/30 text-[#c9a063] hover:text-[#d6b074] flex items-center gap-1.5 transition-all text-xs font-semibold shadow-xs"
-            title="Open AI Geomatics Assistant"
+            title="Geomatics Assistant — ask questions about surveying, CRS and formats"
           >
             <Sparkles className="w-3.5 h-3.5 text-[#c9a063] animate-pulse" />
             <span className="hidden sm:inline">AI Copilot</span>
