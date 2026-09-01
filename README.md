@@ -41,10 +41,12 @@ src/
   engines/     Domain engines, independent of React
     crs.js       Coordinate reference systems, projections, datums, zone detection
     mining.ts    Bench geometry, drill pattern, blast design, stockpiles, reserves
+    tin.ts       Delaunay TIN surfaces: areas, volumes, surface comparison, contours
     reports.ts   Print-ready report generation
   lib/         Computation and IO
     crsIdentity.ts     CRS naming, EPSG codes, the zone catalogue
     geodesy.ts         Survey mathematics: traverse, levelling, curves, volumes
+    surfacePointText.ts Reads a pasted E, N, RL point list
     formats.ts         Format readers and writers
     universalDataBridge.ts  Central import detection and export routing
     parseClient.ts     Import front door; offloads large files to a worker
@@ -126,11 +128,13 @@ Stated honestly, because a planned capability presented as an existing one is a 
 **Working:** Vincenty distance and bearing · UTM forward/inverse · MGRS · Plus Codes ·
 Indian Grid zones · Bursa-Wolf datum transforms · Helmert fit · Bowditch traverse
 adjustment · differential levelling · circular curves · resection · grid-to-ground
-correction · end-area and DTM grid volumes · boundary offset · topology checks ·
+correction · end-area and DTM grid volumes · Delaunay TIN surfaces from surveyed
+points, with plan and 3D surface area, volume to a stated datum, surface-to-surface
+comparison and marching-triangle contours · boundary offset · topology checks ·
 borehole logging with grades · cadastral digitising with GCP georeferencing and
 residuals · GNSS averaging · bench and overall slope geometry · drill pattern
-layout · blast charge and powder factor · stockpile volumes · block reserves and
-stripping ratio.
+layout · blast charge and powder factor · stockpile volumes from either measured
+cone/frustum dimensions or a surveyed pickup · block reserves and stripping ratio.
 
 **Partial:** Bluetooth RTK (link and GATT plumbing; no NTRIP client, no RTCM decoding) ·
 pit modelling (bench and wall geometry are calculated, but there is no 3D pit shell or
@@ -139,10 +143,11 @@ clouds (uncompressed LAS ingest, subsampled; no rendering or classification) ·
 theodolite, spirit level and AR stakeout (device-sensor views, not instrument protocols) ·
 serial and HID (device selection; no total-station protocol layer).
 
-**Not implemented:** haul-road design · stockpile volumes from a surveyed surface
-(the current calculation is from measured cone or frustum dimensions, not a point
-cloud) · production, dispatch and reconciliation · drone photogrammetry · DSM/DTM
-raster pipelines · 3D visualisation · TIN surfaces.
+**Not implemented:** haul-road design · production, dispatch and reconciliation ·
+drone photogrammetry · DSM/DTM raster pipelines · 3D visualisation · breaklines and
+hard edges in a TIN (the triangulation is unconstrained, so a crest or a toe line is
+respected only where points are dense enough along it) · contour smoothing and
+labelling (contours are returned as raw segments, not linked and annotated polylines).
 
 ## Import and export
 

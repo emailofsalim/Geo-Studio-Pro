@@ -9,6 +9,8 @@ import {
   frustumStockpile,
   blockReserve
 } from '../engines/mining';
+import { buildTin, planArea, surfaceArea3D, volumeToDatum } from '../engines/tin';
+import { parseSurfacePoints } from '../lib/surfacePointText';
 import { crsLabelFor, isValidZone } from '../lib/crsIdentity';
 
 interface MiningStudioTabProps {
@@ -110,11 +112,25 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
   const [stemming, setStemming] = useState('3');
 
   // Stockpile
-  const [pileShape, setPileShape] = useState<'cone' | 'frustum'>('cone');
+  const [pileMethod, setPileMethod] = useState<'cone' | 'frustum' | 'surface'>('cone');
   const [baseR, setBaseR] = useState('12');
   const [topR, setTopR] = useState('4');
   const [pileH, setPileH] = useState('7');
   const [looseDensity, setLooseDensity] = useState('1600');
+
+  // Stockpile from a surveyed surface
+  const [surfaceText, setSurfaceText] = useState(
+    [
+      '# Stockpile pickup: E, N, RL in the project CRS. One point per line.',
+      '254800.00, 2605200.00, 100.00',
+      '254824.00, 2605200.00, 100.00',
+      '254824.00, 2605224.00, 100.00',
+      '254800.00, 2605224.00, 100.00',
+      '254812.00, 2605212.00, 107.00'
+    ].join('\n')
+  );
+  const [datumMode, setDatumMode] = useState<'toe' | 'rl'>('toe');
+  const [datumRl, setDatumRl] = useState('100');
 
   // Reserve
   const [resArea, setResArea] = useState('50000');
@@ -173,12 +189,83 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
   const pile = useMemo<Calc<ReturnType<typeof conicalStockpile>>>(
     () =>
       safe(() =>
-        pileShape === 'cone'
-          ? conicalStockpile(num(baseR), num(pileH), num(looseDensity))
-          : frustumStockpile(num(baseR), num(topR), num(pileH), num(looseDensity))
+        pileMethod === 'frustum'
+          ? frustumStockpile(num(baseR), num(topR), num(pileH), num(looseDensity))
+          : conicalStockpile(num(baseR), num(pileH), num(looseDensity))
       ),
-    [pileShape, baseR, topR, pileH, looseDensity]
+    [pileMethod, baseR, topR, pileH, looseDensity]
   );
+
+  /**
+   * Stockpile measured from its surveyed surface.
+   *
+   * The datum is stated, never inferred from the shape of the data beyond the
+   * explicit "lowest surveyed point" option, because the volume is entirely a
+   * function of where the toe is taken to be.
+   */
+  const surface = useMemo(() => {
+    const { pts, rejected } = parseSurfacePoints(surfaceText);
+    if (pts.length < 3) {
+      return {
+        ok: false as const,
+        error: 'A surface needs at least three points, given as E, N, RL on separate lines.',
+        rejected
+      };
+    }
+
+    const built = safe(() => buildTin(pts));
+    if (!built.ok) return { ok: false as const, error: built.error, rejected };
+    const tin = built.value;
+
+    const lowest = Math.min(...tin.points.map(p => p.z));
+    const highest = Math.max(...tin.points.map(p => p.z));
+    const datumZ = datumMode === 'toe' ? lowest : num(datumRl, lowest);
+
+    const vol = volumeToDatum(tin, datumZ);
+    const density = num(looseDensity);
+
+    const warnings: string[] = [];
+    if (tin.duplicatesRemoved > 0) {
+      warnings.push(
+        `${tin.duplicatesRemoved} point${tin.duplicatesRemoved === 1 ? '' : 's'} repeated an easting and northing already used and ${
+          tin.duplicatesRemoved === 1 ? 'was' : 'were'
+        } dropped. The first observation at each position was kept.`
+      );
+    }
+    if (rejected.length > 0) {
+      warnings.push(`${rejected.length} line${rejected.length === 1 ? '' : 's'} could not be read and ${rejected.length === 1 ? 'was' : 'were'} left out.`);
+    }
+    if (vol.fillM3 > 0) {
+      warnings.push(
+        `${fmt(vol.fillM3, 1)} m³ of the surface lies below the datum. That is ground under the toe level, not stockpiled material, so it is reported separately rather than deducted.`
+      );
+    }
+    if (datumMode === 'rl' && (datumZ > highest || datumZ < lowest)) {
+      warnings.push(
+        `The datum of ${fmt(datumZ, 2)} m is outside the surveyed height range of ${fmt(lowest, 2)} m to ${fmt(highest, 2)} m.`
+      );
+    }
+    warnings.push(
+      'The volume covers only the ground enclosed by the surveyed points. If the pickup does not run right around the toe, material outside it is not counted.'
+    );
+    if (!(density > 0)) {
+      warnings.push('Set a loose density to get a tonnage.');
+    }
+
+    return {
+      ok: true as const,
+      tin,
+      vol,
+      datumZ,
+      lowest,
+      highest,
+      planAreaM2: planArea(tin),
+      surfaceAreaM2: surfaceArea3D(tin),
+      tonnes: density > 0 ? (vol.cutM3 * density) / 1000 : null,
+      warnings,
+      rejected
+    };
+  }, [surfaceText, datumMode, datumRl, looseDensity]);
 
   const reserve = useMemo<Calc<ReturnType<typeof blockReserve>>>(
     () =>
@@ -366,38 +453,143 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
         <div className="grid gap-4 md:grid-cols-2">
           <div className="rounded-xl border border-black/10 dark:border-white/10 p-4 space-y-3">
             <h2 className="text-sm font-semibold">Pile survey</h2>
-            <div className="flex gap-1.5">
-              {(['cone', 'frustum'] as const).map(sh => (
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ['cone', 'Conical'],
+                  ['frustum', 'Flat-topped'],
+                  ['surface', 'Surveyed surface']
+                ] as const
+              ).map(([id, label]) => (
                 <button
-                  key={sh}
-                  onClick={() => setPileShape(sh)}
+                  key={id}
+                  onClick={() => setPileMethod(id)}
                   className={`px-3 py-1 rounded-lg text-xs border ${
-                    pileShape === sh
+                    pileMethod === id
                       ? 'bg-teal-600/15 border-teal-600/50'
                       : 'border-black/10 dark:border-white/10'
                   }`}
                 >
-                  {sh === 'cone' ? 'Conical' : 'Flat-topped'}
+                  {label}
                 </button>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Base radius" unit="m" value={baseR} onChange={setBaseR} />
-              {pileShape === 'frustum' && <Field label="Top radius" unit="m" value={topR} onChange={setTopR} />}
-              <Field label="Height" unit="m" value={pileH} onChange={setPileH} />
-              <Field label="Loose density" unit="kg/m³" value={looseDensity} onChange={setLooseDensity} />
-            </div>
+
+            {pileMethod === 'surface' ? (
+              <div className="space-y-3">
+                <p className="text-[11px] opacity-70">
+                  Paste the pickup as <span className="font-mono">E, N, RL</span> per line, in the project
+                  coordinate system. The points are triangulated as surveyed — nothing is smoothed, and no ground is
+                  assumed beyond them.
+                </p>
+                <textarea
+                  value={surfaceText}
+                  onChange={e => setSurfaceText(e.target.value)}
+                  spellCheck={false}
+                  rows={8}
+                  className="w-full px-2.5 py-2 rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-xs font-mono focus:outline-none focus:border-teal-600/60"
+                />
+                <div className="space-y-1.5">
+                  <span className="text-[11px] uppercase tracking-wider opacity-60">Datum for the volume</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      onClick={() => setDatumMode('toe')}
+                      className={`px-3 py-1 rounded-lg text-xs border ${
+                        datumMode === 'toe' ? 'bg-teal-600/15 border-teal-600/50' : 'border-black/10 dark:border-white/10'
+                      }`}
+                    >
+                      Lowest surveyed point
+                    </button>
+                    <button
+                      onClick={() => setDatumMode('rl')}
+                      className={`px-3 py-1 rounded-lg text-xs border ${
+                        datumMode === 'rl' ? 'bg-teal-600/15 border-teal-600/50' : 'border-black/10 dark:border-white/10'
+                      }`}
+                    >
+                      Stated level
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {datumMode === 'rl' && <Field label="Datum level" unit="m RL" value={datumRl} onChange={setDatumRl} />}
+                  <Field label="Loose density" unit="kg/m³" value={looseDensity} onChange={setLooseDensity} />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Base radius" unit="m" value={baseR} onChange={setBaseR} />
+                {pileMethod === 'frustum' && <Field label="Top radius" unit="m" value={topR} onChange={setTopR} />}
+                <Field label="Height" unit="m" value={pileH} onChange={setPileH} />
+                <Field label="Loose density" unit="kg/m³" value={looseDensity} onChange={setLooseDensity} />
+              </div>
+            )}
           </div>
+
           <div className="rounded-xl border border-black/10 dark:border-white/10 p-4">
             <h2 className="text-sm font-semibold mb-2">Volume &amp; tonnage</h2>
-            {pile.ok ? (
+
+            {pileMethod === 'surface' ? (
+              surface.ok ? (
+                <>
+                  <Row label="Points used" value={`${surface.tin.points.length}`} />
+                  <Row label="Triangles" value={`${surface.tin.triangles.length}`} />
+                  <Row label="Surveyed range" value={`${fmt(surface.lowest, 2)} – ${fmt(surface.highest, 2)} m RL`} />
+                  <Row
+                    label="Datum"
+                    value={`${fmt(surface.datumZ, 2)} m RL${datumMode === 'toe' ? ' (lowest point)' : ''}`}
+                  />
+                  <Row label="Plan area" value={`${fmt(surface.planAreaM2, 1)} m²`} />
+                  <Row label="Surface area" value={`${fmt(surface.surfaceAreaM2, 1)} m²`} />
+                  <Row label="Volume above datum" value={`${fmt(surface.vol.cutM3, 1)} m³`} strong />
+                  <Row
+                    label="Tonnage"
+                    value={surface.tonnes === null ? '—' : `${fmt(surface.tonnes, 1)} t`}
+                    strong
+                  />
+                  <Warnings items={surface.warnings} />
+                  {surface.rejected.length > 0 && (
+                    <div className="mt-3 rounded-lg border border-red-600/40 bg-red-500/10 p-3 space-y-1">
+                      <div className="text-xs font-semibold">Lines left out</div>
+                      {surface.rejected.slice(0, 5).map((r, i) => (
+                        <div key={i} className="text-[11px] font-mono opacity-80 break-all">
+                          {r}
+                        </div>
+                      ))}
+                      {surface.rejected.length > 5 && (
+                        <div className="text-[11px] opacity-70">and {surface.rejected.length - 5} more</div>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-[11px] opacity-60 mt-3">
+                    Tonnage uses the loose density of the surveyed pile. Convert to in-situ with the material's swell
+                    factor before comparing against a reserve figure.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="rounded-lg border border-red-600/40 bg-red-500/10 px-3 py-2 text-xs">
+                    {surface.error}
+                  </div>
+                  {surface.rejected.length > 0 && (
+                    <div className="mt-3 space-y-1">
+                      {surface.rejected.slice(0, 5).map((r, i) => (
+                        <div key={i} className="text-[11px] font-mono opacity-80 break-all">
+                          {r}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )
+            ) : pile.ok ? (
               <>
                 <Row label="Shape" value={pile.value.shape === 'cone' ? 'Conical' : 'Flat-topped'} />
                 <Row label="Volume" value={`${fmt(pile.value.volumeM3, 1)} m³`} strong />
                 <Row label="Tonnage" value={`${fmt(pile.value.tonnes, 1)} t`} strong />
                 <p className="text-[11px] opacity-60 mt-3">
                   Tonnage uses the loose density of the surveyed pile. Convert to in-situ with the material's swell
-                  factor before comparing against a reserve figure.
+                  factor before comparing against a reserve figure. An idealised cone or frustum is only as good as
+                  the assumption that the pile is one — measure from the pickup where you have it.
                 </p>
               </>
             ) : (
