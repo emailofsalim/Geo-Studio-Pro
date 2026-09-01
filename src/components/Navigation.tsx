@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   FileSpreadsheet,
   FileText,
+  Mountain,
   Globe,
   Navigation as CompassIcon,
   Calculator,
@@ -61,7 +62,8 @@ export type AppTabId =
   | 'tut'
   | 'faq'
   | 'help'
-  | 'reports';
+  | 'reports'
+  | 'mining';
 
 export interface AppDefinition {
   id: AppTabId;
@@ -232,6 +234,14 @@ export const APPS_CONFIG: AppDefinition[] = [
     category: 'Help & Docs',
     description: 'Step-by-step workflow manuals, field checklists, and cadastral survey guides',
     icon: BookOpen
+  },
+  {
+    id: 'mining',
+    name: 'Mining Studio',
+    shortName: 'Mining',
+    category: 'Cadastre & Exploration',
+    description: 'Bench and slope geometry, drill pattern and blast design, stockpile volumes and block reserves',
+    icon: Mountain
   },
   {
     id: 'reports',

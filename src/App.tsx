@@ -42,6 +42,7 @@ const BoundaryOffsetTab = lazy(() => import('./components/BoundaryOffsetTab').th
 const TutorialTab = lazy(() => import('./components/TutorialTab').then(m => ({ default: m.TutorialTab })));
 const HelpFaqTab = lazy(() => import('./components/HelpFaqTab').then(m => ({ default: m.HelpFaqTab })));
 const ReportsTab = lazy(() => import('./components/ReportsTab').then(m => ({ default: m.ReportsTab })));
+const MiningStudioTab = lazy(() => import('./components/MiningStudioTab').then(m => ({ default: m.MiningStudioTab })));
 import { crsIdentityFor, isValidZone, DEFAULT_ZONE } from './lib/crsIdentity';
 
 export function App() {
@@ -597,6 +598,8 @@ export function App() {
                 customKathaPerBigha={customKathaPerBigha}
               />
             )}
+
+            {activeTab === 'mining' && <MiningStudioTab workingZone={workingZone} />}
 
             {activeTab === 'reports' && (
               <ReportsTab workingZone={workingZone} distanceUnit={distanceUnit} />

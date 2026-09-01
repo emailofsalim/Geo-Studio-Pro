@@ -34,6 +34,7 @@ npm run verify     # both
 src/
   engines/     Domain engines, independent of React
     crs.js       Coordinate reference systems, projections, datums, zone detection
+    mining.ts    Bench geometry, drill pattern, blast design, stockpiles, reserves
     reports.ts   Print-ready report generation
   lib/         Computation and IO
     crsIdentity.ts     CRS naming, EPSG codes, the zone catalogue
@@ -105,8 +106,9 @@ such rather than being placed at the origin.
 
 Projects · Dashboard · GNSS Field Survey · GIS Map Studio · Cadastral Land Mapper ·
 Borehole Stratigraphy · GPS Map Camera · Coordinate Converter · Survey Calculator ·
-Field Sensors & Theodolite · Geofence Sentinel · BhuNaksha Digitizer · Universal
-Converter · Merge & Split · Boundary Offset & Buffer · Reports · Tutorials · Help
+Field Sensors & Theodolite · Geofence Sentinel · BhuNaksha Digitizer · Mining Studio ·
+Universal Converter · Merge & Split · Boundary Offset & Buffer · Reports · Tutorials ·
+Help
 
 ### Capability status
 
@@ -117,18 +119,21 @@ Indian Grid zones · Bursa-Wolf datum transforms · Helmert fit · Bowditch trav
 adjustment · differential levelling · circular curves · resection · grid-to-ground
 correction · end-area and DTM grid volumes · boundary offset · topology checks ·
 borehole logging with grades · cadastral digitising with GCP georeferencing and
-residuals · GNSS averaging.
+residuals · GNSS averaging · bench and overall slope geometry · drill pattern
+layout · blast charge and powder factor · stockpile volumes · block reserves and
+stripping ratio.
 
 **Partial:** Bluetooth RTK (link and GATT plumbing; no NTRIP client, no RTCM decoding) ·
-mine profiles (data structures and ore-grade thresholds; no pit or bench model) · point
+pit modelling (bench and wall geometry are calculated, but there is no 3D pit shell or
+ramp design) · point
 clouds (uncompressed LAS ingest, subsampled; no rendering or classification) ·
 theodolite, spirit level and AR stakeout (device-sensor views, not instrument protocols) ·
 serial and HID (device selection; no total-station protocol layer).
 
-**Not implemented:** blast design · drill pattern planning · bench and face modelling ·
-haul-road design · stockpile volumes from surfaces · production, dispatch and
-reconciliation · drone photogrammetry · DSM/DTM raster pipelines · 3D visualisation ·
-TIN surfaces.
+**Not implemented:** haul-road design · stockpile volumes from a surveyed surface
+(the current calculation is from measured cone or frustum dimensions, not a point
+cloud) · production, dispatch and reconciliation · drone photogrammetry · DSM/DTM
+raster pipelines · 3D visualisation · TIN surfaces.
 
 ## Device sensors
 
@@ -137,8 +142,9 @@ at launch, resources are acquired per consumer token when a feature opens, suspe
 the tab is hidden, and released on unmount. It keeps an audit log and offers a kill
 switch, both surfaced in the Sensor Privacy Monitor.
 
-Several hardware views still call device APIs directly rather than through the manager,
-so the audit log does not yet cover the whole application. That work is outstanding.
+Camera, microphone, location, orientation, motion, Bluetooth, NFC, serial, HID and
+screen wake lock all run through it, so the audit log and the kill switch cover the
+whole application.
 
 ## Data safety
 
@@ -155,4 +161,7 @@ existing user's saved work on first launch of the rebranded build.
 | geo-studio-complete | Shell patterns, cross-app data bridges |
 | bhunaksha-digitizer v16.3 | Cadastral digitising engines and GCP mathematics |
 | bhunaksha-digitizer-wpav3 | PDF sheet pipeline |
+
+The Mining Studio and the reporting engine are new work rather than ports; no source
+lineage carried them.
 | Geo-Studio | The original single-file product this grew from |
