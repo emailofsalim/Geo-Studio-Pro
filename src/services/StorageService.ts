@@ -14,6 +14,61 @@ function crsEpsgFor(zone: string | undefined | null): number {
   return crsIdentityFor(parsed ? (zone as string) : DEFAULT_ZONE).epsg;
 }
 
+/**
+ * Settles the working zone of an imported project, and reports any
+ * disagreement rather than absorbing it.
+ *
+ * A package carries a zone and a CRS label in separate fields, from separate
+ * fallbacks. They used to be read independently, so a file declaring zone 30S
+ * with no CRS string was stored as "WGS 84 / UTM Zone 45N" — a northern label
+ * over southern arithmetic — and a file whose two fields simply disagreed had
+ * the disagreement preserved into storage.
+ *
+ * The zone wins, because every calculation and export in the application runs
+ * on the working zone: it is what the coordinates actually are, while the CRS
+ * string is only ever displayed. The label is then derived from it so the two
+ * cannot drift. When the file's own label named a different zone, that is
+ * recorded as an import issue — the user is told, not quietly overruled.
+ */
+export function resolveImportedZone(
+  declaredZone: string | undefined | null,
+  declaredCrs: string | undefined | null,
+  issues: string[]
+): string {
+  const fromZone = parseZone(declaredZone);
+
+  // A CRS string like "WGS 84 / UTM Zone 43N (EPSG:32643)" names its own zone.
+  const m = typeof declaredCrs === 'string' ? declaredCrs.match(/zone\s*(\d{1,2})\s*([NS])/i) : null;
+  const fromLabel = m ? parseZone(`${m[1]}${m[2].toUpperCase()}`) : null;
+
+  if (!fromZone && !fromLabel) {
+    issues.push(
+      `This package does not state a usable UTM zone, so it was opened in ${DEFAULT_ZONE}. Set the project's coordinate system before relying on any measurement.`
+    );
+    return DEFAULT_ZONE;
+  }
+
+  if (!fromZone && fromLabel) {
+    const zone = `${fromLabel.zoneNumber}${fromLabel.south ? 'S' : 'N'}`;
+    issues.push(`No working zone was recorded; it was taken from the package's CRS label as ${zone}.`);
+    return zone;
+  }
+
+  const zone = `${fromZone!.zoneNumber}${fromZone!.south ? 'S' : 'N'}`;
+
+  if (
+    fromLabel &&
+    (fromLabel.zoneNumber !== fromZone!.zoneNumber || fromLabel.south !== fromZone!.south)
+  ) {
+    const labelZone = `${fromLabel.zoneNumber}${fromLabel.south ? 'S' : 'N'}`;
+    issues.push(
+      `The package's CRS label names zone ${labelZone} but its working zone is ${zone}. The working zone was kept, because that is the grid the coordinates were computed on, and the label has been reissued to match.`
+    );
+  }
+
+  return zone;
+}
+
 export const DB_NAME = 'BhuNexStudio_Storage_v3';
 export const DB_VERSION = 3;
 
@@ -952,6 +1007,13 @@ export class StorageService {
         const parsedJson = JSON.parse(fileOrBuffer);
         if (parsedJson.manifest && parsedJson.project && parsedJson.data) {
           const sha = await calculateSha256(fileOrBuffer);
+          const jsonZone = resolveImportedZone(
+            parsedJson.project.workingZone || parsedJson.manifest.crs?.zone,
+            typeof parsedJson.project.crs === 'string'
+              ? parsedJson.project.crs
+              : parsedJson.project.crs?.name,
+            issues
+          );
           return {
             manifest: parsedJson.manifest,
             project: {
@@ -960,8 +1022,8 @@ export class StorageService {
               name: parsedJson.project.name || parsedJson.project.projectName || 'Imported Project',
               description: parsedJson.project.description,
               category: parsedJson.project.category || parsedJson.project.projectType || 'General Survey',
-              crs: typeof parsedJson.project.crs === 'string' ? parsedJson.project.crs : parsedJson.project.crs?.name || 'WGS 84 / UTM Zone 45N',
-              workingZone: parsedJson.project.workingZone || parsedJson.manifest.crs?.zone || '45N',
+              crs: crsLabelFor(jsonZone),
+              workingZone: jsonZone,
               createdAt: parsedJson.project.createdAt || Date.now(),
               updatedAt: Date.now(),
               lastOpenedAt: Date.now(),
@@ -1073,7 +1135,11 @@ export class StorageService {
       issues.push(`Integrity check exception: ${e.message}`);
     }
 
-    const crsStr = typeof projectRaw.crs === 'string' ? projectRaw.crs : (projectRaw.crs?.name || manifest.crs?.name || 'WGS 84 / UTM Zone 45N');
+    const restoredZone = resolveImportedZone(
+      data.workingZone || projectRaw.workingZone || manifest.crs?.zone,
+      typeof projectRaw.crs === 'string' ? projectRaw.crs : projectRaw.crs?.name || manifest.crs?.name,
+      issues
+    );
 
     const project: GeoProject = {
       id: targetProjectId,
@@ -1081,8 +1147,8 @@ export class StorageService {
       name: projectRaw.projectName || projectRaw.name || manifest.projectName || 'Imported Project',
       description: projectRaw.description || `Restored from .bhnx package`,
       category: (projectRaw.projectType || projectRaw.category || manifest.projectCategory || 'General Survey') as any,
-      crs: crsStr,
-      workingZone: data.workingZone || '45N',
+      crs: crsLabelFor(restoredZone),
+      workingZone: restoredZone,
       createdAt: projectRaw.createdAt || manifest.createdAt || Date.now(),
       updatedAt: Date.now(),
       lastOpenedAt: Date.now(),

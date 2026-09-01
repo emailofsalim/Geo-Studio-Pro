@@ -108,6 +108,36 @@ export function zoneParams(zone: string): { zNum: number; isSouth: boolean } {
   return { zNum: id.zoneNumber, isSouth: id.south };
 }
 
+/**
+ * Builds the canonical CRS record used by the import and export services.
+ *
+ * Replaces a service-layer version that parsed the zone with
+ * `parseInt(...) || 45` — silently substituting Zone 45 for anything it could
+ * not read — and asserted a hardcoded coordinate epoch of "2026.0". This one
+ * refuses an unparseable zone, and omits the epoch rather than inventing one,
+ * because a stated epoch is a claim about when the coordinates were realised.
+ */
+export function canonicalCrsFor(zone: string): {
+  name: string;
+  epsg: number;
+  datum: string;
+  projection: string;
+  zone: string;
+  linearUnit: 'm';
+  verticalReference: string;
+} {
+  const id = crsIdentityFor(zone);
+  return {
+    name: id.name,
+    epsg: id.epsg,
+    datum: id.datum,
+    projection: 'Universal Transverse Mercator',
+    zone: id.zone,
+    linearUnit: 'm',
+    verticalReference: 'MSL / Orthometric'
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Zone catalogue
 // ---------------------------------------------------------------------------

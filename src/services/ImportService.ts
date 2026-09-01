@@ -9,10 +9,11 @@ import {
   DetectedImportResult,
   computeBoundingBox
 } from '../lib/universalDataBridge';
-import { GeodesyService } from './GeodesyService';
+
 import { storageService } from './StorageService';
 import { GeoFeature, GisLayer, SurveyWaypoint, CadastralParcel } from '../types';
 import { parseImportFile } from '../lib/parseClient';
+import { canonicalCrsFor } from '../lib/crsIdentity';
 
 export interface ImportOptions {
   sourceCRS?: CanonicalCRS;
@@ -347,7 +348,7 @@ export class ImportService {
   ): Promise<CanonicalImportResult> {
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
     const zone = options.workingZone || '45N';
-    const sourceCRS = options.sourceCRS || GeodesyService.getUTMCrs(zone);
+    const sourceCRS = options.sourceCRS || canonicalCrsFor(zone);
 
     try {
       const detected = await this.detectFile(file, zone);

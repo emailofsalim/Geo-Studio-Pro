@@ -25,6 +25,8 @@ const TAB_FALLBACK = (
   <div className="p-8 text-sm opacity-60">Loading module\u2026</div>
 );
 
+const ProjectsHomeScreen = lazy(() => import('./components/home/ProjectsHomeScreen').then(m => ({ default: m.ProjectsHomeScreen })));
+const ProjectDashboardView = lazy(() => import('./components/home/ProjectDashboardView').then(m => ({ default: m.ProjectDashboardView })));
 const HomeTemplatesTab = lazy(() => import('./components/HomeTemplatesTab').then(m => ({ default: m.HomeTemplatesTab })));
 const FieldSensorsTab = lazy(() => import('./components/FieldSensorsTab').then(m => ({ default: m.FieldSensorsTab })));
 const GisStudioTab = lazy(() => import('./components/GisStudioTab').then(m => ({ default: m.GisStudioTab })));
@@ -165,6 +167,17 @@ export function App() {
     return () => clearInterval(interval);
   }, [saveActiveProjectWorkspace]);
 
+  // Opening a project from the projects screen moves to its dashboard.
+  // Without this the screen stays on the project list and the click reads as
+  // having done nothing, even though a project is now open.
+  const previousProjectId = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeProjectId && activeProjectId !== previousProjectId.current && activeTab === 'home') {
+      setActiveTab('dashboard');
+    }
+    previousProjectId.current = activeProjectId;
+  }, [activeProjectId, activeTab]);
+
   // Apply dark mode class to root HTML
   useEffect(() => {
     if (isDarkMode) {
@@ -302,8 +315,35 @@ export function App() {
     setTimeout(() => window.location.reload(), 600);
   };
 
+  /**
+   * Refuses a write into project data when no project is open.
+   *
+   * `updateActiveProjectData` returns without doing anything when
+   * `activeProjectId` is null, so the paths below used to report success for
+   * work that was thrown away — an imported survey file that never landed,
+   * features "transferred" to a layer that was never created. A fallback id of
+   * 'project_pakhar_2026' was stamped onto the records, but it did not make
+   * the write happen; it only made the discarded data look filed. Better to
+   * say so and send the user somewhere they can open a project.
+   */
+  const requireActiveProject = (action: string): boolean => {
+    if (activeProjectId) return true;
+    toast.showError(
+      `Open or create a project before ${action}. Layers, waypoints and boreholes are stored with a project, so there is nowhere to put them yet.`
+    );
+    setActiveTab('home');
+    return false;
+  };
+
   const handleAddFeaturesToGis = (features: any[], layerName: string) => {
-    const projId = activeProjectId || 'project_pakhar_2026';
+    if (!requireActiveProject('sending features to GIS Studio')) return;
+    const projId = activeProjectId as string;
+    // The layer's geometry type is read off what was actually sent. It used to
+    // be hardcoded to 'point', so a layer of contour lines or parcels was
+    // labelled "12 points" in the layer list.
+    const kinds = new Set(features.map(f => f?.geom).filter(Boolean));
+    const geomType =
+      kinds.size === 1 ? ([...kinds][0] as 'point' | 'line' | 'polygon') : kinds.size > 1 ? 'mixed' : 'point';
     const newLayer = {
       id: `layer_${Date.now()}`,
       projectId: projId,
@@ -313,7 +353,7 @@ export function App() {
       fillColor: '#c9a063',
       fillOpacity: 0.35,
       strokeWidth: 2,
-      geomType: 'point' as const,
+      geomType,
       features: features.map(f => ({ ...f, projectId: projId }))
     };
     try {
@@ -345,7 +385,8 @@ export function App() {
   };
 
   const handleUniversalImportComplete = (result: DetectedImportResult, destinationApp: string) => {
-    const projId = activeProjectId || 'project_pakhar_2026';
+    if (!requireActiveProject('importing data')) return;
+    const projId = activeProjectId as string;
     if (destinationApp === 'gis' || destinationApp === 'studio') {
       try {
         const newLayer = {
@@ -495,6 +536,41 @@ export function App() {
         <main className="flex-1 p-3 sm:p-5 md:p-8 overflow-y-auto max-w-7xl mx-auto w-full custom-scrollbar pb-24 md:pb-6">
           <ErrorBoundary fallbackTitle={`Error rendering ${activeTab} workspace`}>
             <Suspense fallback={TAB_FALLBACK}>
+            {/*
+              The projects screen and the dashboard were built with the project
+              system but never mounted, so the "My Projects" and "Project
+              Dashboard" entries in the navigation both led to a blank pane and
+              there was no way to create a project at all. Because
+              `updateActiveProjectData` does nothing without an open project,
+              that also meant every import and every "send to GIS" silently
+              discarded its data while reporting success.
+            */}
+            {activeTab === 'home' && <ProjectsHomeScreen />}
+
+            {activeTab === 'dashboard' &&
+              (activeProject ? (
+                <ProjectDashboardView
+                  project={activeProject}
+                  onSelectTab={setActiveTab}
+                  openUniversalImport={openUniversalImport}
+                  openUniversalExport={openUniversalExport}
+                  onOpenSettings={() => setIsSettingsOpen(true)}
+                />
+              ) : (
+                <div className="max-w-lg mx-auto mt-16 text-center space-y-3">
+                  <h2 className="text-lg font-semibold">No project is open</h2>
+                  <p className="text-sm opacity-70">
+                    The dashboard reports on one project's data. Open or create a project first.
+                  </p>
+                  <button
+                    onClick={() => setActiveTab('home')}
+                    className="px-4 py-2 rounded-xl bg-[#c9a063] text-black text-xs font-bold uppercase tracking-wider"
+                  >
+                    Go to My Projects
+                  </button>
+                </div>
+              ))}
+
             {activeTab === 'templates' && (
               <HomeTemplatesTab
                 setActiveTab={setActiveTab}

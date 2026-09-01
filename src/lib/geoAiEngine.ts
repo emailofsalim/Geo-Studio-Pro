@@ -1,4 +1,5 @@
 import { GeoFeature } from '../types';
+import { guardAiFeatures } from './aiFeatureGuard';
 
 export interface GeomaticsAiResult {
   answer: string;
@@ -238,14 +239,23 @@ export async function executeGeomaticsAi(
     const rawLlmResponse = await fetchOpenSourceLlm(prompt, systemPrompt);
     if (rawLlmResponse) {
       let generatedFeatures: GeoFeature[] = [];
+      const guardNotes: string[] = [];
       const jsonMatch = rawLlmResponse.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMatch) {
         try {
-          const parsed = JSON.parse(jsonMatch[1]);
-          if (Array.isArray(parsed)) generatedFeatures = parsed;
-          else if (parsed.features && Array.isArray(parsed.features)) generatedFeatures = parsed.features;
-          else if (parsed.pts) generatedFeatures = [parsed];
-        } catch {}
+          // Model output is untrusted and flows straight into the map, the
+          // project and eventually a KML or DXF export, so it is validated
+          // before it becomes data rather than after something breaks.
+          const guarded = guardAiFeatures(JSON.parse(jsonMatch[1]));
+          generatedFeatures = guarded.features;
+          if (guarded.rejected > 0) {
+            guardNotes.push(
+              `${guarded.rejected} proposed feature${guarded.rejected === 1 ? '' : 's'} discarded: ${guarded.reasons.join(' ')}`
+            );
+          }
+        } catch {
+          guardNotes.push('The assistant returned geometry that could not be read as JSON.');
+        }
       }
 
       // If no JSON was returned by LLM but query was geometry-heavy, augment with local compiler features
@@ -256,8 +266,11 @@ export async function executeGeomaticsAi(
         }
       }
 
+      const answer = rawLlmResponse.replace(/```json\s*[\s\S]*?\s*```/, '').trim();
       return {
-        answer: rawLlmResponse.replace(/```json\s*[\s\S]*?\s*```/, '').trim(),
+        // Discards are surfaced in the answer rather than hidden, so a user
+        // does not silently receive fewer features than the assistant claimed.
+        answer: guardNotes.length ? `${answer}\n\n${guardNotes.join('\n')}` : answer,
         generatedFeatures: generatedFeatures.length > 0 ? generatedFeatures : undefined,
         modelUsed: 'Llama-3-OpenSource',
         source: 'opensource_llm'

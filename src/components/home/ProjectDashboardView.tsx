@@ -207,7 +207,13 @@ export const ProjectDashboardView: React.FC<ProjectDashboardViewProps> = ({
       {/* 1. Top Navigation Bar: Back to Home / My Projects */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <button
-          onClick={closeProject}
+          // Closing alone leaves the user on the dashboard with no project to
+          // show, which is not what a button reading "Home / Projects" says it
+          // does. It closes and then goes there.
+          onClick={() => {
+            closeProject();
+            onSelectTab('home');
+          }}
           className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#141414] hover:bg-[#1f1f1f] text-slate-300 hover:text-white border border-white/10 text-xs font-bold transition-all shadow-sm group"
         >
           <ArrowLeft className="w-4 h-4 text-[#c9a063] group-hover:-translate-x-0.5 transition-transform" />

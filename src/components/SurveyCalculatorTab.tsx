@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Calculator,
   RotateCw,
@@ -21,7 +21,8 @@ import {
   Navigation,
   Globe,
   RefreshCw,
-  Share2
+  Share2,
+  Waves
 } from 'lucide-react';
 import {
   vincentyCore,
@@ -39,6 +40,18 @@ import {
   toDMSstr
 } from '../lib/geodesy';
 import { calculateMagneticDeclination, convertAzimuthAngles, MagneticDeclinationResult } from '../lib/geomagnetism';
+import {
+  buildTin,
+  planArea,
+  surfaceArea3D,
+  volumeToDatum,
+  volumeBetween,
+  contourSet,
+  linkContours
+} from '../engines/tin';
+import { parseSurfacePoints } from '../lib/surfacePointText';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { crsLabelFor, isValidZone } from '../lib/crsIdentity';
 import { downloadBlob } from '../lib/zip';
 import { toCSVtext, csvEnc } from '../lib/formats';
 import { CameraLandmarkStudio } from './CameraLandmarkStudio';
@@ -62,7 +75,7 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
   onSendToGisLayers
 }) => {
   const [activeSubTool, setActiveSubTool] = useState<
-    'camera' | 'magnetic' | 'vincenty' | 'traverse' | 'area' | 'curve' | 'intersect' | 'leveling' | 'dipstrike' | 'volume' | 'resection' | 'calc'
+    'camera' | 'magnetic' | 'vincenty' | 'traverse' | 'area' | 'curve' | 'intersect' | 'leveling' | 'dipstrike' | 'volume' | 'surface' | 'resection' | 'calc'
   >('camera');
   const toast = useToast();
 
@@ -132,6 +145,22 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
     '0, 120.5, 80.0, 40.5\n50, 185.0, 140.0, 45.0\n100, 240.2, 190.0, 50.2\n150, 190.0, 150.0, 40.0\n200, 95.0, 70.0, 25.0'
   );
   const [volumeResult, setVolumeResult] = useState<any | null>(null);
+
+  // TIN surface state
+  const [surfAText, setSurfAText] = useState<string>(
+    [
+      '# Surface A — E, N, RL. One surveyed point per line.',
+      '254800, 2605200, 100.0',
+      '254860, 2605200, 101.5',
+      '254860, 2605260, 100.8',
+      '254800, 2605260, 100.2',
+      '254830, 2605230, 106.0'
+    ].join('\n')
+  );
+  const [surfBText, setSurfBText] = useState<string>('');
+  const [surfDatumMode, setSurfDatumMode] = useState<'toe' | 'rl'>('toe');
+  const [surfDatumRl, setSurfDatumRl] = useState<string>('100');
+  const [contourInterval, setContourInterval] = useState<string>('1');
 
   // Resection State
   const [resA, setResA] = useState({ E: '254000', N: '2605000' });
@@ -343,6 +372,104 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
     setDipResult(res);
   };
 
+  /**
+   * TIN surface results.
+   *
+   * Everything here is derived from the pasted points, so it recomputes as
+   * they are edited rather than sitting behind a Compute button that can leave
+   * stale numbers on screen next to changed input.
+   */
+  // Debounced so a large pickup is triangulated once per pause, not per keystroke.
+  const surfATextSettled = useDebouncedValue(surfAText, 350);
+  const surfBTextSettled = useDebouncedValue(surfBText, 350);
+
+  const surfaceResult = useMemo(() => {
+    const a = parseSurfacePoints(surfATextSettled);
+    if (a.pts.length < 3) {
+      return { ok: false as const, error: 'Surface A needs at least three points, as E, N, RL per line.', rejected: a.rejected };
+    }
+
+    let tinA;
+    try {
+      tinA = buildTin(a.pts);
+    } catch (err: any) {
+      return { ok: false as const, error: `Surface A: ${err.message}`, rejected: a.rejected };
+    }
+
+    const zs = tinA.points.map(p => p.z);
+    const lowest = Math.min(...zs);
+    const highest = Math.max(...zs);
+    const datumZ = surfDatumMode === 'toe' ? lowest : (Number.isFinite(parseFloat(surfDatumRl)) ? parseFloat(surfDatumRl) : lowest);
+    const vol = volumeToDatum(tinA, datumZ);
+
+    // Surface B is optional; a comparison is only offered once it parses.
+    const b = parseSurfacePoints(surfBTextSettled);
+    let comparison: ReturnType<typeof volumeBetween> | null = null;
+    let comparisonError: string | null = null;
+    if (b.pts.length > 0) {
+      try {
+        comparison = volumeBetween(tinA, buildTin(b.pts));
+      } catch (err: any) {
+        comparisonError = `Surface B: ${err.message}`;
+      }
+    }
+
+    // Contours.
+    const intervalM = parseFloat(contourInterval);
+    let contours: ReturnType<typeof linkContours> = [];
+    let contourError: string | null = null;
+    try {
+      contours = linkContours(contourSet(tinA, intervalM));
+    } catch (err: any) {
+      contourError = err.message;
+    }
+
+    return {
+      ok: true as const,
+      tinA,
+      lowest,
+      highest,
+      datumZ,
+      vol,
+      planAreaM2: planArea(tinA),
+      surfaceAreaM2: surfaceArea3D(tinA),
+      comparison,
+      comparisonError,
+      contours,
+      contourError,
+      rejected: [...a.rejected, ...b.rejected]
+    };
+  }, [surfATextSettled, surfBTextSettled, surfDatumMode, surfDatumRl, contourInterval]);
+
+  /** Sends the linked contours to GIS Studio as line features in the project grid. */
+  const handleSendContours = () => {
+    if (!surfaceResult.ok || surfaceResult.contours.length === 0) {
+      toast.showError('No contours to send. Check the surface and the interval.');
+      return;
+    }
+    if (!isValidZone(workingZone)) {
+      // The contours are eastings and northings; without a zone there is no
+      // saying which grid they belong to, and exporting them would attach
+      // them to whatever zone happened to be assumed downstream.
+      toast.showError('Set the project coordinate system before sending contours to GIS.');
+      return;
+    }
+    const feats: GeoFeature[] = surfaceResult.contours.map((c, i) => ({
+      name: `Contour ${c.level} m`,
+      geom: 'line',
+      kind: 'en',
+      pts: c.pts.map(p => ({ a: p.x, b: p.y })),
+      props: {
+        level_m: c.level,
+        closed: c.closed,
+        crs: crsLabelFor(workingZone),
+        source: 'TIN contour',
+        index: i + 1
+      }
+    }));
+    onSendToGisLayers?.(feats, `Contours ${contourInterval} m`);
+  };
+
   // Compute Volume
   const handleComputeVolume = () => {
     try {
@@ -430,6 +557,7 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
             { id: 'leveling', label: 'Differential Leveling', icon: ListOrdered },
             { id: 'dipstrike', label: '3-Point Dip & Strike', icon: Mountain },
             { id: 'volume', label: 'Earthwork Volume', icon: Box },
+            { id: 'surface', label: 'Surface & Contours', icon: Waves },
             { id: 'resection', label: 'Tienstra Resection', icon: Crosshair },
             { id: 'area', label: 'Area & Perimeter', icon: Layers },
             { id: 'curve', label: 'Circular Curve', icon: RotateCw },
@@ -1152,6 +1280,328 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 5b. TIN Surface & Contours Sub-tool */}
+      {activeSubTool === 'surface' && (
+        <div className="bg-[#0f0f0f] rounded-2xl p-6 sm:p-8 border border-white/5 space-y-6">
+          <div>
+            <h4 className="text-base font-serif italic text-white flex items-center gap-2">
+              <Waves className="w-5 h-5 text-[#c9a063]" />
+              Surface &amp; Contours (Triangulated Irregular Network)
+            </h4>
+            <p className="text-xs text-white/40 mt-1">
+              Triangulates surveyed points as they were picked up, then measures area and volume from the faces and
+              cuts contours through them. Unlike the end-area tool above, this needs no chainage — it works from a
+              scatter of spot heights.
+            </p>
+            <p className="text-xs text-white/40 mt-1">
+              The surface spans the convex hull of the points, so a mis-keyed coordinate stretches it across ground
+              that was never surveyed and <em>adds</em> volume. Check the plan area against the site before quoting.
+            </p>
+            <p className="text-xs text-white/40 mt-1">
+              Points are read in the project grid:{' '}
+              <span className="text-[#c9a063]">
+                {isValidZone(workingZone) ? crsLabelFor(workingZone) : 'coordinate system not set'}
+              </span>
+              . Nothing here reprojects them.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-white/60 block">
+                Surface A — <code className="text-[#c9a063]">E, N, RL</code> per line
+              </label>
+              <textarea
+                rows={8}
+                spellCheck={false}
+                value={surfAText}
+                onChange={e => setSurfAText(e.target.value)}
+                className="w-full p-3.5 rounded-xl border border-white/10 bg-[#141414] text-white font-mono text-xs focus:outline-none focus:border-[#c9a063]"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-white/60 block">
+                Surface B — optional, to compare against A
+              </label>
+              <textarea
+                rows={8}
+                spellCheck={false}
+                value={surfBText}
+                placeholder={'Leave empty for a single surface.\nPaste a second pickup here for cut and fill between the two.'}
+                onChange={e => setSurfBText(e.target.value)}
+                className="w-full p-3.5 rounded-xl border border-white/10 bg-[#141414] text-white font-mono text-xs focus:outline-none focus:border-[#c9a063] placeholder:text-white/25"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="space-y-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-white/40 block">Datum for A</span>
+              <div className="flex gap-1.5">
+                {(
+                  [
+                    ['toe', 'Lowest surveyed point'],
+                    ['rl', 'Stated level']
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => setSurfDatumMode(id)}
+                    className={`px-3 py-2 rounded-xl text-xs border ${
+                      surfDatumMode === id
+                        ? 'bg-[#c9a063]/15 border-[#c9a063]/60 text-white'
+                        : 'border-white/10 text-white/60'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {surfDatumMode === 'rl' && (
+              <div className="space-y-1.5">
+                <span className="text-[10px] uppercase tracking-wider text-white/40 block">Datum level (m RL)</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={surfDatumRl}
+                  onChange={e => setSurfDatumRl(e.target.value)}
+                  className="w-32 p-2.5 rounded-xl border border-white/10 bg-[#141414] text-white font-mono text-xs focus:outline-none focus:border-[#c9a063]"
+                />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-white/40 block">Contour interval (m)</span>
+              <input
+                type="number"
+                step="any"
+                min="0"
+                value={contourInterval}
+                onChange={e => setContourInterval(e.target.value)}
+                className="w-32 p-2.5 rounded-xl border border-white/10 bg-[#141414] text-white font-mono text-xs focus:outline-none focus:border-[#c9a063]"
+              />
+            </div>
+          </div>
+
+          {!surfaceResult.ok ? (
+            <div className="p-4 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-200">
+              {surfaceResult.error}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
+                <div className="p-4 bg-[#141414] rounded-xl border border-white/5">
+                  <span className="text-[10px] text-white/40 block uppercase font-sans">Plan Area</span>
+                  <span className="text-base font-bold text-white">
+                    {surfaceResult.planAreaM2.toLocaleString(undefined, { maximumFractionDigits: 1 })} m&sup2;
+                  </span>
+                </div>
+                <div className="p-4 bg-[#141414] rounded-xl border border-white/5">
+                  <span className="text-[10px] text-white/40 block uppercase font-sans">Surface Area (3D)</span>
+                  <span className="text-base font-bold text-[#c9a063]">
+                    {surfaceResult.surfaceAreaM2.toLocaleString(undefined, { maximumFractionDigits: 1 })} m&sup2;
+                  </span>
+                </div>
+                <div className="p-4 bg-[#141414] rounded-xl border border-white/5">
+                  <span className="text-[10px] text-white/40 block uppercase font-sans">Above Datum</span>
+                  <span className="text-base font-bold text-rose-400">
+                    {surfaceResult.vol.cutM3.toLocaleString(undefined, { maximumFractionDigits: 1 })} m&sup3;
+                  </span>
+                </div>
+                <div className="p-4 bg-[#141414] rounded-xl border border-white/5">
+                  <span className="text-[10px] text-white/40 block uppercase font-sans">Below Datum</span>
+                  <span className="text-base font-bold text-emerald-400">
+                    {surfaceResult.vol.fillM3.toLocaleString(undefined, { maximumFractionDigits: 1 })} m&sup3;
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-[11px] text-white/60">
+                <div>
+                  Points <span className="text-white">{surfaceResult.tinA.points.length}</span>
+                  {surfaceResult.tinA.duplicatesRemoved > 0 && (
+                    <span className="text-amber-400"> ({surfaceResult.tinA.duplicatesRemoved} repeated dropped)</span>
+                  )}
+                </div>
+                <div>
+                  Triangles <span className="text-white">{surfaceResult.tinA.triangles.length}</span>
+                </div>
+                <div>
+                  Range{' '}
+                  <span className="text-white">
+                    {surfaceResult.lowest.toFixed(2)} – {surfaceResult.highest.toFixed(2)} m
+                  </span>
+                </div>
+                <div>
+                  Datum <span className="text-white">{surfaceResult.datumZ.toFixed(2)} m</span>
+                  {surfDatumMode === 'toe' && <span className="text-white/40"> (lowest)</span>}
+                </div>
+              </div>
+
+              {surfaceResult.comparisonError && (
+                <div className="p-4 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-200">
+                  {surfaceResult.comparisonError}
+                </div>
+              )}
+              {surfaceResult.comparison && (
+                <div className="p-4 rounded-xl border border-white/10 bg-[#141414] space-y-3">
+                  <div className="text-xs font-medium text-white/60">A compared with B</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
+                    <div>
+                      <span className="text-[10px] text-white/40 block uppercase font-sans">B above A</span>
+                      <span className="text-sm font-bold text-rose-400">
+                        {surfaceResult.comparison.cutM3.toLocaleString(undefined, { maximumFractionDigits: 1 })} m&sup3;
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-white/40 block uppercase font-sans">B below A</span>
+                      <span className="text-sm font-bold text-emerald-400">
+                        {surfaceResult.comparison.fillM3.toLocaleString(undefined, { maximumFractionDigits: 1 })} m&sup3;
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-white/40 block uppercase font-sans">Net</span>
+                      <span className="text-sm font-bold text-white">
+                        {surfaceResult.comparison.netM3.toLocaleString(undefined, { maximumFractionDigits: 1 })} m&sup3;
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-white/40 block uppercase font-sans">Overlap</span>
+                      <span className="text-sm font-bold text-white">
+                        {surfaceResult.comparison.planAreaM2.toLocaleString(undefined, { maximumFractionDigits: 1 })}{' '}
+                        m&sup2;
+                      </span>
+                    </div>
+                  </div>
+                  {(surfaceResult.comparison.uncoveredAreaM2 > 0.001 ||
+                    surfaceResult.comparison.partialAreaM2 > 0.001) && (
+                    <div className="text-[11px] text-amber-300/90 flex gap-2">
+                      <Mountain className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      <span>
+                        {surfaceResult.comparison.uncoveredAreaM2 > 0.001 && (
+                          <>
+                            {surfaceResult.comparison.uncoveredAreaM2.toLocaleString(undefined, {
+                              maximumFractionDigits: 1
+                            })}{' '}
+                            m&sup2; of A lies outside B.{' '}
+                          </>
+                        )}
+                        {surfaceResult.comparison.partialAreaM2 > 0.001 && (
+                          <>
+                            {surfaceResult.comparison.partialAreaM2.toLocaleString(undefined, {
+                              maximumFractionDigits: 1
+                            })}{' '}
+                            m&sup2; straddles the edge of B and is left unmeasured rather than measured on part of
+                            its area.{' '}
+                          </>
+                        )}
+                        The volumes above cover only the overlap, so they are not a whole-site figure.
+                      </span>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-white/40">
+                    B is sampled at each vertex of A&apos;s triangles and the difference clipped at zero, so cut and
+                    fill stay apart even where the two surfaces cross inside one triangle. The resolution is
+                    A&apos;s triangle size — put the denser pickup in A.
+                  </p>
+                </div>
+              )}
+
+              <div className="p-4 rounded-xl border border-white/10 bg-[#141414] space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-xs font-medium text-white/60">Contours from A</div>
+                  <button
+                    onClick={handleSendContours}
+                    disabled={surfaceResult.contours.length === 0}
+                    className="px-4 py-2 bg-[#c9a063] hover:bg-[#d6b074] disabled:opacity-40 disabled:cursor-not-allowed text-black text-[11px] font-bold uppercase tracking-wider rounded-xl inline-flex items-center gap-2"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    Send to GIS Layers
+                  </button>
+                </div>
+                {surfaceResult.contourError ? (
+                  <div className="text-xs text-rose-300">{surfaceResult.contourError}</div>
+                ) : surfaceResult.contours.length === 0 ? (
+                  <div className="text-xs text-white/40">
+                    No contours at this interval. A surface at a single level has none to draw.
+                  </div>
+                ) : (
+                  <>
+                    <div className="font-mono text-xs text-white/70">
+                      <span className="text-white font-bold">{surfaceResult.contours.length}</span> line
+                      {surfaceResult.contours.length === 1 ? '' : 's'} across{' '}
+                      <span className="text-white font-bold">
+                        {new Set(surfaceResult.contours.map(c => c.level)).size}
+                      </span>{' '}
+                      level{new Set(surfaceResult.contours.map(c => c.level)).size === 1 ? '' : 's'},{' '}
+                      <span className="text-white font-bold">
+                        {surfaceResult.contours.filter(c => c.closed).length}
+                      </span>{' '}
+                      closed.
+                    </div>
+                    <div className="overflow-x-auto max-h-56">
+                      <table className="w-full text-left text-xs border-collapse font-mono">
+                        <thead>
+                          <tr className="border-b border-white/10 text-white/40 text-[10px] uppercase">
+                            <th className="py-2 px-3">Level (m)</th>
+                            <th className="py-2 px-3">Vertices</th>
+                            <th className="py-2 px-3">Length (m)</th>
+                            <th className="py-2 px-3">Closed</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {surfaceResult.contours.slice(0, 60).map((c, i) => {
+                            let len = 0;
+                            for (let k = 1; k < c.pts.length; k++) {
+                              len += Math.hypot(c.pts[k].x - c.pts[k - 1].x, c.pts[k].y - c.pts[k - 1].y);
+                            }
+                            return (
+                              <tr key={i} className="hover:bg-white/5">
+                                <td className="py-1.5 px-3 text-[#c9a063] font-bold">{c.level.toFixed(2)}</td>
+                                <td className="py-1.5 px-3 text-white/70">{c.pts.length}</td>
+                                <td className="py-1.5 px-3 text-white">{len.toFixed(2)}</td>
+                                <td className="py-1.5 px-3 text-white/50">{c.closed ? 'yes' : 'no'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      {surfaceResult.contours.length > 60 && (
+                        <div className="text-[11px] text-white/40 px-3 py-2">
+                          and {surfaceResult.contours.length - 60} more — all of them are sent to GIS.
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-white/40">
+                      Contours are the intersection of each level with the triangulated faces. Nothing is smoothed,
+                      and the triangulation is unconstrained, so a crest or toe line is honoured only where points
+                      were picked up along it.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              {surfaceResult.rejected.length > 0 && (
+                <div className="p-4 rounded-xl border border-rose-500/40 bg-rose-500/10 space-y-1">
+                  <div className="text-xs font-medium text-rose-200">
+                    {surfaceResult.rejected.length} line{surfaceResult.rejected.length === 1 ? '' : 's'} could not be
+                    read and {surfaceResult.rejected.length === 1 ? 'was' : 'were'} left out
+                  </div>
+                  {surfaceResult.rejected.slice(0, 5).map((r, i) => (
+                    <div key={i} className="text-[11px] font-mono text-rose-200/70 break-all">
+                      {r}
+                    </div>
+                  ))}
+                  {surfaceResult.rejected.length > 5 && (
+                    <div className="text-[11px] text-rose-200/60">and {surfaceResult.rejected.length - 5} more</div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
