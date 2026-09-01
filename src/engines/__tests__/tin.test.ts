@@ -685,29 +685,65 @@ describe('breaklines — what it refuses to do', () => {
     expect(planArea(far)).toBeGreaterThan(near * 100);
   });
 
-  it('refuses two breaklines that cross, and applies neither', () => {
-    // Each line asserts its own height at the crossing. Splitting them there
-    // would mean inventing an elevation, so both are reported instead.
+  it('refuses two breaklines that contradict each other at their crossing', () => {
+    // A crest at 10 m and a drain at 0 m cannot both be right where they meet.
+    // The gap is quoted so the surveyor can see which pickup is wrong.
     const a = { name: 'Crest', pts: [{ x: 0, y: 5, z: 10 }, { x: 20, y: 5, z: 10 }] };
     const b = { name: 'Drain', pts: [{ x: 10, y: 0, z: 0 }, { x: 10, y: 10, z: 0 }] };
     const tin = buildTin(ridgeSite, { breaklines: [a, b] });
     expect(tin.constraints).toHaveLength(0);
     const said = tin.breaklineIssues.join(' ');
-    expect(said).toMatch(/Crest crosses Drain|Drain crosses Crest/);
-    expect(said).toMatch(/split them at their intersection/i);
+    expect(said).toMatch(/Crest and Drain cross at 10\.000, 5\.000/);
+    expect(said).toMatch(/10\.000 m and the other 0\.000 m/);
+    expect(said).toMatch(/10\.000 m apart/);
+    expect(said).toMatch(/Survey the junction/i);
   });
 
-  it('splits two breaklines that cross exactly at a surveyed point, and holds both', () => {
-    // A surveyed X-junction is not ambiguous: the crossing point has one
-    // observed height, so both lines are split there and both are honoured.
-    // The diagonals of the diamond meet at (10, 5), which is on the crest.
-    const site = [...ridgeSite, { x: 10, y: 5, z: 10 }];
+  it('splits two breaklines that cross and agree, and holds both', () => {
+    // A track crossing the crest at grade. Its ends are inside the site and
+    // clear of the surveyed corners, so nothing contradicts: both lines say
+    // 10 m at (10, 5), the junction becomes a vertex, and each line is cut in
+    // two there.
+    const a = { name: 'Crest', pts: [{ x: 0, y: 5, z: 10 }, { x: 20, y: 5, z: 10 }] };
+    const b = { name: 'Track', pts: [{ x: 10, y: 2, z: 10 }, { x: 10, y: 8, z: 10 }] };
+    const tin = buildTin(ridgeSite, { breaklines: [a, b] });
+    expect(tin.breaklineIssues).toEqual([]);
+    expect(tin.constraints).toHaveLength(4);
+
+    // Four corners, the two track ends, and the junction the engine worked out.
+    expect(tin.points).toHaveLength(7);
+    expect(elevationAt(tin, 10, 5)).toBeCloseTo(10, 9);
+  });
+
+  it('measures the surface a resolved junction produces', () => {
+    // The crest alone gives 666.67 m3. The track raises the ground either side
+    // of it as well, so the volume can only go up from there.
+    const a = { name: 'Crest', pts: [{ x: 0, y: 5, z: 10 }, { x: 20, y: 5, z: 10 }] };
+    const b = { name: 'Track', pts: [{ x: 10, y: 2, z: 10 }, { x: 10, y: 8, z: 10 }] };
+    const tin = buildTin(ridgeSite, { breaklines: [a, b] });
+    expect(planArea(tin)).toBeCloseTo(100, 9);
+    expect(volumeToDatum(tin, 0).cutM3).toBeGreaterThan(2000 / 3);
+  });
+
+  it('adds no junction point where the two heights contradict', () => {
+    // Both lines here run between existing corners, so nothing new is added
+    // and no invented junction appears either.
     const a = { name: 'Crest', pts: [{ x: 0, y: 5, z: 10 }, { x: 20, y: 5, z: 10 }] };
     const b = { name: 'Drain', pts: [{ x: 10, y: 0, z: 0 }, { x: 10, y: 10, z: 0 }] };
-    const tin = buildTin(site, { breaklines: [a, b] });
-    expect(tin.breaklineIssues).toEqual([]);
-    // Each line is cut in two at the shared vertex.
-    expect(tin.constraints).toHaveLength(4);
+    const tin = buildTin(ridgeSite, { breaklines: [a, b] });
+    expect(tin.points).toHaveLength(4);
+    expect(elevationAt(tin, 10, 5)).toBeCloseTo(0, 9);
+  });
+
+  it('reports a breakline whose height contradicts a point it passes over', () => {
+    // The track claims 10 m at (10, 0), which was surveyed at 0 m. The
+    // surveyed height stands and the disagreement is named.
+    const b = { name: 'Track', pts: [{ x: 10, y: 0, z: 10 }, { x: 10, y: 10, z: 10 }] };
+    const tin = buildTin(ridgeSite, { breaklines: [b] });
+    const said = tin.breaklineIssues.join(' ');
+    expect(said).toMatch(/Track gives 10\.000 m at 10\.000, 0\.000/);
+    expect(said).toMatch(/0\.000 m was already surveyed/);
+    expect(tin.points[1].z).toBe(0);
   });
 
   it('allows two breaklines that meet at a shared point', () => {

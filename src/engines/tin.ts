@@ -415,6 +415,98 @@ export function buildTin(input: Point3D[], options: TinOptions = {}): Tin {
     throw new Error('A surface needs at least three points at distinct positions.');
   }
 
+  // ---- Resolve breakline crossings, before anything is triangulated -------
+  // Two breaklines that cross meet at a point which, on the ground, has one
+  // elevation. Usually both lines agree on it — a haul road crossing a toe at
+  // grade, say — and then there is nothing ambiguous to resolve: the junction
+  // becomes a vertex and both lines are split there. Only a genuine
+  // disagreement is refused, and then the two heights are quoted so the
+  // surveyor can see exactly what is wrong.
+  //
+  // This runs before triangulation because a junction is a new surface point,
+  // and a point added afterwards would not be part of the mesh.
+  interface Segment {
+    name: string;
+    u: number;
+    v: number;
+  }
+  const segments: Segment[] = [];
+  for (const { name, idx } of lineIndices) {
+    for (let i = 0; i + 1 < idx.length; i++) {
+      if (idx[i] !== idx[i + 1]) segments.push({ name, u: idx[i], v: idx[i + 1] });
+    }
+  }
+
+  /** Adds a point, reusing an existing one at the same plan position. */
+  const pointAt = (x: number, y: number, z: number): number => {
+    const key = planKey({ x, y, z });
+    const existing = indexByPosition.get(key);
+    if (existing !== undefined) return existing;
+    indexByPosition.set(key, points.length);
+    points.push({ x, y, z });
+    return points.length - 1;
+  };
+
+  // Two lines crossing at the same height is agreement to survey precision;
+  // a millimetre apart is the same point, a decimetre apart is a contradiction.
+  const JUNCTION_TOLERANCE_M = 0.001;
+  const refused = new Set<Segment>();
+
+  for (let guard = 0; guard < 500; guard++) {
+    let resolvedOne = false;
+
+    search: for (let i = 0; i < segments.length; i++) {
+      if (refused.has(segments[i])) continue;
+      for (let j = i + 1; j < segments.length; j++) {
+        if (refused.has(segments[j])) continue;
+        const a = segments[i];
+        const b = segments[j];
+        if (!segmentsCross(points, a.u, a.v, b.u, b.v)) continue;
+
+        const p1 = points[a.u], p2 = points[a.v];
+        const p3 = points[b.u], p4 = points[b.v];
+        const den = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+        if (Math.abs(den) < EPS) {
+          refused.add(a);
+          refused.add(b);
+          resolvedOne = true;
+          break search;
+        }
+        const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / den;
+        const s = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / den;
+        const x = p1.x + t * (p2.x - p1.x);
+        const y = p1.y + t * (p2.y - p1.y);
+        const zOnA = p1.z + t * (p2.z - p1.z);
+        const zOnB = p3.z + s * (p4.z - p3.z);
+
+        if (Math.abs(zOnA - zOnB) > JUNCTION_TOLERANCE_M) {
+          breaklineIssues.push(
+            `${a.name} and ${b.name} cross at ${x.toFixed(3)}, ${y.toFixed(3)}, where one is ${zOnA.toFixed(3)} m and the other ${zOnB.toFixed(3)} m — ${Math.abs(zOnA - zOnB).toFixed(3)} m apart. Neither segment was applied. Survey the junction and give both lines that height.`
+          );
+          refused.add(a);
+          refused.add(b);
+          resolvedOne = true;
+          break search;
+        }
+
+        // They agree, so the junction is simply a point on both lines.
+        const k = pointAt(x, y, (zOnA + zOnB) / 2);
+        segments.splice(j, 1);
+        segments.splice(i, 1);
+        segments.push(
+          { name: a.name, u: a.u, v: k },
+          { name: a.name, u: k, v: a.v },
+          { name: b.name, u: b.u, v: k },
+          { name: b.name, u: k, v: b.v }
+        );
+        resolvedOne = true;
+        break search;
+      }
+    }
+
+    if (!resolvedOne) break;
+  }
+
   // A super-triangle large enough to contain every point.
   const xs = points.map(p => p.x);
   const ys = points.map(p => p.y);
@@ -478,50 +570,25 @@ export function buildTin(input: Point3D[], options: TinOptions = {}): Tin {
     throw new Error('These points are collinear, so they do not define a surface.');
   }
 
-  // ---- Breaklines -------------------------------------------------------
-  // Gather every requested segment, then refuse any pair that cross before
-  // forcing any of them in. Two breaklines meeting at a point not shared by
-  // both state different heights for the same ground; resolving that would
-  // mean inventing an elevation at the crossing, so both are reported and
-  // left out instead.
-  const wanted: { name: string; u: number; v: number }[] = [];
-  for (const { name, idx } of lineIndices) {
-    for (let i = 0; i + 1 < idx.length; i++) {
-      const u = idx[i];
-      const v = idx[i + 1];
-      if (u === v) continue;
-      // Any surveyed point sitting on this segment becomes part of the line:
-      // an edge cannot run through a vertex without using it.
-      const chain = [u, ...verticesOnSegment(points, u, v), v];
-      for (let k = 0; k + 1 < chain.length; k++) {
-        wanted.push({ name, u: chain[k], v: chain[k + 1] });
-      }
-    }
-  }
-
-  const conflicted = new Set<number>();
-  for (let i = 0; i < wanted.length; i++) {
-    for (let j = i + 1; j < wanted.length; j++) {
-      if (segmentsCross(points, wanted[i].u, wanted[i].v, wanted[j].u, wanted[j].v)) {
-        conflicted.add(i);
-        conflicted.add(j);
-        breaklineIssues.push(
-          `${wanted[i].name} crosses ${wanted[j].name} away from a shared point. Each states its own height there, so neither segment was applied — split them at their intersection and give that point a surveyed height.`
-        );
-      }
-    }
-  }
-
+  // ---- Force the surviving breakline segments in ------------------------
+  // Any surveyed point sitting on a segment becomes part of the line: an edge
+  // cannot run through a vertex without using it. Junction points added above
+  // are included, which is why this split happens here and not earlier.
   const constraints: [number, number][] = [];
-  wanted.forEach((seg, i) => {
-    if (conflicted.has(i)) return;
-    const failure = insertConstraint(points, triangles, seg.u, seg.v);
-    if (failure) {
-      breaklineIssues.push(`A segment of ${seg.name} was not applied because ${failure}.`);
-    } else {
-      constraints.push([seg.u, seg.v]);
+  for (const seg of segments) {
+    if (refused.has(seg)) continue;
+    const chain = [seg.u, ...verticesOnSegment(points, seg.u, seg.v), seg.v];
+    for (let k = 0; k + 1 < chain.length; k++) {
+      const u = chain[k];
+      const v = chain[k + 1];
+      const failure = insertConstraint(points, triangles, u, v);
+      if (failure) {
+        breaklineIssues.push(`A segment of ${seg.name} was not applied because ${failure}.`);
+      } else {
+        constraints.push([u, v]);
+      }
     }
-  });
+  }
 
   return { points, triangles, duplicatesRemoved, constraints, breaklineIssues };
 }

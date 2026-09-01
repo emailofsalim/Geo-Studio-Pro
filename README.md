@@ -157,8 +157,8 @@ serial and HID (device selection; no total-station protocol layer).
 drone photogrammetry · DSM/DTM raster pipelines · 3D visualisation · contour
 smoothing and labelling (contours are linked into polylines but drawn as the exact
 intersection with each face, with no spline fitting and no index-contour annotation)
-· automatic splitting of breaklines that cross each other (both are reported and
-left out instead — see below).
+· resolving a breakline crossing where the two lines disagree on the height (both
+are reported with the gap between them and left out — see below).
 
 ## Import and export
 
@@ -203,11 +203,13 @@ So `buildTin` takes breaklines and forces their segments in as triangle edges, b
 the standard cavity method: remove the triangles the edge crosses, then
 re-triangulate the two halves Delaunay-optimally. What it will not do:
 
-- **Guess at a crossing.** Two breaklines meeting away from a shared point each
-  state their own height there. Splitting them would mean inventing an elevation,
-  so both segments are reported and left out. Where they cross *at* a surveyed
-  point there is nothing to guess — that point has one observed height — so both
-  are split there and both are honoured.
+- **Guess at a crossing.** Where two breaklines cross, the ground has one
+  elevation. Usually both lines agree on it — a track crossing a crest at grade —
+  and then there is nothing to resolve: the junction becomes a surface point and
+  both lines are split there. Only a genuine disagreement is refused, and then
+  both heights and the gap between them are quoted: *"Crest and Drain cross at
+  10.000, 5.000, where one is 10.000 m and the other 0.000 m — 10.000 m apart."*
+  Agreement is judged to a millimetre, which is the same point in survey terms.
 - **Overrule a surveyed point.** A breakline vertex landing on a position already
   surveyed keeps the surveyed height, and the disagreement is reported.
 - **Drop one silently.** Every requested segment is either in `constraints` or
