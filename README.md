@@ -192,6 +192,13 @@ Projects are isolated: data, layers and coordinate systems are keyed per project
 Storage keys deliberately keep their pre-rebrand names — renaming them would orphan every
 existing user's saved work on first launch of the rebranded build.
 
+Restoring a crash checkpoint replaces the project's saved data outright, which is
+right after a crash — the checkpoint is the newer state — but it is an overwrite with
+no undo. The recovery dialog therefore shows each checkpoint count beside what the
+project currently has saved, and names exactly what would be lost when the checkpoint
+holds less. It stays silent when the saved counts are unknown, because warning on
+every restore would train the warning away before it mattered.
+
 Every write into project data requires an open project. `updateActiveProjectData`
 returns without doing anything when none is open, so the paths that write through it
 check first and say so. They previously reported success regardless: an imported

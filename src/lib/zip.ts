@@ -222,14 +222,31 @@ export function makeZip(files: ZipFileEntry[]): Uint8Array {
 export async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
   const ds = new DecompressionStream('deflate-raw');
   const w = ds.writable.getWriter();
-  w.write(bytes);
-  w.close();
+
+  // Corrupt deflate data rejects on BOTH sides of the stream. The read side is
+  // awaited below and propagates to the caller, which handles it. The write
+  // side used to be fire-and-forget, so a damaged archive raised two unhandled
+  // rejections that reached the window as uncaught errors — visible when
+  // importing a tampered .bhnx package, even though the import itself had
+  // already reported the fault and recovered.
+  //
+  // The write-side rejection is swallowed because it is the same fault the
+  // reader reports; letting both through would surface one failure twice.
+  const pumped = (async () => {
+    await w.write(bytes);
+    await w.close();
+  })().catch(() => undefined);
+
   const chunks: Uint8Array[] = [];
   const r = ds.readable.getReader();
-  while (true) {
-    const { done, value } = await r.read();
-    if (done) break;
-    chunks.push(value);
+  try {
+    for (;;) {
+      const { done, value } = await r.read();
+      if (done) break;
+      chunks.push(value);
+    }
+  } finally {
+    await pumped;
   }
   const len = chunks.reduce((a, c) => a + c.length, 0);
   const out = new Uint8Array(len);

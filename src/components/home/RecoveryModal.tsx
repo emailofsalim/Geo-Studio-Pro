@@ -19,6 +19,7 @@ import {
   Hash
 } from 'lucide-react';
 import { RecoveryCheckpoint } from '../../services/StorageService';
+import { checkpointShortfall } from '../../lib/recoveryDiff';
 
 interface RecoveryModalProps {
   isOpen: boolean;
@@ -26,6 +27,18 @@ interface RecoveryModalProps {
   onRestore: () => Promise<void>;
   onDiscard: () => Promise<void>;
   onClose: () => void;
+  /**
+   * Counts currently saved for the project, when known.
+   *
+   * Restoring overwrites the saved data with the checkpoint's, so the user
+   * needs to see both sides of that trade before making it.
+   */
+  currentStats?: {
+    waypointsCount?: number;
+    layersCount?: number;
+    parcelsCount?: number;
+    boreholesCount?: number;
+  } | null;
 }
 
 export const RecoveryModal: React.FC<RecoveryModalProps> = ({
@@ -33,7 +46,8 @@ export const RecoveryModal: React.FC<RecoveryModalProps> = ({
   checkpoint,
   onRestore,
   onDiscard,
-  onClose
+  onClose,
+  currentStats
 }) => {
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -48,6 +62,26 @@ export const RecoveryModal: React.FC<RecoveryModalProps> = ({
   const photosCount = data.photos?.length || 0;
   const geofencesCount = data.geofences?.length || 0;
   const calculationsCount = data.calculations?.length || 0;
+
+  // Restoring replaces the project's saved data outright, so the counts alone
+  // do not say enough: a checkpoint holding fewer records than the project has
+  // on disk would quietly drop the difference, with no undo. Where the saved
+  // stats are known they are shown beside each figure, and a checkpoint that
+  // would reduce a count is called out before the button is pressed.
+  const shortfalls = checkpointShortfall(
+    {
+      waypointsCount,
+      layersCount,
+      parcelsCount,
+      boreholesCount
+    },
+    currentStats
+  );
+  const known = (v: number | undefined) => (typeof v === 'number' ? v : null);
+  const savedWaypoints = known(currentStats?.waypointsCount);
+  const savedLayers = known(currentStats?.layersCount);
+  const savedParcels = known(currentStats?.parcelsCount);
+  const savedBoreholes = known(currentStats?.boreholesCount);
 
   const handleRestoreClick = async () => {
     setIsProcessing(true);
@@ -107,30 +141,91 @@ export const RecoveryModal: React.FC<RecoveryModalProps> = ({
               <div className="text-[11px] text-white/50 flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 text-[#c9a063]" /> Waypoints
               </div>
-              <div className="text-lg font-bold text-white font-mono mt-1">{waypointsCount}</div>
+              <div className="text-lg font-bold text-white font-mono mt-1">
+                {waypointsCount}
+                {savedWaypoints !== null && (
+                  <span
+                    className={`ml-1.5 text-[11px] font-normal ${
+                      waypointsCount < savedWaypoints ? 'text-amber-400' : 'text-white/40'
+                    }`}
+                  >
+                    (saved: {savedWaypoints})
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
               <div className="text-[11px] text-white/50 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-blue-400" /> GIS Layers
               </div>
-              <div className="text-lg font-bold text-white font-mono mt-1">{layersCount}</div>
+              <div className="text-lg font-bold text-white font-mono mt-1">
+                {layersCount}
+                {savedLayers !== null && (
+                  <span
+                    className={`ml-1.5 text-[11px] font-normal ${
+                      layersCount < savedLayers ? 'text-amber-400' : 'text-white/40'
+                    }`}
+                  >
+                    (saved: {savedLayers})
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
               <div className="text-[11px] text-white/50 flex items-center gap-1.5">
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" /> Parcels
               </div>
-              <div className="text-lg font-bold text-white font-mono mt-1">{parcelsCount}</div>
+              <div className="text-lg font-bold text-white font-mono mt-1">
+                {parcelsCount}
+                {savedParcels !== null && (
+                  <span
+                    className={`ml-1.5 text-[11px] font-normal ${
+                      parcelsCount < savedParcels ? 'text-amber-400' : 'text-white/40'
+                    }`}
+                  >
+                    (saved: {savedParcels})
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
               <div className="text-[11px] text-white/50 flex items-center gap-1.5">
                 <Hash className="w-3.5 h-3.5 text-purple-400" /> Boreholes
               </div>
-              <div className="text-lg font-bold text-white font-mono mt-1">{boreholesCount}</div>
+              <div className="text-lg font-bold text-white font-mono mt-1">
+                {boreholesCount}
+                {savedBoreholes !== null && (
+                  <span
+                    className={`ml-1.5 text-[11px] font-normal ${
+                      boreholesCount < savedBoreholes ? 'text-amber-400' : 'text-white/40'
+                    }`}
+                  >
+                    (saved: {savedBoreholes})
+                  </span>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Restoring is an overwrite, so a checkpoint holding less than the
+              saved project has to say so before the button is pressed. */}
+          {shortfalls.length > 0 && (
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex gap-2.5">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+              <div className="text-xs text-amber-200/90 space-y-1">
+                <div className="font-bold text-amber-200">
+                  This checkpoint holds less than the project has saved
+                </div>
+                <div>
+                  Restoring replaces the saved data outright, so {shortfalls.join(', ')} would be lost and cannot be
+                  recovered afterwards. Use “Decide Later” if you are not sure — the checkpoint is kept either way.
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* SHA-256 Checkpoint Verification */}
           {checkpoint.sha256 && (
