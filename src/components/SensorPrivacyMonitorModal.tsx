@@ -45,6 +45,9 @@ export const SensorPrivacyMonitorModal: React.FC<SensorPrivacyMonitorModalProps>
     orientation,
     motion,
     bluetooth,
+    nfc,
+    serial,
+    hid,
     wakelock,
     isAppForeground,
     totalActiveResources,
@@ -383,6 +386,46 @@ export const SensorPrivacyMonitorModal: React.FC<SensorPrivacyMonitorModalProps>
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Short-range radios and wired links. These previously reached the
+                  device APIs directly, so nothing here was reportable. */}
+              <div className={`mt-4 p-4 rounded-xl border ${cardBg}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <span className={`text-xs font-semibold ${textPrimary}`}>Tag &amp; Wired Device Links</span>
+                  <span className={`px-2 py-0.5 text-[10px] font-mono rounded-full ${
+                    nfc.active || serial.active || hid.active
+                      ? 'bg-amber-500/20 text-amber-400 font-bold'
+                      : 'bg-white/5 text-white/40'
+                  }`}>
+                    {nfc.active || serial.active || hid.active ? 'ACTIVE' : 'STANDBY (OFF)'}
+                  </span>
+                </div>
+                <div className={`text-[11px] font-mono ${textMuted} space-y-1`}>
+                  <div className="flex justify-between">
+                    <span>NFC antenna:</span>
+                    <span className={nfc.active ? 'text-amber-400' : 'text-white/40'}>
+                      {nfc.active ? `Scanning (${nfc.consumerCount})` : 'Off'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Serial port:</span>
+                    <span className={serial.active ? 'text-amber-400' : 'text-white/40'}>
+                      {serial.active ? serial.portName || 'Open' : 'Closed'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>HID device:</span>
+                    <span className={hid.active ? 'text-amber-400' : 'text-white/40'}>
+                      {hid.active ? hid.deviceName || 'Claimed' : 'Released'}
+                    </span>
+                  </div>
+                </div>
+                {(nfc.active || serial.active || hid.active) && (
+                  <div className={`mt-2 pt-2 border-t border-white/[0.06] text-[11px] ${textMuted}`}>
+                    {[...nfc.consumers, ...serial.consumers, ...hid.consumers].map(c => c.featureName).join(', ')}
+                  </div>
+                )}
               </div>
             </div>
           )}

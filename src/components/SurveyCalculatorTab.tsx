@@ -44,6 +44,7 @@ import { toCSVtext, csvEnc } from '../lib/formats';
 import { CameraLandmarkStudio } from './CameraLandmarkStudio';
 import { GeoFeature } from '../types';
 import { useToast } from '../context/ToastContext';
+import { sensorManager } from '../lib/sensorResourceManager';
 
 interface SurveyCalculatorTabProps {
   workingZone?: string;
@@ -170,8 +171,15 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
       return;
     }
     setIsLocatingGps(true);
-    navigator.geolocation.getCurrentPosition(
-      pos => {
+    // Routed through the resource manager so the fix is recorded in the privacy
+    // audit log and is covered by the master kill switch.
+    sensorManager
+      .requestOneTimeLocation('survey_calc_locate', 'Survey Calculator \u2014 Magnetic declination fix', {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      })
+      .then(pos => {
         setIsLocatingGps(false);
         const lat = pos.coords.latitude.toFixed(6);
         const lon = pos.coords.longitude.toFixed(6);
@@ -180,13 +188,11 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
         setMagLon(lon);
         setMagElevation(alt);
         toast.showSuccess(`Acquired GPS coordinates: ${lat}°, ${lon}° (${alt}m MSL)`);
-      },
-      err => {
+      })
+      .catch((err: any) => {
         setIsLocatingGps(false);
         toast.showError(`Could not acquire GPS position: ${err.message}`);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+      });
   };
 
   // Export Magnetic Declination Certificate

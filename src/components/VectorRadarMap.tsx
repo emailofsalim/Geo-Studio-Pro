@@ -34,6 +34,7 @@ import {
   safeWorldToLonLat,
   ImageryProvider
 } from '../lib/tileManager';
+import { sensorManager } from '../lib/sensorResourceManager';
 
 interface VectorRadarMapProps {
   features: GeoFeature[];
@@ -81,8 +82,15 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
   const handleLocateMe = () => {
     if (!navigator.geolocation) return;
     setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      pos => {
+    // Routed through the resource manager so the fix is recorded in the privacy
+    // audit log and is covered by the master kill switch.
+    sensorManager
+      .requestOneTimeLocation('vector_radar_locate', 'Vector Radar Map \u2014 Locate me', {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      })
+      .then(pos => {
         const lon = pos.coords.longitude;
         const lat = pos.coords.latitude;
         const u = lonLatToUtm(lon, lat, zone, south);
@@ -96,10 +104,8 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
             y: cv.height / 2 - u.N * scale
           });
         }
-      },
-      () => setIsLocating(false),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+      })
+      .catch(() => setIsLocating(false));
   };
 
   // Map Imagery State

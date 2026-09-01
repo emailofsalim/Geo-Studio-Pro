@@ -91,6 +91,7 @@ import {
   computeElevationProfile,
   sampleElevation
 } from '../lib/tileManager';
+import { sensorManager } from '../lib/sensorResourceManager';
 
 interface GisStudioTabProps {
   workingZone: string;
@@ -260,8 +261,11 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
       return;
     }
     setIsLocatingGps(true);
-    navigator.geolocation.getCurrentPosition(
-      pos => {
+    // Routed through the resource manager so the fix is recorded in the privacy
+    // audit log and is covered by the master kill switch.
+    sensorManager
+      .requestOneTimeLocation('gis_studio_locate', 'GIS Map Studio \u2014 Locate me')
+      .then(pos => {
         const lon = pos.coords.longitude;
         const lat = pos.coords.latitude;
         const acc = pos.coords.accuracy;
@@ -277,13 +281,11 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
           y: cvH / 2 - utm.N * scale
         });
         toast.showSuccess(`Centered on Live GPS fix (±${acc.toFixed(1)}m)`);
-      },
-      err => {
+      })
+      .catch((err: any) => {
         setIsLocatingGps(false);
         toast.showError(`GPS fix error: ${err.message}`);
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
-    );
+      });
   };
 
   const handleStartRenameLayer = (layer: GisLayer, e?: React.MouseEvent) => {

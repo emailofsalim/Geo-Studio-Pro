@@ -23,6 +23,9 @@ export type HardwareResourceType =
   | 'orientation'
   | 'motion'
   | 'bluetooth'
+  | 'nfc'
+  | 'serial'
+  | 'hid'
   | 'wakelock';
 
 export interface ResourceConsumer {
@@ -79,6 +82,24 @@ export interface HardwareResourceSnapshot {
     consumers: ResourceConsumer[];
     connectedDeviceName: string | null;
   };
+  nfc: {
+    active: boolean;
+    consumerCount: number;
+    consumers: ResourceConsumer[];
+    scanning: boolean;
+  };
+  serial: {
+    active: boolean;
+    consumerCount: number;
+    consumers: ResourceConsumer[];
+    portName: string | null;
+  };
+  hid: {
+    active: boolean;
+    consumerCount: number;
+    consumers: ResourceConsumer[];
+    deviceName: string | null;
+  };
   wakelock: {
     active: boolean;
     consumerCount: number;
@@ -104,6 +125,9 @@ class HardwareResourceManager {
   private orientationConsumers = new Map<string, { consumer: ResourceConsumer; listener: (e: DeviceOrientationEvent) => void }>();
   private motionConsumers = new Map<string, { consumer: ResourceConsumer; listener: (e: DeviceMotionEvent) => void }>();
   private bluetoothConsumers = new Map<string, { consumer: ResourceConsumer; device?: any; server?: any; disconnectHandler?: () => void }>();
+  private nfcConsumers = new Map<string, { consumer: ResourceConsumer; abort?: AbortController }>();
+  private serialConsumers = new Map<string, { consumer: ResourceConsumer; port?: any; portName?: string }>();
+  private hidConsumers = new Map<string, { consumer: ResourceConsumer; device?: any; deviceName?: string }>();
   private wakelockConsumers = new Map<string, ResourceConsumer>();
 
   // Underlying Hardware Handles
@@ -292,6 +316,9 @@ class HardwareResourceManager {
     const oriList = Array.from(this.orientationConsumers.values()).map(v => v.consumer);
     const motList = Array.from(this.motionConsumers.values()).map(v => v.consumer);
     const bleList = Array.from(this.bluetoothConsumers.values()).map(v => v.consumer);
+    const nfcList = Array.from(this.nfcConsumers.values()).map(v => v.consumer);
+    const serialList = Array.from(this.serialConsumers.values()).map(v => v.consumer);
+    const hidList = Array.from(this.hidConsumers.values()).map(v => v.consumer);
     const wakeList = Array.from(this.wakelockConsumers.values());
 
     const totalActive =
@@ -301,6 +328,9 @@ class HardwareResourceManager {
       (oriList.length > 0 ? 1 : 0) +
       (motList.length > 0 ? 1 : 0) +
       (bleList.length > 0 ? 1 : 0) +
+      (nfcList.length > 0 ? 1 : 0) +
+      (serialList.length > 0 ? 1 : 0) +
+      (hidList.length > 0 ? 1 : 0) +
       (wakeList.length > 0 ? 1 : 0);
 
     return {
@@ -338,6 +368,24 @@ class HardwareResourceManager {
         consumerCount: bleList.length,
         consumers: bleList,
         connectedDeviceName: this.activeBluetoothDevice?.name || null
+      },
+      nfc: {
+        active: nfcList.length > 0,
+        consumerCount: nfcList.length,
+        consumers: nfcList,
+        scanning: nfcList.length > 0
+      },
+      serial: {
+        active: serialList.length > 0,
+        consumerCount: serialList.length,
+        consumers: serialList,
+        portName: Array.from(this.serialConsumers.values())[0]?.portName ?? null
+      },
+      hid: {
+        active: hidList.length > 0,
+        consumerCount: hidList.length,
+        consumers: hidList,
+        deviceName: Array.from(this.hidConsumers.values())[0]?.deviceName ?? null
       },
       wakelock: {
         active: wakeList.length > 0 && !!this.activeWakeLockSentinel,
@@ -790,6 +838,101 @@ class HardwareResourceManager {
   // ==========================================================================
   // 7. EMERGENCY PRIVACY & BATTERY KILL-SWITCH
   // ==========================================================================
+  // ==========================================================================
+  // NFC / Serial / HID
+  // --------------------------------------------------------------------------
+  // These three were reaching the device APIs directly from their views, so
+  // an NFC scan, an open serial port or a claimed HID device appeared nowhere
+  // in the audit log and survived the master kill switch. They are registered
+  // here for the same reason every other resource is: the privacy monitor must
+  // be able to tell the user everything that is currently live, and the kill
+  // switch must actually stop all of it.
+  // ==========================================================================
+
+  /**
+   * Begins an NFC scan under management. Returns an AbortController the caller
+   * passes to `NDEFReader.scan()`; releasing the consumer aborts the scan.
+   */
+  public acquireNfcScan(consumerId: string, featureName: string): AbortController {
+    const existing = this.nfcConsumers.get(consumerId);
+    if (existing?.abort) return existing.abort;
+
+    const abort = new AbortController();
+    const consumer: ResourceConsumer = {
+      id: consumerId,
+      featureName,
+      resourceType: 'nfc',
+      acquiredAt: Date.now()
+    };
+    this.nfcConsumers.set(consumerId, { consumer, abort });
+    this.logAudit('nfc', 'ACQUIRE', consumerId, featureName, 'NFC scan started.');
+    this.notifyStateChanged();
+    return abort;
+  }
+
+  public releaseNfcScan(consumerId: string, reason = 'NFC scan stopped') {
+    const entry = this.nfcConsumers.get(consumerId);
+    if (!entry) return;
+    this.nfcConsumers.delete(consumerId);
+    try {
+      entry.abort?.abort();
+    } catch {}
+    this.logAudit('nfc', 'RELEASE', consumerId, entry.consumer.featureName, reason);
+    this.notifyStateChanged();
+  }
+
+  public registerSerialPort(consumerId: string, featureName: string, port: any, portName?: string) {
+    const consumer: ResourceConsumer = {
+      id: consumerId,
+      featureName,
+      resourceType: 'serial',
+      acquiredAt: Date.now()
+    };
+    this.serialConsumers.set(consumerId, { consumer, port, portName: portName || 'Serial port' });
+    this.logAudit('serial', 'ACQUIRE', consumerId, featureName, `Serial port opened${portName ? `: ${portName}` : ''}.`);
+    this.notifyStateChanged();
+  }
+
+  public releaseSerialPort(consumerId: string, reason = 'Serial session closed') {
+    const entry = this.serialConsumers.get(consumerId);
+    if (!entry) return;
+    this.serialConsumers.delete(consumerId);
+    if (entry.port) {
+      try {
+        const closing = entry.port.close?.();
+        if (closing && typeof closing.catch === 'function') closing.catch(() => {});
+      } catch {}
+    }
+    this.logAudit('serial', 'RELEASE', consumerId, entry.consumer.featureName, reason);
+    this.notifyStateChanged();
+  }
+
+  public registerHidDevice(consumerId: string, featureName: string, device: any, deviceName?: string) {
+    const consumer: ResourceConsumer = {
+      id: consumerId,
+      featureName,
+      resourceType: 'hid',
+      acquiredAt: Date.now()
+    };
+    this.hidConsumers.set(consumerId, { consumer, device, deviceName: deviceName || 'HID device' });
+    this.logAudit('hid', 'ACQUIRE', consumerId, featureName, `HID device claimed${deviceName ? `: ${deviceName}` : ''}.`);
+    this.notifyStateChanged();
+  }
+
+  public releaseHidDevice(consumerId: string, reason = 'HID session closed') {
+    const entry = this.hidConsumers.get(consumerId);
+    if (!entry) return;
+    this.hidConsumers.delete(consumerId);
+    if (entry.device) {
+      try {
+        const closing = entry.device.close?.();
+        if (closing && typeof closing.catch === 'function') closing.catch(() => {});
+      } catch {}
+    }
+    this.logAudit('hid', 'RELEASE', consumerId, entry.consumer.featureName, reason);
+    this.notifyStateChanged();
+  }
+
   public releaseAllHardwareResources(reason = 'Emergency Master Kill Switch / User Request') {
     this.logAudit('camera', 'KILL_ALL', 'user', 'Emergency Kill Switch', reason);
 
@@ -850,6 +993,28 @@ class HardwareResourceManager {
       this.activeWakeLockSentinel = null;
     }
     this.wakelockConsumers.clear();
+
+    // 7. NFC, Serial & HID
+    Array.from(this.nfcConsumers.values()).forEach(e => {
+      try { e.abort?.abort(); } catch {}
+    });
+    this.nfcConsumers.clear();
+
+    Array.from(this.serialConsumers.values()).forEach(e => {
+      try {
+        const closing = e.port?.close?.();
+        if (closing && typeof closing.catch === 'function') closing.catch(() => {});
+      } catch {}
+    });
+    this.serialConsumers.clear();
+
+    Array.from(this.hidConsumers.values()).forEach(e => {
+      try {
+        const closing = e.device?.close?.();
+        if (closing && typeof closing.catch === 'function') closing.catch(() => {});
+      } catch {}
+    });
+    this.hidConsumers.clear();
 
     this.notifyStateChanged();
   }
