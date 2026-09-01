@@ -61,6 +61,7 @@ import {
 import { downloadBlob } from '../lib/zip';
 import { VectorRadarMap } from './VectorRadarMap';
 import { useToast } from '../context/ToastContext';
+import { openPdf, isPdfFile, type PdfDocumentHandle } from '../lib/pdfRaster';
 
 interface BhunakshaDigitizerTabProps {
   workingZone: string;
@@ -137,6 +138,51 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
   const [districtName, setDistrictName] = useState<string>('Ranchi');
   const [sheetNo, setSheetNo] = useState<string>('01');
   const [imageDimensions, setImageDimensions] = useState<{ w: number; h: number }>({ w: 800, h: 600 });
+
+  // PDF backgrounds. Cadastral sheets are commonly distributed as PDFs; the
+  // document handle is kept so pages can be switched without re-parsing.
+  const [pdfDoc, setPdfDoc] = useState<PdfDocumentHandle | null>(null);
+  const [pdfPage, setPdfPage] = useState<number>(1);
+  const [pdfBusy, setPdfBusy] = useState<boolean>(false);
+
+  // The decoded sheet background.
+  //
+  // The canvas draw path previously did `new Image(); img.src = mapImageSrc;`
+  // and drew it in the same tick, before the browser had decoded it. A data URL
+  // sometimes squeaked through on a warm cache; a blob URL - which is what a
+  // rendered PDF page produces - never did, so the sheet silently never
+  // appeared. Decoding once here and redrawing when it completes makes the
+  // background reliable for every source.
+  const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    if (!mapImageSrc) {
+      setBgImage(null);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (!cancelled) setBgImage(img);
+    };
+    img.onerror = () => {
+      if (!cancelled) {
+        setBgImage(null);
+        toast.showError('The sheet background could not be decoded.');
+      }
+    };
+    img.src = mapImageSrc;
+    return () => {
+      cancelled = true;
+    };
+  }, [mapImageSrc, toast]);
+
+  // Release the PDF worker and the rendered page URL when the tab goes away.
+  useEffect(() => {
+    return () => {
+      pdfDoc?.destroy().catch(() => {});
+    };
+  }, [pdfDoc]);
   const [imageScaleRatio, setImageScaleRatio] = useState<string>('1:4000 (16 inches = 1 mile)');
 
   // Viewport Pan & Zoom
@@ -416,17 +462,70 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
   }, [snapEnabled, snapTolerance, polygons, gcps, currentPolygonPoints]);
 
   // Handle Image Upload
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  /** Loads one rendered PDF page as the tracing background. */
+  const showPdfPage = async (doc: PdfDocumentHandle, pageNumber: number) => {
+    setPdfBusy(true);
+    try {
+      const rendered = await doc.renderPage(pageNumber, 2);
+      setMapImageSrc(prev => {
+        if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+        return rendered.url;
+      });
+      setImageDimensions({ w: rendered.width, h: rendered.height });
+      setPdfPage(rendered.pageNumber);
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      if (rendered.scaleReduced) {
+        toast.showInfo('This sheet is very large, so it was rendered at a reduced scale to fit in memory.');
+      }
+    } catch (err: any) {
+      toast.showError(`Could not render page ${pageNumber}: ${err.message}`);
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setImageName(file.name.replace(/\.[^/.]+$/, ''));
+
+    // Release any previous PDF before replacing the background.
+    if (pdfDoc) {
+      pdfDoc.destroy().catch(() => {});
+      setPdfDoc(null);
+    }
+
+    if (isPdfFile(file)) {
+      setPdfBusy(true);
+      try {
+        const doc = await openPdf(file);
+        setPdfDoc(doc);
+        await showPdfPage(doc, 1);
+      } catch (err: any) {
+        toast.showError(err.message);
+      } finally {
+        setPdfBusy(false);
+      }
+      return;
+    }
+
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
       setImageDimensions({ w: img.width, h: img.height });
-      setMapImageSrc(url);
+      // Release the previous sheet's object URL, as the PDF path does.
+      // Replacing it without revoking leaks the old blob for the session.
+      setMapImageSrc(prev => {
+        if (prev && prev.startsWith('blob:') && prev !== url) URL.revokeObjectURL(prev);
+        return url;
+      });
       setZoom(1);
       setPan({ x: 0, y: 0 });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      toast.showError(`"${file.name}" could not be read as an image or PDF.`);
     };
     img.src = url;
   };
@@ -970,9 +1069,8 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
     ctx.scale(zoom, zoom);
 
     // 1. Draw Map Sheet Background with Raster Filters
-    if (mapImageSrc) {
-      const img = new Image();
-      img.src = mapImageSrc;
+    if (bgImage) {
+      const img = bgImage;
 
       // Apply Canvas Image Enhancement Filters
       ctx.save();
@@ -1198,6 +1296,7 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
     ctx.restore();
   }, [
     mapImageSrc,
+    bgImage,
     imageDimensions,
     zoom,
     pan,
@@ -1387,8 +1486,33 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
             {/* Upload Map */}
             <label className="flex items-center gap-1.5 px-4 py-2 bg-[#141414] hover:bg-[#1a1a1a] text-white rounded-xl text-xs font-semibold cursor-pointer border border-white/10 transition-colors">
               <Upload className="w-4 h-4 text-[#c9a063]" /> Upload Cadastral Map
-              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+              <input ref={fileInputRef} type="file" accept="image/*,application/pdf,.pdf" onChange={handleImageUpload} className="hidden" />
             </label>
+
+            {/* PDF page navigation — shown only for multi-page PDF backgrounds */}
+            {pdfDoc && pdfDoc.pageCount > 1 && (
+              <div className="flex items-center gap-1.5 px-2 py-2 bg-[#141414] rounded-xl border border-white/10 text-xs text-white/80">
+                <button
+                  onClick={() => showPdfPage(pdfDoc, pdfPage - 1)}
+                  disabled={pdfBusy || pdfPage <= 1}
+                  className="px-2 py-0.5 rounded hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Previous page"
+                >
+                  &lsaquo;
+                </button>
+                <span className="font-mono tabular-nums">
+                  {pdfBusy ? 'rendering…' : `p${pdfPage} / ${pdfDoc.pageCount}`}
+                </span>
+                <button
+                  onClick={() => showPdfPage(pdfDoc, pdfPage + 1)}
+                  disabled={pdfBusy || pdfPage >= pdfDoc.pageCount}
+                  className="px-2 py-0.5 rounded hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Next page"
+                >
+                  &rsaquo;
+                </button>
+              </div>
+            )}
 
             {/* Save Project Session */}
             <button

@@ -139,7 +139,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
               <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5 truncate">
                 <Mail className="w-3.5 h-3.5 text-slate-500" />
-                {user?.email || 'guest@geostudio.local'}
+                {user?.email || 'guest@bhunex.local'}
               </p>
 
               <div className="flex items-center gap-2 mt-2">

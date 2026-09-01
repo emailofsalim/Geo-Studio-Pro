@@ -227,7 +227,7 @@ export class SurveyService {
       });
 
       // Prepare previous reading for next step
-      prevReading = e.backSight !== undefined ? e.backSight : reading;
+      prevReading = e.backSight ?? reading ?? null;
     }
 
     const check1 = Math.abs((sumBS - sumFS) - (sumRise - sumFall)) < 0.002;

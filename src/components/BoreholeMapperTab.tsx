@@ -27,6 +27,16 @@ import { BORE_PRESETS, boreClassifyInterval, boreSummary, boreCardHTML, boreOpSy
 import { lonLatToUtm, utmToLonLat } from '../lib/geodesy';
 import { VectorRadarMap } from './VectorRadarMap';
 
+/**
+ * Formats a measured depth or level, or blank when the hole does not have one.
+ *
+ * Never substitutes a default. A fabricated depth or elevation in a collar
+ * export reads as a real observation to whoever opens the file.
+ */
+function depth(v: number | null | undefined, dp = 2): string {
+  return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(dp) : '';
+}
+
 interface BoreholeMapperTabProps {
   workingZone: string;
 }
@@ -226,7 +236,7 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
 
     const collarRows = holes.map(h => {
       const u = lonLatToUtm(h.lon, h.lat, zNum, isSouth);
-      return [h.id, u.N.toFixed(3), u.E.toFixed(3), (h.rl || 500).toFixed(2), h.eoh.toFixed(2)];
+      return [h.id, u.N.toFixed(3), u.E.toFixed(3), depth(h.rl), depth(h.eoh)];
     });
 
     const lithRows: string[][] = [];
@@ -234,9 +244,11 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
 
     holes.forEach(h => {
       h.intervals.forEach((iv, i) => {
-        lithRows.push([h.id, iv.from.toFixed(2), iv.to.toFixed(2), iv.lith]);
-        const g1 = iv.vals[activeProfile.params[0]?.key] != null ? String(iv.vals[activeProfile.params[0]?.key]) : '';
-        const g2 = iv.vals[activeProfile.params[1]?.key] != null ? String(iv.vals[activeProfile.params[1]?.key]) : '';
+        lithRows.push([h.id, iv.from.toFixed(2), iv.to.toFixed(2), iv.lith ?? '']);
+        const k1 = activeProfile.params[0]?.key;
+        const k2 = activeProfile.params[1]?.key;
+        const g1 = k1 && iv.vals[k1] != null ? String(iv.vals[k1]) : '';
+        const g2 = k2 && iv.vals[k2] != null ? String(iv.vals[k2]) : '';
         assayRows.push([h.id, iv.from.toFixed(2), iv.to.toFixed(2), `${h.id}_S${i + 1}`, g1, g2]);
       });
     });
@@ -266,7 +278,7 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
         u.E.toFixed(2),
         u.N.toFixed(2),
         (h.rl || 500).toFixed(2),
-        h.eoh.toFixed(2),
+        depth(h.eoh),
         s.ob.toFixed(2),
         s.oreThk.toFixed(2),
         s.ib.toFixed(2),
@@ -296,7 +308,7 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
           Ore_Thickness: `${s.oreThk.toFixed(2)} m`,
           Overburden: `${s.ob.toFixed(2)} m`,
           Strip_Ratio: s.strip != null ? `${s.strip.toFixed(2)} : 1` : '-',
-          EOH_Depth: `${h.eoh.toFixed(2)} m`
+          EOH_Depth: h.eoh != null ? `${h.eoh.toFixed(2)} m` : ''
         }
       };
     });
@@ -336,7 +348,7 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
         props: {
           Hole_ID: h.id,
           Status: s.positive ? 'ORE' : 'WASTE',
-          EOH_Depth: Number(h.eoh.toFixed(2)),
+          EOH_Depth: h.eoh != null ? Number(h.eoh.toFixed(2)) : null,
           Ore_Thk: Number(s.oreThk.toFixed(2)),
           OB_m: Number(s.ob.toFixed(2)),
           Strip_Ratio: s.strip != null ? Number(s.strip.toFixed(2)) : 0
@@ -511,7 +523,7 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
                 >
                   {activeSummary.positive ? 'ORE QUALIFIED' : 'BARREN / WASTE'}
                 </span>
-                <span className="text-xs text-white/40 font-mono">EOH: {activeHole.eoh.toFixed(2)}m</span>
+                <span className="text-xs text-white/40 font-mono">EOH: {activeHole.eoh != null ? `${activeHole.eoh.toFixed(2)}m` : 'not recorded'}</span>
               </div>
 
               <div className="flex items-center gap-4 text-xs font-mono">

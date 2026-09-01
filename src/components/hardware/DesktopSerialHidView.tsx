@@ -23,6 +23,11 @@ import {
   speakVoiceAnnouncement,
   isDisplayMediaSupported
 } from '../../lib/hardwareComms';
+import { sensorManager } from '../../lib/sensorResourceManager';
+
+/** Stable consumer ids so the manager can track and release these links. */
+const SERIAL_CONSUMER_ID = 'desktop_serial_view';
+const HID_CONSUMER_ID = 'desktop_hid_view';
 import { triggerHaptic } from '../../lib/haptics';
 import { useIsDarkMode } from '../../hooks/useIsDarkMode';
 
@@ -151,6 +156,15 @@ export const DesktopSerialHidView: React.FC<DesktopSerialHidViewProps> = ({ onVo
     try {
       const port = await (navigator as any).serial.requestPort();
       await port.open({ baudRate: serialBaudRate });
+      // Registered with the resource manager so an open port shows in the
+      // privacy monitor and is closed by the master kill switch.
+      const info = port.getInfo?.() || {};
+      sensorManager.registerSerialPort(
+        SERIAL_CONSUMER_ID,
+        'Total Station / GNSS serial link',
+        port,
+        info.usbVendorId ? `USB ${info.usbVendorId}:${info.usbProductId}` : 'Serial port'
+      );
       setSerialPort(port);
       setSerialConnected(true);
       triggerHaptic([30, 40]);
@@ -172,6 +186,27 @@ export const DesktopSerialHidView: React.FC<DesktopSerialHidViewProps> = ({ onVo
       alert(`Serial connection canceled or failed: ${err.message}`);
     }
   };
+
+  const handleDisconnectSerial = () => {
+    sensorManager.releaseSerialPort(SERIAL_CONSUMER_ID, 'User closed the serial link');
+    setSerialPort(null);
+    setSerialConnected(false);
+  };
+
+  const handleDisconnectHid = () => {
+    sensorManager.releaseHidDevice(HID_CONSUMER_ID, 'User released the HID device');
+    setHidConnected(false);
+    setHidDeviceName('');
+  };
+
+  // Close the port and release the device when the view goes away; neither had
+  // a teardown path before, so both outlived the component.
+  useEffect(() => {
+    return () => {
+      sensorManager.releaseSerialPort(SERIAL_CONSUMER_ID, 'Serial view unmounted');
+      sensorManager.releaseHidDevice(HID_CONSUMER_ID, 'Serial view unmounted');
+    };
+  }, []);
 
   const handleSimulateSerial = () => {
     setSerialConnected(true);
@@ -195,6 +230,12 @@ export const DesktopSerialHidView: React.FC<DesktopSerialHidViewProps> = ({ onVo
       if (devices.length > 0) {
         const dev = devices[0];
         await dev.open();
+        sensorManager.registerHidDevice(
+          HID_CONSUMER_ID,
+          'HID survey controller',
+          dev,
+          dev.productName || 'HID Controller'
+        );
         setHidConnected(true);
         setHidDeviceName(dev.productName || 'HID Controller');
         dev.addEventListener('inputreport', (e: any) => {
@@ -355,7 +396,7 @@ export const DesktopSerialHidView: React.FC<DesktopSerialHidViewProps> = ({ onVo
               </>
             ) : (
               <button
-                onClick={() => setSerialConnected(false)}
+                onClick={handleDisconnectSerial}
                 className="px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 text-xs font-medium transition-colors font-sans"
               >
                 Close Port
@@ -383,10 +424,10 @@ export const DesktopSerialHidView: React.FC<DesktopSerialHidViewProps> = ({ onVo
               <span className={`text-xs font-semibold ${textPrimary}`}>Gamepad & 3D SpaceMouse (WebHID)</span>
             </div>
             <button
-              onClick={handleConnectHid}
+              onClick={hidConnected ? handleDisconnectHid : handleConnectHid}
               className={`px-2.5 py-1 rounded ${btnSecondary} text-xs border transition-colors`}
             >
-              Pair HID Device
+              {hidConnected ? 'Release HID Device' : 'Pair HID Device'}
             </button>
           </div>
 

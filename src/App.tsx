@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { Navigation, AppTabId, APPS_CONFIG } from './components/Navigation';
 import { DesktopMenuBar } from './components/DesktopMenuBar';
 import { DesktopStatusBar } from './components/DesktopStatusBar';
@@ -18,27 +18,43 @@ import { useProject } from './context/ProjectContext';
 import { downloadBlob } from './lib/zip';
 import { saveSessionSnapshot, getLastAutoSaveMeta, loadLatestSessionSnapshot } from './lib/indexedDbStorage';
 
-// Tabs
-import { HomeTemplatesTab } from './components/HomeTemplatesTab';
-import { FieldSensorsTab } from './components/FieldSensorsTab';
-import { GisStudioTab } from './components/GisStudioTab';
-import { CoordinateConverterTab } from './components/CoordinateConverterTab';
-import { GpsSurveyorTab } from './components/GpsSurveyorTab';
-import { SurveyCalculatorTab } from './components/SurveyCalculatorTab';
-import { FormatConverterTab } from './components/FormatConverterTab';
-import { MergeSplitTab } from './components/MergeSplitTab';
-import { BoreholeMapperTab } from './components/BoreholeMapperTab';
-import { GeofenceStudioTab } from './components/GeofenceStudioTab';
-import { CameraLandmarkStudio } from './components/CameraLandmarkStudio';
-import { CadastralMapperTab } from './components/CadastralMapperTab';
-import { BhunakshaDigitizerTab } from './components/BhunakshaDigitizerTab';
-import { BoundaryOffsetTab } from './components/BoundaryOffsetTab';
-import { TutorialTab } from './components/TutorialTab';
-import { HelpFaqTab } from './components/HelpFaqTab';
+// Tabs are code-split: the initial bundle was a single 1.85 MB chunk because
+// every tab was imported eagerly, so a user opening one screen downloaded all
+// twenty. Each now loads on first visit.
+const TAB_FALLBACK = (
+  <div className="p-8 text-sm opacity-60">Loading module\u2026</div>
+);
+
+const HomeTemplatesTab = lazy(() => import('./components/HomeTemplatesTab').then(m => ({ default: m.HomeTemplatesTab })));
+const FieldSensorsTab = lazy(() => import('./components/FieldSensorsTab').then(m => ({ default: m.FieldSensorsTab })));
+const GisStudioTab = lazy(() => import('./components/GisStudioTab').then(m => ({ default: m.GisStudioTab })));
+const CoordinateConverterTab = lazy(() => import('./components/CoordinateConverterTab').then(m => ({ default: m.CoordinateConverterTab })));
+const GpsSurveyorTab = lazy(() => import('./components/GpsSurveyorTab').then(m => ({ default: m.GpsSurveyorTab })));
+const SurveyCalculatorTab = lazy(() => import('./components/SurveyCalculatorTab').then(m => ({ default: m.SurveyCalculatorTab })));
+const FormatConverterTab = lazy(() => import('./components/FormatConverterTab').then(m => ({ default: m.FormatConverterTab })));
+const MergeSplitTab = lazy(() => import('./components/MergeSplitTab').then(m => ({ default: m.MergeSplitTab })));
+const BoreholeMapperTab = lazy(() => import('./components/BoreholeMapperTab').then(m => ({ default: m.BoreholeMapperTab })));
+const GeofenceStudioTab = lazy(() => import('./components/GeofenceStudioTab').then(m => ({ default: m.GeofenceStudioTab })));
+const CameraLandmarkStudio = lazy(() => import('./components/CameraLandmarkStudio').then(m => ({ default: m.CameraLandmarkStudio })));
+const CadastralMapperTab = lazy(() => import('./components/CadastralMapperTab').then(m => ({ default: m.CadastralMapperTab })));
+const BhunakshaDigitizerTab = lazy(() => import('./components/BhunakshaDigitizerTab').then(m => ({ default: m.BhunakshaDigitizerTab })));
+const BoundaryOffsetTab = lazy(() => import('./components/BoundaryOffsetTab').then(m => ({ default: m.BoundaryOffsetTab })));
+const TutorialTab = lazy(() => import('./components/TutorialTab').then(m => ({ default: m.TutorialTab })));
+const HelpFaqTab = lazy(() => import('./components/HelpFaqTab').then(m => ({ default: m.HelpFaqTab })));
+const ReportsTab = lazy(() => import('./components/ReportsTab').then(m => ({ default: m.ReportsTab })));
+const MiningStudioTab = lazy(() => import('./components/MiningStudioTab').then(m => ({ default: m.MiningStudioTab })));
+import { crsIdentityFor, isValidZone, DEFAULT_ZONE } from './lib/crsIdentity';
 
 export function App() {
   const toast = useToast();
-  const { activeProject, activeProjectId, activeProjectData, updateActiveProjectData, saveActiveProjectWorkspace } = useProject();
+  const {
+    activeProject,
+    activeProjectId,
+    activeProjectData,
+    updateActiveProjectData,
+    saveActiveProjectWorkspace,
+    updateProject
+  } = useProject();
 
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -52,10 +68,46 @@ export function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRail, setIsRail] = useState(false);
 
-  // Settings State
-  const [workingZone, setWorkingZone] = useState<string>(() => {
-    return localStorage.getItem('geo_working_zone') || '45N';
+  // --------------------------------------------------------------------------
+  // Working coordinate system
+  // --------------------------------------------------------------------------
+  // The active project's own CRS is authoritative. The stored preference below
+  // is only the seed for a NEW project and the value used when no project is
+  // open — it is never allowed to override a project that declares its own zone.
+  //
+  // This binding is the fix for a defect where the working zone lived purely in
+  // global storage: opening a Zone 43 project and then switching to a Zone 45
+  // project left every calculation and export running in Zone 43. The
+  // arithmetic succeeded and the numbers looked plausible, so the error
+  // surfaced only as coordinates in the wrong part of the country.
+  const [defaultZonePreference, setDefaultZonePreference] = useState<string>(() => {
+    const stored = localStorage.getItem('geo_working_zone');
+    return isValidZone(stored) ? (stored as string) : DEFAULT_ZONE;
   });
+
+  // Derived, never stale: changing project changes the working zone in the same render.
+  const workingZone = isValidZone(activeProject?.workingZone)
+    ? (activeProject!.workingZone as string)
+    : defaultZonePreference;
+
+  const setWorkingZone = useCallback(
+    (zone: string) => {
+      if (!isValidZone(zone)) {
+        toast.showError(`"${zone}" is not a valid UTM zone. Expected e.g. "45N" or "43S".`);
+        return;
+      }
+      // Remember as the seed for the next new project.
+      setDefaultZonePreference(zone);
+      // Persist onto the open project so the change travels with the data.
+      if (activeProjectId) {
+        const identity = crsIdentityFor(zone);
+        updateProject(activeProjectId, { workingZone: identity.zone, crs: identity.label }).catch(
+          (err: any) => toast.showError(`Could not save the coordinate system: ${err.message}`)
+        );
+      }
+    },
+    [activeProjectId, updateProject, toast]
+  );
   const [localLandUnitPreset, setLocalLandUnitPreset] = useState<string>(() => {
     return localStorage.getItem('geo_land_preset') || 'bihar_jharkhand';
   });
@@ -130,12 +182,14 @@ export function App() {
 
   // Persist settings
   useEffect(() => {
-    localStorage.setItem('geo_working_zone', workingZone);
+    // Only the default-zone preference is global. The live working zone belongs
+    // to the open project and is persisted there by setWorkingZone.
+    localStorage.setItem('geo_working_zone', defaultZonePreference);
     localStorage.setItem('geo_land_preset', localLandUnitPreset);
     localStorage.setItem('geo_custom_bigha', customBighaM2.toString());
     localStorage.setItem('geo_custom_katha', customKathaPerBigha.toString());
     localStorage.setItem('geo_dist_unit', distanceUnit);
-  }, [workingZone, localLandUnitPreset, customBighaM2, customKathaPerBigha, distanceUnit]);
+  }, [defaultZonePreference, localLandUnitPreset, customBighaM2, customKathaPerBigha, distanceUnit]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -238,7 +292,7 @@ export function App() {
 
   const handleClearAllData = () => {
     localStorage.clear();
-    setWorkingZone('45N');
+    setDefaultZonePreference(DEFAULT_ZONE);
     setLocalLandUnitPreset('bihar_jharkhand');
     setCustomBighaM2(2529.285264);
     setCustomKathaPerBigha(20);
@@ -440,6 +494,7 @@ export function App() {
         {/* Content View Area */}
         <main className="flex-1 p-3 sm:p-5 md:p-8 overflow-y-auto max-w-7xl mx-auto w-full custom-scrollbar pb-24 md:pb-6">
           <ErrorBoundary fallbackTitle={`Error rendering ${activeTab} workspace`}>
+            <Suspense fallback={TAB_FALLBACK}>
             {activeTab === 'templates' && (
               <HomeTemplatesTab
                 setActiveTab={setActiveTab}
@@ -544,11 +599,18 @@ export function App() {
               />
             )}
 
+            {activeTab === 'mining' && <MiningStudioTab workingZone={workingZone} />}
+
+            {activeTab === 'reports' && (
+              <ReportsTab workingZone={workingZone} distanceUnit={distanceUnit} />
+            )}
+
             {(activeTab === 'tut' || activeTab === 'tutorials') && (
               <TutorialTab setActiveTab={setActiveTab} />
             )}
 
             {(activeTab === 'help' || activeTab === 'faq') && <HelpFaqTab />}
+            </Suspense>
           </ErrorBoundary>
         </main>
       </div>

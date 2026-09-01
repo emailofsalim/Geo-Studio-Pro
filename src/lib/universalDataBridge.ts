@@ -29,6 +29,7 @@ import {
   csvToFeatures,
   cleanDxfText,
   parseXlsxZip,
+  worldFileRasterParse,
   parseLasHeaderAndPoints,
   parseGeoTiffRaster
 } from './formats';
@@ -390,34 +391,58 @@ export async function detectAndParseGeospatialFile(
       const buffer = await file.arrayBuffer();
       const u8 = new Uint8Array(buffer);
 
-      // Check ASPRS LAS Point Cloud
-      if (fileName.endsWith('.las') || fileName.endsWith('.laz') || (u8.length >= 4 && u8[0] === 0x4C && u8[1] === 0x41 && u8[2] === 0x53 && u8[3] === 0x46)) {
-        try {
-          const las = parseLasHeaderAndPoints(u8);
-          return buildDetectedResult('las', 'ASPRS LAS LiDAR Point Cloud', 'Engineering', '.las', 0.98, las.features, 'gis', {
-            warnings: [`Loaded ${las.features.length} point records from LAS v${las.header.version} cloud header.`],
-            detectedCRS: 'Projected Grid / LiDAR CRS',
-            crsStatus: 'INFERRED',
-            detectedUnits: 'm'
-          });
-        } catch (lasErr: any) {
-          warnings.push(`LAS parser notice: ${lasErr.message}`);
+      // ---- ASPRS LAS point cloud ----
+      // A parse failure here is reported to the user rather than swallowed: a
+      // compressed LAZ file reaches this branch with a valid "LASF" signature,
+      // and falling through would let it be misdetected as some other format
+      // and imported as meaningless coordinates.
+      if (
+        fileName.endsWith('.las') ||
+        fileName.endsWith('.laz') ||
+        (u8.length >= 4 && u8[0] === 0x4c && u8[1] === 0x41 && u8[2] === 0x53 && u8[3] === 0x46)
+      ) {
+        const las = parseLasHeaderAndPoints(u8);
+        const lasWarnings = [
+          `Loaded ${las.header.loadedCount.toLocaleString()} of ${las.header.pointCount.toLocaleString()} points from LAS v${las.header.version}.`
+        ];
+        if (las.header.truncated) {
+          lasWarnings.push(
+            `The cloud was subsampled to the first ${las.header.loadedCount.toLocaleString()} points for display. Measurements taken on it do not represent the full cloud.`
+          );
         }
+        return buildDetectedResult('las', 'ASPRS LAS LiDAR Point Cloud', 'Engineering', '.las', 0.98, las.features, 'gis', {
+          warnings: lasWarnings,
+          // The LAS CRS lives in the header VLRs, which are not read yet, so
+          // this is explicitly unknown rather than guessed.
+          detectedCRS: 'Not read from file — confirm before use',
+          crsStatus: 'UNKNOWN',
+          detectedUnits: 'm'
+        });
       }
 
-      // Check GeoTIFF / TIFF Raster
-      if (fileName.endsWith('.tif') || fileName.endsWith('.tiff') || (u8.length >= 4 && ((u8[0] === 0x49 && u8[1] === 0x49) || (u8[0] === 0x4D && u8[1] === 0x4D)))) {
-        try {
-          const tiff = parseGeoTiffRaster(u8);
-          return buildDetectedResult('geotiff', 'GeoTIFF Elevation Raster', 'GIS', '.tif', 0.95, tiff.features, 'gis', {
-            warnings: ['GeoTIFF raster bounding domain loaded for elevation analysis.'],
-            detectedCRS: 'WGS 84 / Projected Grid',
-            crsStatus: 'INFERRED',
-            detectedUnits: 'm'
-          });
-        } catch (tifErr: any) {
-          warnings.push(`GeoTIFF parser notice: ${tifErr.message}`);
+      // ---- GeoTIFF / TIFF raster ----
+      if (
+        fileName.endsWith('.tif') ||
+        fileName.endsWith('.tiff') ||
+        (u8.length >= 4 && ((u8[0] === 0x49 && u8[1] === 0x49) || (u8[0] === 0x4d && u8[1] === 0x4d)))
+      ) {
+        const tiff = parseGeoTiffRaster(u8);
+        if (!tiff.isGeoReferenced) {
+          throw new Error(
+            `This is a valid TIFF (${tiff.width}x${tiff.height} px) but it carries no georeferencing tags, ` +
+              'so its position on the map is unknown. Import a GeoTIFF that includes ModelPixelScale and ModelTiepoint, ' +
+              'or georeference the image in the Cadastral Digitizer using ground control points.'
+          );
         }
+        return buildDetectedResult('geotiff', 'GeoTIFF Raster', 'GIS', '.tif', 0.95, tiff.features, 'gis', {
+          warnings: [
+            `Raster footprint read from the file header: ${tiff.width}x${tiff.height} px at ${tiff.pixelScale![0]} units/px.`,
+            'The footprint outline is imported. Pixel data is not yet read.'
+          ],
+          detectedCRS: tiff.epsg ? `EPSG:${tiff.epsg}` : 'Not declared in file — confirm before use',
+          crsStatus: tiff.epsg ? 'EXPLICIT' : 'UNKNOWN',
+          detectedUnits: 'm'
+        });
       }
 
       // Check ZIP-based containers (BHNX, XLSX, KMZ, Shapefile ZIP)
@@ -738,6 +763,27 @@ export async function detectAndParseGeospatialFile(
     } catch {}
   }
 
+  // F2. ESRI world file (.tfw / .jgw / .pgw / .wld)
+  // Six numeric lines giving the affine transform of a companion image. Added
+  // so the central parser is a superset of the per-tab import chains it
+  // replaces; without it, routing the converter through here would have
+  // silently dropped world-file support.
+  if (/\.(tfw|jgw|pgw|wld)$/i.test(fileName)) {
+    try {
+      const feats = worldFileRasterParse(fileName, trimmed, zone, south);
+      if (feats.length > 0) {
+        return buildDetectedResult('wld', 'ESRI World File (raster georeference)', 'Raster', '.wld', 0.93, feats, 'gis', {
+          warnings: warnings.concat(
+            'A world file positions a companion image; it carries no imagery itself. Import the image alongside it.'
+          ),
+          detectedCRS: `WGS 84 / UTM Zone ${zone}${south ? 'S' : 'N'}`,
+          crsStatus: 'INFERRED',
+          detectedUnits: 'm'
+        });
+      }
+    } catch {}
+  }
+
   // G. Check for MapInfo MIF/MID
   if (fileName.endsWith('.mif') || trimmed.toUpperCase().includes('VERSION') && trimmed.toUpperCase().includes('COLUMNS')) {
     try {
@@ -922,7 +968,7 @@ export async function executeUniversalExport(options: UniversalExportOptions): P
     workingZoneStr = '45N',
     coordSystem = 'wgs84',
     include3dZ = true,
-    layerName = 'GeoStudio_Export',
+    layerName = 'BhuNex_Export',
     allLayers,
     waypoints,
     parcels,
@@ -931,7 +977,7 @@ export async function executeUniversalExport(options: UniversalExportOptions): P
   } = options;
 
   const { zone, south } = parseUtmZoneStr(workingZoneStr);
-  const cleanBase = safeFileName(baseInputName || 'geostudio_export');
+  const cleanBase = safeFileName(baseInputName || 'bhunex_export');
 
   // Consolidate all features if layers or waypoints are provided
   let exportFeatures: GeoFeature[] = [...features];
@@ -1542,7 +1588,7 @@ ${parcelsXml}  </Parcels>
       const projectStr = JSON.stringify(fullProject, null, 2);
       const outName = `${cleanBase}_project.json`;
       downloadBlob(projectStr, outName, 'application/json');
-      return { success: true, fileName: outName, byteCount: new Blob([projectStr]).size, formatName: 'GeoStudio Full Project Backup' };
+      return { success: true, fileName: outName, byteCount: new Blob([projectStr]).size, formatName: 'BhuNex Studio Full Project Backup' };
     }
 
     default:

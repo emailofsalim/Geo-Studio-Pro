@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   FileSpreadsheet,
+  FileText,
+  Mountain,
   Globe,
   Navigation as CompassIcon,
   Calculator,
@@ -59,13 +61,15 @@ export type AppTabId =
   | 'tutorials'
   | 'tut'
   | 'faq'
-  | 'help';
+  | 'help'
+  | 'reports'
+  | 'mining';
 
 export interface AppDefinition {
   id: AppTabId;
   name: string;
   shortName: string;
-  category: 'Primary' | 'Geodesy & Survey' | 'Cadastre & Exploration' | 'Geometry & Tools' | 'Help & Docs';
+  category: 'Primary' | 'Geodesy & Survey' | 'Cadastre & Exploration' | 'Geometry & Tools' | 'Data & Output' | 'Help & Docs';
   description: string;
   icon: any;
   isPrimary?: boolean;
@@ -232,6 +236,22 @@ export const APPS_CONFIG: AppDefinition[] = [
     icon: BookOpen
   },
   {
+    id: 'mining',
+    name: 'Mining Studio',
+    shortName: 'Mining',
+    category: 'Cadastre & Exploration',
+    description: 'Bench and slope geometry, drill pattern and blast design, stockpile volumes and block reserves',
+    icon: Mountain
+  },
+  {
+    id: 'reports',
+    name: 'Reports',
+    shortName: 'Reports',
+    category: 'Data & Output',
+    description: 'Print-ready registers and summaries built from the active project, each stating its CRS',
+    icon: FileText
+  },
+  {
     id: 'help',
     name: 'Help & Documentation',
     shortName: 'Help',
@@ -288,10 +308,11 @@ export const Navigation: React.FC<NavigationProps> = ({
     }
   }, [isMoreAppActive]);
 
-  const secondaryCategories: ('Geodesy & Survey' | 'Cadastre & Exploration' | 'Geometry & Tools' | 'Help & Docs')[] = [
+  const secondaryCategories: ('Geodesy & Survey' | 'Cadastre & Exploration' | 'Geometry & Tools' | 'Data & Output' | 'Help & Docs')[] = [
     'Geodesy & Survey',
     'Cadastre & Exploration',
     'Geometry & Tools',
+    'Data & Output',
     'Help & Docs'
   ];
 

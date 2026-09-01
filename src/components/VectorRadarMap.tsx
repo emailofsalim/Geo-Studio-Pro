@@ -34,6 +34,7 @@ import {
   safeWorldToLonLat,
   ImageryProvider
 } from '../lib/tileManager';
+import { sensorManager } from '../lib/sensorResourceManager';
 
 interface VectorRadarMapProps {
   features: GeoFeature[];
@@ -81,8 +82,15 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
   const handleLocateMe = () => {
     if (!navigator.geolocation) return;
     setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      pos => {
+    // Routed through the resource manager so the fix is recorded in the privacy
+    // audit log and is covered by the master kill switch.
+    sensorManager
+      .requestOneTimeLocation('vector_radar_locate', 'Vector Radar Map \u2014 Locate me', {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      })
+      .then(pos => {
         const lon = pos.coords.longitude;
         const lat = pos.coords.latitude;
         const u = lonLatToUtm(lon, lat, zone, south);
@@ -96,10 +104,8 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
             y: cv.height / 2 - u.N * scale
           });
         }
-      },
-      () => setIsLocating(false),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+      })
+      .catch(() => setIsLocating(false));
   };
 
   // Map Imagery State
@@ -799,14 +805,14 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             onClick={() => setScale(s => s * 1.25)}
-            className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/70 hover:text-white border border-white/5 text-xs transition-colors"
+            className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/70 hover:text-white border border-white/5 text-xs transition-colors pointer-coarse:hidden"
             title="Zoom In"
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setScale(s => s * 0.8)}
-            className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/70 hover:text-white border border-white/5 text-xs transition-colors"
+            className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/70 hover:text-white border border-white/5 text-xs transition-colors pointer-coarse:hidden"
             title="Zoom Out"
           >
             <ZoomOut className="w-3.5 h-3.5" />
@@ -920,8 +926,13 @@ export const VectorRadarMap: React.FC<VectorRadarMapProps> = ({
           className="w-full h-80 bg-slate-50 dark:bg-[#0a0a0a] cursor-crosshair block touch-none select-none"
         />
 
-        {/* Floating Touch Zoom Buttons */}
-        <div className="absolute bottom-3 left-3 flex flex-col gap-1 z-20">
+        {/* Zoom is rendered twice on purpose, but only one set is ever shown:
+            the toolbar's small buttons for a fine pointer, these large targets
+            for a coarse one. Both zoom this same canvas, so before the pointer
+            split they appeared together and read as the same control twice -
+            on a mouse screen AND on a phone. Deleting either would have cost
+            one input type its usable affordance. */}
+        <div className="absolute bottom-3 left-3 hidden pointer-coarse:flex flex-col gap-1 z-20">
           <button
             onClick={() => setScale(s => s * 1.25)}
             className="w-7 h-7 rounded-lg bg-black/70 hover:bg-black/90 backdrop-blur-md border border-white/20 text-white flex items-center justify-center text-xs shadow-md active:scale-95 transition-transform"

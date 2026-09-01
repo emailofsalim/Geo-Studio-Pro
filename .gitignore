@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Build & test
+node_modules/
+dist/
+package-lock.json
+drive*.mjs
+shot-*.png

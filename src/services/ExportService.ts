@@ -12,6 +12,10 @@ import {
 import { GeodesyService } from './GeodesyService';
 import { GeoFeature, GisLayer, SurveyWaypoint, CadastralParcel, PhotoLandmark } from '../types';
 import { stripBOM, toCSVtext, kmlBuild, geoJsonBuild, dxfBuild, gpxBuild, wktBuild } from '../lib/formats';
+// Statically imported: formats.ts is already in the main graph via eighteen
+// other modules, so the previous dynamic imports split nothing and only
+// produced a bundler warning.
+import { geoJsonParse, kmlParse, gpxParse, wktParse, dxfParse } from '../lib/formats';
 
 export interface ExportValidationResult {
   canExport: boolean;
@@ -224,24 +228,19 @@ export class ExportService {
 
       if (format === 'geojson') {
         exportText = geoJsonBuild(features, zoneNum, isSouth);
-        const { geoJsonParse } = await import('../lib/formats');
         reimported = geoJsonParse(exportText);
       } else if (format === 'kml') {
         exportText = kmlBuild(features, 'RT_Test', true, zoneNum, isSouth);
-        const { kmlParse } = await import('../lib/formats');
         reimported = kmlParse(exportText);
       } else if (format === 'gpx') {
         exportText = gpxBuild(features, 'RT_Test', true, zoneNum, isSouth);
-        const { gpxParse } = await import('../lib/formats');
         reimported = gpxParse(exportText);
       } else if (format === 'wkt') {
         exportText = wktBuild(features, zoneNum, isSouth);
-        const { wktParse } = await import('../lib/formats');
         reimported = wktParse(exportText);
       } else if (format === 'dxf') {
         const dxfRes = dxfBuild(features, 'utm', zoneNum, isSouth, true);
         exportText = dxfRes.dxf;
-        const { dxfParse } = await import('../lib/formats');
         reimported = dxfParse(exportText);
       } else {
         return {

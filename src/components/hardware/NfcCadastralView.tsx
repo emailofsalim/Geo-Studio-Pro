@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Cpu,
   Smartphone,
@@ -20,6 +20,11 @@ import {
 import { lonLatToUtm } from '../../lib/geodesy';
 import { triggerHaptic } from '../../lib/haptics';
 import { useIsDarkMode } from '../../hooks/useIsDarkMode';
+import { sensorManager } from '../../lib/sensorResourceManager';
+
+/** Stable consumer id so the manager can track and release this view's NFC scan. */
+const NFC_CONSUMER_ID = 'nfc_cadastral_view';
+const NFC_WRITE_CONSUMER_ID = 'nfc_cadastral_write';
 
 interface NfcCadastralViewProps {
   workingZone?: string;
@@ -54,6 +59,14 @@ export const NfcCadastralView: React.FC<NfcCadastralViewProps> = ({
 
   const nfcReaderRef = useRef<any>(null);
 
+  // Stop the antenna when the view goes away. Without this the scan outlived
+  // the component and kept the NFC radio running in the background.
+  useEffect(() => {
+    return () => {
+      sensorManager.releaseNfcScan(NFC_CONSUMER_ID, 'NFC view unmounted');
+    };
+  }, []);
+
   const handleStartNfcScan = async () => {
     if (!isNfcSupported()) {
       setNfcStatus('Web NFC (NDEFReader) requires Chrome on Android with NFC hardware enabled.');
@@ -64,7 +77,11 @@ export const NfcCadastralView: React.FC<NfcCadastralViewProps> = ({
       const NDEFReaderClass = (window as any).NDEFReader;
       const ndef = new NDEFReaderClass();
       nfcReaderRef.current = ndef;
-      await ndef.scan();
+      // Registered with the resource manager, which owns the abort signal. The
+      // scan therefore appears in the privacy audit log and stops when the user
+      // hits the master kill switch - previously it ran until the tab closed.
+      const abort = sensorManager.acquireNfcScan(NFC_CONSUMER_ID, 'NFC Cadastral Monument Reader');
+      await ndef.scan({ signal: abort.signal });
       setNfcScanning(true);
       setNfcStatus('NFC Antenna Active: Tap phone against a survey boundary stone or RFID tag...');
       triggerHaptic([30, 20]);
@@ -94,9 +111,17 @@ export const NfcCadastralView: React.FC<NfcCadastralViewProps> = ({
         setNfcStatus('NFC Read Error. Re-align phone antenna with the tag.');
       };
     } catch (err: any) {
+      sensorManager.releaseNfcScan(NFC_CONSUMER_ID, 'NFC activation failed');
       setNfcStatus(`NFC Activation error: ${err.message}`);
       setNfcScanning(false);
     }
+  };
+
+  const handleStopNfcScan = () => {
+    sensorManager.releaseNfcScan(NFC_CONSUMER_ID, 'User stopped the NFC scan');
+    nfcReaderRef.current = null;
+    setNfcScanning(false);
+    setNfcStatus('NFC antenna stopped. Tap Start to scan again.');
   };
 
   const handleWriteNfcMonument = async () => {
@@ -132,12 +157,22 @@ export const NfcCadastralView: React.FC<NfcCadastralViewProps> = ({
 
       const NDEFReaderClass = (window as any).NDEFReader;
       const ndef = new NDEFReaderClass();
-      await ndef.write({
-        records: [
-          { recordType: 'text', data: payload },
-          { recordType: 'mime', mediaType: 'application/json', data: new TextEncoder().encode(payload) }
-        ]
-      });
+      // A write is momentary, but it still powers the radio, so it is recorded
+      // in the audit log rather than happening invisibly.
+      const writeAbort = sensorManager.acquireNfcScan(NFC_WRITE_CONSUMER_ID, 'NFC monument tag write');
+      try {
+        await ndef.write(
+          {
+            records: [
+              { recordType: 'text', data: payload },
+              { recordType: 'mime', mediaType: 'application/json', data: new TextEncoder().encode(payload) }
+            ]
+          },
+          { signal: writeAbort.signal }
+        );
+      } finally {
+        sensorManager.releaseNfcScan(NFC_WRITE_CONSUMER_ID, 'Tag write finished');
+      }
 
       setNfcStatus(`Successfully wrote georeferenced survey tag for ${monumentData.pointId}!`);
       setNfcLastRead(monumentData);
@@ -194,12 +229,21 @@ export const NfcCadastralView: React.FC<NfcCadastralViewProps> = ({
         </div>
 
         <div className="flex items-center flex-wrap gap-2">
-          <button
-            onClick={handleStartNfcScan}
-            className="px-4 py-2 rounded-lg bg-[#c9a063] hover:bg-[#b88f55] text-black text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-sm"
-          >
-            <Smartphone className="w-3.5 h-3.5" /> Tap / Scan NFC Monument
-          </button>
+          {nfcScanning ? (
+            <button
+              onClick={handleStopNfcScan}
+              className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-sm"
+            >
+              <Smartphone className="w-3.5 h-3.5" /> Stop NFC Antenna
+            </button>
+          ) : (
+            <button
+              onClick={handleStartNfcScan}
+              className="px-4 py-2 rounded-lg bg-[#c9a063] hover:bg-[#b88f55] text-black text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-sm"
+            >
+              <Smartphone className="w-3.5 h-3.5" /> Tap / Scan NFC Monument
+            </button>
+          )}
           <button
             onClick={handleSimulateNfcRead}
             className={`px-3 py-2 rounded-lg ${btnSecondary} text-xs font-medium transition-colors border flex items-center gap-1.5`}

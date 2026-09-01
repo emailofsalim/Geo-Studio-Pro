@@ -15,6 +15,10 @@ import {
   Info
 } from 'lucide-react';
 import { BLE_SERVICES, isBluetoothSupported } from '../../lib/hardwareComms';
+import { sensorManager } from '../../lib/sensorResourceManager';
+
+/** Stable consumer id so the manager can track and release this view's BLE link. */
+const BLE_CONSUMER_ID = 'bluetooth_rtk_view';
 import { triggerHaptic } from '../../lib/haptics';
 import { useIsDarkMode } from '../../hooks/useIsDarkMode';
 
@@ -43,6 +47,13 @@ export const BluetoothRtkView: React.FC<BluetoothRtkViewProps> = ({ onLogDistanc
     } catch {
       setIsInIframe(true);
     }
+  }, []);
+
+  // Drop the radio link when the view goes away.
+  useEffect(() => {
+    return () => {
+      sensorManager.releaseBluetoothConnection(BLE_CONSUMER_ID, 'Bluetooth view unmounted');
+    };
   }, []);
 
   const handleOpenInNewTab = () => {
@@ -77,6 +88,15 @@ export const BluetoothRtkView: React.FC<BluetoothRtkViewProps> = ({ onLogDistanc
 
       const server = await device.gatt.connect();
       bleGattServerRef.current = server;
+      // Registered with the resource manager so an open GATT link is visible in
+      // the privacy monitor and is dropped by the master kill switch.
+      sensorManager.registerBluetoothConnection(
+        BLE_CONSUMER_ID,
+        'Bluetooth RTK Rover / Laser Disto',
+        device,
+        server,
+        onBleDisconnected
+      );
       setBleConnected(true);
       setBleStatus(`Connected to ${device.name || 'BLE Device'}`);
       triggerHaptic([40, 20, 60]);
@@ -132,12 +152,14 @@ export const BluetoothRtkView: React.FC<BluetoothRtkViewProps> = ({ onLogDistanc
   };
 
   const onBleDisconnected = () => {
+    sensorManager.releaseBluetoothConnection(BLE_CONSUMER_ID, 'Peripheral dropped the connection');
     setBleConnected(false);
     setBleStatus('Device disconnected');
     if (bleSimTimerRef.current) clearInterval(bleSimTimerRef.current);
   };
 
   const handleDisconnectBle = () => {
+    sensorManager.releaseBluetoothConnection(BLE_CONSUMER_ID, 'User disconnected the device');
     if (bleGattServerRef.current && bleGattServerRef.current.connected) {
       bleGattServerRef.current.disconnect();
     }

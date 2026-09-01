@@ -565,7 +565,8 @@ export function labelPointOnSurface(ll: LatLon[]): LatLon {
   }
   xs.sort((m, n2) => m - n2);
   if (xs.length >= 2) {
-    let bestW = -1, bestMid = null;
+    let bestW = -1;
+    let bestMid: number | null = null;
     for (let s = 0; s + 1 < xs.length; s += 2) {
       const w = xs[s + 1] - xs[s];
       if (w > bestW) { bestW = w; bestMid = (xs[s] + xs[s + 1]) / 2; }
@@ -740,7 +741,19 @@ export function bowditchBalance(
 
   let curE = startE, curN = startN;
   const coords = [{ E: curE, N: curN }];
-  const legResults = [];
+  const legResults: {
+    name: string;
+    dE: number;
+    dN: number;
+    corrE: number;
+    corrN: number;
+    adjDE: number;
+    adjDN: number;
+    adjBearingDeg: number;
+    adjDist: number;
+    E: number;
+    N: number;
+  }[] = [];
 
   for (let i = 0; i < unadjDeltas.length; i++) {
     const d = unadjDeltas[i];
@@ -1074,7 +1087,15 @@ export function computeEndAreaVolume(sections: VolumeSection[]) {
   let totalVolume = 0;
   let cutVolume = 0;
   let fillVolume = 0;
-  const segments = [];
+  const segments: {
+    fromStation: number;
+    toStation: number;
+    distance: number;
+    endAreaVol: number;
+    prismoidalVol: number;
+    cutVol: number;
+    fillVol: number;
+  }[] = [];
 
   for (let i = 0; i < sorted.length - 1; i++) {
     const s1 = sorted[i];
