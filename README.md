@@ -41,6 +41,8 @@ src/
     geodesy.ts         Survey mathematics: traverse, levelling, curves, volumes
     formats.ts         Format readers and writers
     universalDataBridge.ts  Central import detection and export routing
+    parseClient.ts     Import front door; offloads large files to a worker
+    workers/           Web Workers (import parsing)
     sensorResourceManager.ts  Just-in-time device sensor lifecycle
     pdfRaster.ts       PDF page rendering for sheet digitising
   services/    Project, storage, import/export services
@@ -88,6 +90,7 @@ Verified against the implementation, not the UI copy.
 | Shapefile | Yes | — | SHP + DBF, multi-part geometry |
 | DXF | Partial | Yes | LINE and LWPOLYLINE only — no arcs, blocks or splines |
 | PDF | Yes | — | Rendered as a digitising background, multi-page |
+| World file | Yes | — | .tfw / .jgw / .pgw / .wld raster georeference |
 | GeoTIFF | Header | — | Dimensions, pixel scale, tiepoint, EPSG. Pixel data not read |
 | LAS | Partial | — | Uncompressed only; subsamples large clouds and says so |
 | LAZ | No | — | Rejected explicitly — see below |
@@ -134,6 +137,24 @@ serial and HID (device selection; no total-station protocol layer).
 (the current calculation is from measured cone or frustum dimensions, not a point
 cloud) · production, dispatch and reconciliation · drone photogrammetry · DSM/DTM
 raster pipelines · 3D visualisation · TIN surfaces.
+
+## Import and export
+
+Every geospatial import goes through one parser (`detectAndParseGeospatialFile`),
+reached via `parseClient`. Detection is by content signature first, extension
+second, so a mislabelled file still lands in the right reader. Tabs that need a
+domain-specific import — the cadastral CSV that groups rows into parcels, an
+archive that expands to several datasets — keep that logic locally and use the
+central parser for everything else.
+
+Files over 2 MB parse in a Web Worker. That threshold is measured, not assumed:
+below it an inline parse is imperceptible and the worker round trip is pure
+overhead, while above it the transfer cost buys a UI that keeps responding.
+Where workers are blocked, the same parser runs inline.
+
+Exports build their payloads with the shared builders in `formats.ts` and are
+delivered through one `downloadBlob` helper, which revokes the object URL it
+creates.
 
 ## Device sensors
 
