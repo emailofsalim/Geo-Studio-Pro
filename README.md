@@ -25,6 +25,12 @@ npm test           # vitest
 npm run verify     # both
 ```
 
+TypeScript runs with `strictNullChecks`. Turning it on surfaced fifty real
+issues — `.toFixed()` on a borehole depth that may not have been recorded, an
+optional callback invoked unconditionally, several `[]` literals inferred as
+`never[]` — all fixed rather than suppressed. There are no `any` escape hatches
+added to keep it quiet.
+
 `GEMINI_API_KEY` enables the AI copilot features. It is read only on the server
 (`server.ts`) and never reaches the client bundle. The app is fully usable without it.
 

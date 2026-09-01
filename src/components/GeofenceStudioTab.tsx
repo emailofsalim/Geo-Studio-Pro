@@ -365,7 +365,14 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
   const evaluateBreaches = useCallback((lat: number, lon: number, speedKmh: number, heading: number) => {
     const curUtm = lonLatToUtm(lon, lat, zNum, isSouth);
     const curPt: GeoPoint = { a: curUtm.E, b: curUtm.N };
-    let highestSeverityAlert: { message: string; severity: GeofenceSeverity; fenceName: string } | null = null;
+    // Held in an object rather than a `let`. The assignments below happen
+    // inside a forEach callback, and TypeScript does not carry narrowing out of
+    // a callback for a plain local - it stays narrowed to `null`, so every
+    // later read of `.severity` fails to compile. A property assignment is not
+    // narrowed away.
+    const alertRef: {
+      current: { message: string; severity: GeofenceSeverity; fenceName: string } | null;
+    } = { current: null };
 
     metricZones.forEach(z => {
       if (!z.enabled) return;
@@ -421,8 +428,8 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
         };
       } else if (z.bufferWarningMeters && distToEdge <= z.bufferWarningMeters && ((z.rule === 'keep_out' && !isInside) || (z.rule === 'keep_in' && isInside))) {
         // Approaching border buffer warning
-        if (!highestSeverityAlert) {
-          highestSeverityAlert = {
+        if (!alertRef.current) {
+          alertRef.current = {
             message: `Proximity Warning: ${distToEdge.toFixed(1)}m to boundary of "${z.name}"`,
             severity: 'warning',
             fenceName: z.name
@@ -449,7 +456,7 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
         };
 
         setBreachEvents(prev => [newEvt, ...prev.slice(0, 49)]); // keep last 50 events
-        highestSeverityAlert = {
+        alertRef.current = {
           message: breach.msg,
           severity: z.severity,
           fenceName: z.name
@@ -457,21 +464,21 @@ export const GeofenceStudioTab: React.FC<GeofenceStudioTabProps> = ({
       }
     });
 
-    setActiveBreachAlert(highestSeverityAlert);
+    setActiveBreachAlert(alertRef.current);
 
     // Trigger Audio & Haptic Physical Alarms
-    if (highestSeverityAlert) {
+    if (alertRef.current) {
       const now = Date.now();
       if (now - lastBreachSoundTime > 1800) {
         if (soundEnabled) {
-          if (highestSeverityAlert.severity === 'critical' || highestSeverityAlert.severity === 'high') {
+          if (alertRef.current.severity === 'critical' || alertRef.current.severity === 'high') {
             audioEngine.playBreachAlarm();
           } else {
             audioEngine.playWarningChime();
           }
         }
         if (vibrationEnabled) {
-          triggerGeofenceBreachHaptic(highestSeverityAlert.severity);
+          triggerGeofenceBreachHaptic(alertRef.current.severity);
         }
         setLastBreachSoundTime(now);
       }

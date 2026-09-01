@@ -189,7 +189,7 @@ export function localGeomaticsCompiler(
     if (radMatch) radiusM = parseFloat(radMatch[1]);
 
     const numPoints = 16;
-    const ringPts = [];
+    const ringPts: { a: number; b: number }[] = [];
     for (let i = 0; i <= numPoints; i++) {
       const angle = (i / numPoints) * Math.PI * 2;
       ringPts.push({

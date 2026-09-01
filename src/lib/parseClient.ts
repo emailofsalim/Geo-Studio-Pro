@@ -101,8 +101,8 @@ function getWorker(): Worker | null {
     const entry = pending.get(msg.id);
     if (!entry) return;
     pending.delete(msg.id);
-    if (msg.ok && msg.result) entry.resolve({ result: msg.result, parseMs: msg.parseMs });
-    else entry.reject(new Error(msg.error || 'The import worker returned no result.'));
+    if (msg.ok) entry.resolve({ result: msg.result, parseMs: msg.parseMs });
+    else entry.reject(new Error(msg.error));
   });
 
   worker.addEventListener('error', () => {

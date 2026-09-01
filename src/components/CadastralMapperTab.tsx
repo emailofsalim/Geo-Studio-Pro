@@ -255,7 +255,7 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
         p.khasra.toLowerCase().includes(q) ||
         p.owner.toLowerCase().includes(q) ||
         p.village.toLowerCase().includes(q) ||
-        p.status.toLowerCase().includes(q)
+        (p.status ?? '').toLowerCase().includes(q)
     );
   }, [parcels, searchQuery]);
 
@@ -446,7 +446,7 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
       p.khasra,
       p.village,
       p.owner,
-      p.status,
+      p.status ?? '',
       p.areaM2.toFixed(2),
       p.areaHa.toFixed(4),
       p.areaAcres.toFixed(4),
@@ -463,7 +463,7 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
       p.khasra,
       p.village,
       p.owner,
-      p.status,
+      p.status ?? '',
       p.areaM2.toFixed(2),
       p.areaHa.toFixed(4),
       p.areaAcres.toFixed(4),

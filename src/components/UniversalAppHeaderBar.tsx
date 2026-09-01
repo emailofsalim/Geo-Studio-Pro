@@ -182,7 +182,7 @@ export const UniversalAppHeaderBar: React.FC<UniversalAppHeaderBarProps> = ({
                     type="button"
                     onClick={() => {
                       setIsExportDropdownOpen(false);
-                      onOpenUniversalExport();
+                      onOpenUniversalExport?.();
                     }}
                     className="w-full text-center px-2.5 py-1.5 rounded-lg text-xs font-bold text-[#c9a063] bg-[#c9a063]/10 hover:bg-[#c9a063]/20 transition-colors flex items-center justify-center gap-1.5"
                   >

@@ -20,16 +20,10 @@ type Section = 'bench' | 'blast' | 'stockpile' | 'reserve';
 /**
  * Result of a calculation that may reject its inputs.
  *
- * Deliberately a single shape with optional members rather than a discriminated
- * union: this project compiles without `strictNullChecks`, and without it
- * TypeScript will not narrow `{ok: true} | {ok: false}` at a use site, so the
- * union form fails to compile wherever the error branch is read.
+ * A discriminated union, so reading `.value` on a failure or `.error` on a
+ * success is a compile error rather than a runtime `undefined`.
  */
-interface Calc<T> {
-  ok: boolean;
-  value?: T;
-  error?: string;
-}
+type Calc<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** Renders the message of a failed calculation, and nothing for a successful one. */
 const CalcError: React.FC<{ result: Calc<unknown> }> = ({ result }) =>

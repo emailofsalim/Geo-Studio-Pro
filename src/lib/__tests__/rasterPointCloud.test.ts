@@ -196,9 +196,10 @@ describe('LAS / LAZ point cloud reader', () => {
     expect(r.header.loadedCount).toBe(2);
     expect(r.header.truncated).toBe(false);
     expect(r.features).toHaveLength(2);
-    expect(r.features[0].pts[0].a).toBeCloseTo(500100, 2);
-    expect(r.features[0].pts[0].b).toBeCloseTo(2600200, 2);
-    expect(r.features[0].props.Elevation).toBeCloseTo(345.5, 2);
+    const first = r.features[0];
+    expect(first.pts[0].a).toBeCloseTo(500100, 2);
+    expect(first.pts[0].b).toBeCloseTo(2600200, 2);
+    expect(first.props!.Elevation).toBeCloseTo(345.5, 2);
   });
 
   it('rejects a compressed LAZ file instead of reading it as raw LAS', () => {

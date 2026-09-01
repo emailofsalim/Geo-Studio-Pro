@@ -24,21 +24,16 @@ export interface ParseRequest {
   workingZone: string;
 }
 
-/**
- * Reply from the worker.
- *
- * A single shape with optional members rather than a discriminated union:
- * this project compiles without `strictNullChecks`, and without it TypeScript
- * will not narrow `{ok: true} | {ok: false}` at the use site.
- */
-export interface ParseResponse {
-  id: number;
-  ok: boolean;
-  result?: DetectedImportResult;
-  error?: string;
-  /** Time spent parsing inside the worker, ms (excludes transfer). */
-  parseMs?: number;
-}
+/** Reply from the worker. */
+export type ParseResponse =
+  | {
+      id: number;
+      ok: true;
+      result: DetectedImportResult;
+      /** Time spent parsing inside the worker, ms (excludes transfer). */
+      parseMs: number;
+    }
+  | { id: number; ok: false; error: string };
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
