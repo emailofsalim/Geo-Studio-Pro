@@ -11,6 +11,7 @@ import {
 } from '../engines/mining';
 import { buildTin, planArea, surfaceArea3D, volumeToDatum } from '../engines/tin';
 import { parseSurfacePoints } from '../lib/surfacePointText';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { crsLabelFor, isValidZone } from '../lib/crsIdentity';
 
 interface MiningStudioTabProps {
@@ -203,8 +204,11 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
    * explicit "lowest surveyed point" option, because the volume is entirely a
    * function of where the toe is taken to be.
    */
+  // Debounced so a large pickup is triangulated once per pause, not per keystroke.
+  const surfaceTextSettled = useDebouncedValue(surfaceText, 350);
+
   const surface = useMemo(() => {
-    const { pts, rejected } = parseSurfacePoints(surfaceText);
+    const { pts, rejected } = parseSurfacePoints(surfaceTextSettled);
     if (pts.length < 3) {
       return {
         ok: false as const,
@@ -246,7 +250,7 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
       );
     }
     warnings.push(
-      'The volume covers only the ground enclosed by the surveyed points. If the pickup does not run right around the toe, material outside it is not counted.'
+      'The surface spans the convex hull of the points. Material outside the pickup is not counted, and a mis-keyed coordinate stretches the hull across ground that was never surveyed — which adds volume rather than losing it.'
     );
     if (!(density > 0)) {
       warnings.push('Set a loose density to get a tonnage.');
@@ -265,7 +269,7 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
       warnings,
       rejected
     };
-  }, [surfaceText, datumMode, datumRl, looseDensity]);
+  }, [surfaceTextSettled, datumMode, datumRl, looseDensity]);
 
   const reserve = useMemo<Calc<ReturnType<typeof blockReserve>>>(
     () =>

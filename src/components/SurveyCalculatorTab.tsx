@@ -50,6 +50,7 @@ import {
   linkContours
 } from '../engines/tin';
 import { parseSurfacePoints } from '../lib/surfacePointText';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { crsLabelFor, isValidZone } from '../lib/crsIdentity';
 import { downloadBlob } from '../lib/zip';
 import { toCSVtext, csvEnc } from '../lib/formats';
@@ -378,8 +379,12 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
    * they are edited rather than sitting behind a Compute button that can leave
    * stale numbers on screen next to changed input.
    */
+  // Debounced so a large pickup is triangulated once per pause, not per keystroke.
+  const surfATextSettled = useDebouncedValue(surfAText, 350);
+  const surfBTextSettled = useDebouncedValue(surfBText, 350);
+
   const surfaceResult = useMemo(() => {
-    const a = parseSurfacePoints(surfAText);
+    const a = parseSurfacePoints(surfATextSettled);
     if (a.pts.length < 3) {
       return { ok: false as const, error: 'Surface A needs at least three points, as E, N, RL per line.', rejected: a.rejected };
     }
@@ -398,7 +403,7 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
     const vol = volumeToDatum(tinA, datumZ);
 
     // Surface B is optional; a comparison is only offered once it parses.
-    const b = parseSurfacePoints(surfBText);
+    const b = parseSurfacePoints(surfBTextSettled);
     let comparison: ReturnType<typeof volumeBetween> | null = null;
     let comparisonError: string | null = null;
     if (b.pts.length > 0) {
@@ -434,7 +439,7 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
       contourError,
       rejected: [...a.rejected, ...b.rejected]
     };
-  }, [surfAText, surfBText, surfDatumMode, surfDatumRl, contourInterval]);
+  }, [surfATextSettled, surfBTextSettled, surfDatumMode, surfDatumRl, contourInterval]);
 
   /** Sends the linked contours to GIS Studio as line features in the project grid. */
   const handleSendContours = () => {
@@ -1292,6 +1297,10 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
               Triangulates surveyed points as they were picked up, then measures area and volume from the faces and
               cuts contours through them. Unlike the end-area tool above, this needs no chainage — it works from a
               scatter of spot heights.
+            </p>
+            <p className="text-xs text-white/40 mt-1">
+              The surface spans the convex hull of the points, so a mis-keyed coordinate stretches it across ground
+              that was never surveyed and <em>adds</em> volume. Check the plan area against the site before quoting.
             </p>
             <p className="text-xs text-white/40 mt-1">
               Points are read in the project grid:{' '}
