@@ -613,6 +613,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       <RecoveryModal
         isOpen={isRecoveryModalOpen}
         checkpoint={recoveryCheckpoint}
+        // What the project currently has saved, so the dialog can show what a
+        // restore would replace rather than only what it would write.
+        currentStats={
+          recoveryCheckpoint
+            ? projects.find(p => p.id === recoveryCheckpoint.projectId)?.stats ?? null
+            : null
+        }
         onRestore={restoreRecoveryCheckpoint}
         onDiscard={discardRecoveryCheckpoint}
         onClose={() => setIsRecoveryModalOpen(false)}
