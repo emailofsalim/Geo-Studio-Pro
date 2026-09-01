@@ -12,6 +12,7 @@ import {
 import { GeodesyService } from './GeodesyService';
 import { storageService } from './StorageService';
 import { GeoFeature, GisLayer, SurveyWaypoint, CadastralParcel } from '../types';
+import { parseImportFile } from '../lib/parseClient';
 
 export interface ImportOptions {
   sourceCRS?: CanonicalCRS;
@@ -96,9 +97,10 @@ export class ImportService {
       throw new Error(sec.error);
     }
 
-    // Run format detection and specialized parser feed
-    const detected = await detectAndParseGeospatialFile(file, workingZone);
-    return detected;
+    // Run format detection and specialized parser feed, off the main thread
+    // where the browser allows it.
+    const { result } = await parseImportFile(file, workingZone);
+    return result;
   }
 
   /**

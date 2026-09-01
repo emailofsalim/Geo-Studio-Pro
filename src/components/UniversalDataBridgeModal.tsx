@@ -45,6 +45,7 @@ import { ImportService, ImportValidationReport } from '../services/ImportService
 import { GeoFeature, GisLayer, SurveyWaypoint, CadastralParcel, PhotoLandmark } from '../types';
 import { useToast } from '../context/ToastContext';
 import { useProject } from '../context/ProjectContext';
+import { parseImportFile } from '../lib/parseClient';
 
 interface UniversalDataBridgeModalProps {
   isOpen: boolean;
@@ -188,7 +189,8 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
     setSelectedFile(file);
     setIsDetecting(true);
     try {
-      const result = await detectAndParseGeospatialFile(file, exportZone);
+      // Parsed in a worker so a large dataset does not freeze the UI.
+      const { result, strategy, durationMs } = await parseImportFile(file, exportZone);
       setDetectedResult(result);
       const audit = ImportService.auditQuality(result);
       setValidationReport(audit);
@@ -196,7 +198,12 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
       if (result.suggestedAppDestination && result.suggestedAppDestination !== 'unknown') {
         setDestinationApp(result.suggestedAppDestination);
       }
-      toast.showSuccess(`Auto-detected: ${result.formatName} (${result.featureCount} items found)`);
+      toast.showSuccess(
+        `Auto-detected: ${result.formatName} (${result.featureCount} items found)` +
+          (strategy === 'main-thread' && durationMs > 1500
+            ? ' \u2014 parsed on the main thread; a worker was unavailable.'
+            : '')
+      );
     } catch (err: any) {
       toast.showError(`Auto-detection error: ${err.message}`);
     } finally {
