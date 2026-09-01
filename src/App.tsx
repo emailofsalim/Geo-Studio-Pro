@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { Navigation, AppTabId, APPS_CONFIG } from './components/Navigation';
 import { DesktopMenuBar } from './components/DesktopMenuBar';
 import { DesktopStatusBar } from './components/DesktopStatusBar';
@@ -18,24 +18,30 @@ import { useProject } from './context/ProjectContext';
 import { downloadBlob } from './lib/zip';
 import { saveSessionSnapshot, getLastAutoSaveMeta, loadLatestSessionSnapshot } from './lib/indexedDbStorage';
 
-// Tabs
-import { HomeTemplatesTab } from './components/HomeTemplatesTab';
-import { FieldSensorsTab } from './components/FieldSensorsTab';
-import { GisStudioTab } from './components/GisStudioTab';
-import { CoordinateConverterTab } from './components/CoordinateConverterTab';
-import { GpsSurveyorTab } from './components/GpsSurveyorTab';
-import { SurveyCalculatorTab } from './components/SurveyCalculatorTab';
-import { FormatConverterTab } from './components/FormatConverterTab';
-import { MergeSplitTab } from './components/MergeSplitTab';
-import { BoreholeMapperTab } from './components/BoreholeMapperTab';
-import { GeofenceStudioTab } from './components/GeofenceStudioTab';
-import { CameraLandmarkStudio } from './components/CameraLandmarkStudio';
-import { CadastralMapperTab } from './components/CadastralMapperTab';
-import { BhunakshaDigitizerTab } from './components/BhunakshaDigitizerTab';
-import { BoundaryOffsetTab } from './components/BoundaryOffsetTab';
-import { TutorialTab } from './components/TutorialTab';
-import { HelpFaqTab } from './components/HelpFaqTab';
-import { ReportsTab } from './components/ReportsTab';
+// Tabs are code-split: the initial bundle was a single 1.85 MB chunk because
+// every tab was imported eagerly, so a user opening one screen downloaded all
+// twenty. Each now loads on first visit.
+const TAB_FALLBACK = (
+  <div className="p-8 text-sm opacity-60">Loading module\u2026</div>
+);
+
+const HomeTemplatesTab = lazy(() => import('./components/HomeTemplatesTab').then(m => ({ default: m.HomeTemplatesTab })));
+const FieldSensorsTab = lazy(() => import('./components/FieldSensorsTab').then(m => ({ default: m.FieldSensorsTab })));
+const GisStudioTab = lazy(() => import('./components/GisStudioTab').then(m => ({ default: m.GisStudioTab })));
+const CoordinateConverterTab = lazy(() => import('./components/CoordinateConverterTab').then(m => ({ default: m.CoordinateConverterTab })));
+const GpsSurveyorTab = lazy(() => import('./components/GpsSurveyorTab').then(m => ({ default: m.GpsSurveyorTab })));
+const SurveyCalculatorTab = lazy(() => import('./components/SurveyCalculatorTab').then(m => ({ default: m.SurveyCalculatorTab })));
+const FormatConverterTab = lazy(() => import('./components/FormatConverterTab').then(m => ({ default: m.FormatConverterTab })));
+const MergeSplitTab = lazy(() => import('./components/MergeSplitTab').then(m => ({ default: m.MergeSplitTab })));
+const BoreholeMapperTab = lazy(() => import('./components/BoreholeMapperTab').then(m => ({ default: m.BoreholeMapperTab })));
+const GeofenceStudioTab = lazy(() => import('./components/GeofenceStudioTab').then(m => ({ default: m.GeofenceStudioTab })));
+const CameraLandmarkStudio = lazy(() => import('./components/CameraLandmarkStudio').then(m => ({ default: m.CameraLandmarkStudio })));
+const CadastralMapperTab = lazy(() => import('./components/CadastralMapperTab').then(m => ({ default: m.CadastralMapperTab })));
+const BhunakshaDigitizerTab = lazy(() => import('./components/BhunakshaDigitizerTab').then(m => ({ default: m.BhunakshaDigitizerTab })));
+const BoundaryOffsetTab = lazy(() => import('./components/BoundaryOffsetTab').then(m => ({ default: m.BoundaryOffsetTab })));
+const TutorialTab = lazy(() => import('./components/TutorialTab').then(m => ({ default: m.TutorialTab })));
+const HelpFaqTab = lazy(() => import('./components/HelpFaqTab').then(m => ({ default: m.HelpFaqTab })));
+const ReportsTab = lazy(() => import('./components/ReportsTab').then(m => ({ default: m.ReportsTab })));
 import { crsIdentityFor, isValidZone, DEFAULT_ZONE } from './lib/crsIdentity';
 
 export function App() {
@@ -487,6 +493,7 @@ export function App() {
         {/* Content View Area */}
         <main className="flex-1 p-3 sm:p-5 md:p-8 overflow-y-auto max-w-7xl mx-auto w-full custom-scrollbar pb-24 md:pb-6">
           <ErrorBoundary fallbackTitle={`Error rendering ${activeTab} workspace`}>
+            <Suspense fallback={TAB_FALLBACK}>
             {activeTab === 'templates' && (
               <HomeTemplatesTab
                 setActiveTab={setActiveTab}
@@ -600,6 +607,7 @@ export function App() {
             )}
 
             {(activeTab === 'help' || activeTab === 'faq') && <HelpFaqTab />}
+            </Suspense>
           </ErrorBoundary>
         </main>
       </div>

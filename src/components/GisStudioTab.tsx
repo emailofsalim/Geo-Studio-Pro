@@ -39,7 +39,6 @@ import {
   Image as ImageIcon,
   Check
 } from 'lucide-react';
-import jsPDF from 'jspdf';
 import { GeoFeature, GeoPoint, GisLayer, TopologyIssue } from '../types';
 import { lonLatToUtm, utmToLonLat, polygonAreaPerimeter, pointInPoly, vincentyCore, toDMSstr, formatAreaAllUnits } from '../lib/geodesy';
 import {
@@ -1089,6 +1088,9 @@ export const GisStudioTab: React.FC<GisStudioTabProps> = ({
   const handleExportMapPDF = async () => {
     setIsExporting(true);
     try {
+      // Loaded on demand: jsPDF is large and only needed when the user actually
+      // exports a PDF, so it stays out of the tab's chunk.
+      const { default: jsPDF } = await import('jspdf');
       const doc = new jsPDF({
         orientation: pdfOrientation,
         unit: 'mm',
