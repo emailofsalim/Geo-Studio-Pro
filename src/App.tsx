@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Navigation, AppTabId, APPS_CONFIG } from './components/Navigation';
 import { DesktopMenuBar } from './components/DesktopMenuBar';
 import { DesktopStatusBar } from './components/DesktopStatusBar';
@@ -35,10 +35,18 @@ import { BhunakshaDigitizerTab } from './components/BhunakshaDigitizerTab';
 import { BoundaryOffsetTab } from './components/BoundaryOffsetTab';
 import { TutorialTab } from './components/TutorialTab';
 import { HelpFaqTab } from './components/HelpFaqTab';
+import { crsIdentityFor, isValidZone, DEFAULT_ZONE } from './lib/crsIdentity';
 
 export function App() {
   const toast = useToast();
-  const { activeProject, activeProjectId, activeProjectData, updateActiveProjectData, saveActiveProjectWorkspace } = useProject();
+  const {
+    activeProject,
+    activeProjectId,
+    activeProjectData,
+    updateActiveProjectData,
+    saveActiveProjectWorkspace,
+    updateProject
+  } = useProject();
 
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -52,10 +60,46 @@ export function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRail, setIsRail] = useState(false);
 
-  // Settings State
-  const [workingZone, setWorkingZone] = useState<string>(() => {
-    return localStorage.getItem('geo_working_zone') || '45N';
+  // --------------------------------------------------------------------------
+  // Working coordinate system
+  // --------------------------------------------------------------------------
+  // The active project's own CRS is authoritative. The stored preference below
+  // is only the seed for a NEW project and the value used when no project is
+  // open — it is never allowed to override a project that declares its own zone.
+  //
+  // This binding is the fix for a defect where the working zone lived purely in
+  // global storage: opening a Zone 43 project and then switching to a Zone 45
+  // project left every calculation and export running in Zone 43. The
+  // arithmetic succeeded and the numbers looked plausible, so the error
+  // surfaced only as coordinates in the wrong part of the country.
+  const [defaultZonePreference, setDefaultZonePreference] = useState<string>(() => {
+    const stored = localStorage.getItem('geo_working_zone');
+    return isValidZone(stored) ? (stored as string) : DEFAULT_ZONE;
   });
+
+  // Derived, never stale: changing project changes the working zone in the same render.
+  const workingZone = isValidZone(activeProject?.workingZone)
+    ? (activeProject!.workingZone as string)
+    : defaultZonePreference;
+
+  const setWorkingZone = useCallback(
+    (zone: string) => {
+      if (!isValidZone(zone)) {
+        toast.showError(`"${zone}" is not a valid UTM zone. Expected e.g. "45N" or "43S".`);
+        return;
+      }
+      // Remember as the seed for the next new project.
+      setDefaultZonePreference(zone);
+      // Persist onto the open project so the change travels with the data.
+      if (activeProjectId) {
+        const identity = crsIdentityFor(zone);
+        updateProject(activeProjectId, { workingZone: identity.zone, crs: identity.label }).catch(
+          (err: any) => toast.showError(`Could not save the coordinate system: ${err.message}`)
+        );
+      }
+    },
+    [activeProjectId, updateProject, toast]
+  );
   const [localLandUnitPreset, setLocalLandUnitPreset] = useState<string>(() => {
     return localStorage.getItem('geo_land_preset') || 'bihar_jharkhand';
   });
@@ -130,12 +174,14 @@ export function App() {
 
   // Persist settings
   useEffect(() => {
-    localStorage.setItem('geo_working_zone', workingZone);
+    // Only the default-zone preference is global. The live working zone belongs
+    // to the open project and is persisted there by setWorkingZone.
+    localStorage.setItem('geo_working_zone', defaultZonePreference);
     localStorage.setItem('geo_land_preset', localLandUnitPreset);
     localStorage.setItem('geo_custom_bigha', customBighaM2.toString());
     localStorage.setItem('geo_custom_katha', customKathaPerBigha.toString());
     localStorage.setItem('geo_dist_unit', distanceUnit);
-  }, [workingZone, localLandUnitPreset, customBighaM2, customKathaPerBigha, distanceUnit]);
+  }, [defaultZonePreference, localLandUnitPreset, customBighaM2, customKathaPerBigha, distanceUnit]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -238,7 +284,7 @@ export function App() {
 
   const handleClearAllData = () => {
     localStorage.clear();
-    setWorkingZone('45N');
+    setDefaultZonePreference(DEFAULT_ZONE);
     setLocalLandUnitPreset('bihar_jharkhand');
     setCustomBighaM2(2529.285264);
     setCustomKathaPerBigha(20);

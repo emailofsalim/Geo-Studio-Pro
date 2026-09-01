@@ -5,6 +5,7 @@
 import { GeoProject, ProjectCategory, ProjectDataState } from '../types/project';
 import { storageService, SEED_PROJECTS } from './StorageService';
 import { BhnxProjectPackage } from '../types/canonical';
+import { crsLabelFor, crsIdentityFor } from '../lib/crsIdentity';
 
 export class ProjectService {
   /**
@@ -99,7 +100,9 @@ export class ProjectService {
   }): Promise<{ project: GeoProject; data: ProjectDataState }> {
     const now = Date.now();
     const id = `bhnx_proj_${now.toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
-    const crs = params.crs || `WGS 84 / UTM Zone ${params.workingZone} (EPSG:326${params.workingZone.replace(/\D/g, '') || '45'})`;
+    // Built through crsIdentityFor so the EPSG authority matches the hemisphere
+    // (326xx north / 327xx south) instead of always emitting a northern code.
+    const crs = params.crs || crsLabelFor(params.workingZone);
 
     const newProject: GeoProject = {
       id,

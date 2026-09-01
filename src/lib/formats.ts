@@ -1027,7 +1027,7 @@ export async function parseXlsxZip(bytes: Uint8Array): Promise<string[][]> {
   for (const [name, fileBytes] of Object.entries(zipFiles)) {
     if (name.toLowerCase().includes('sharedstrings.xml')) {
       const xml = new TextDecoder('utf-8').decode(fileBytes);
-      const siMatches = xml.match(/<si>[\s\S]*?<\/si>/g) || [];
+      const siMatches: string[] = xml.match(/<si>[\s\S]*?<\/si>/g) || [];
       siMatches.forEach(si => {
         const tMatch = si.match(/<t[^>]*>([\s\S]*?)<\/t>/);
         sharedStrings.push(tMatch ? tMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"') : '');
@@ -1049,11 +1049,11 @@ export async function parseXlsxZip(bytes: Uint8Array): Promise<string[][]> {
 
   // Parse rows and cells
   const rows: string[][] = [];
-  const rowMatches = sheetXml.match(/<row[^>]*>[\s\S]*?<\/row>/g) || [];
+  const rowMatches: string[] = sheetXml.match(/<row[^>]*>[\s\S]*?<\/row>/g) || [];
 
   rowMatches.forEach(rowStr => {
     const rowCells: { col: number; val: string }[] = [];
-    const cellMatches = rowStr.match(/<c[^>]*>[\s\S]*?<\/c>/g) || [];
+    const cellMatches: string[] = rowStr.match(/<c[^>]*>[\s\S]*?<\/c>/g) || [];
 
     cellMatches.forEach(cStr => {
       const rAttr = cStr.match(/r="([A-Z]+)(\d+)"/);
@@ -1098,7 +1098,14 @@ export async function parseXlsxZip(bytes: Uint8Array): Promise<string[][]> {
 export function parseLasHeaderAndPoints(bytes: Uint8Array, maxPointsToLoad: number = 2500): {
   header: {
     version: string;
+    /** ASPRS point data record format (0-10), with compression bits stripped. */
+    pointFormat: number;
+    /** Total records the file declares. */
     pointCount: number;
+    /** How many were actually loaded into `features`. */
+    loadedCount: number;
+    /** True when pointCount exceeded the load cap and the cloud was subsampled. */
+    truncated: boolean;
     scale: [number, number, number];
     offset: [number, number, number];
     min: [number, number, number];
@@ -1117,8 +1124,21 @@ export function parseLasHeaderAndPoints(bytes: Uint8Array, maxPointsToLoad: numb
   const verMajor = view.getUint8(24);
   const verMinor = view.getUint8(25);
   const offsetToPoints = view.getUint32(96, true);
+  let pointFormat = view.getUint8(104);
   const pointRecordLength = view.getUint16(105, true);
   const legacyPointCount = view.getUint32(107, true);
+
+  // LAZ (laszip-compressed) files carry the same "LASF" signature as raw LAS,
+  // and set the high bit of the point-data-format byte. Reading their
+  // compressed records as raw little-endian integers yields plausible-looking
+  // but meaningless coordinates, so this must be rejected rather than parsed.
+  if ((pointFormat & 0x80) !== 0 || (pointFormat & 0x40) !== 0) {
+    throw new Error(
+      'This is a compressed LAZ file. BhuNex Studio reads uncompressed LAS only \u2014 ' +
+        'decompress it to .las (for example with laszip) and import that.'
+    );
+  }
+  pointFormat = pointFormat & 0x3f;
 
   const scaleX = view.getFloat64(131, true);
   const scaleY = view.getFloat64(139, true);
@@ -1135,8 +1155,21 @@ export function parseLasHeaderAndPoints(bytes: Uint8Array, maxPointsToLoad: numb
   const maxZ = view.getFloat64(211, true);
   const minZ = view.getFloat64(219, true);
 
-  const totalPoints = legacyPointCount > 0 ? legacyPointCount : 1000;
+  // LAS 1.4 moves the count to a 64-bit field at byte 247 when the legacy
+  // 32-bit field is zero. Never substitute a made-up count.
+  let totalPoints = legacyPointCount;
+  if (totalPoints === 0 && bytes.byteLength >= 255) {
+    const big = view.getBigUint64(247, true);
+    totalPoints = big > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : Number(big);
+  }
+  if (totalPoints === 0) {
+    throw new Error('LAS file declares no point records.');
+  }
+  if (!pointRecordLength || offsetToPoints <= 0 || offsetToPoints >= bytes.byteLength) {
+    throw new Error('LAS header points outside the file; the file is truncated or corrupt.');
+  }
   const loadCount = Math.min(totalPoints, maxPointsToLoad);
+  const truncated = totalPoints > loadCount;
   const features: GeoFeature[] = [];
 
   for (let i = 0; i < loadCount; i++) {
@@ -1172,7 +1205,10 @@ export function parseLasHeaderAndPoints(bytes: Uint8Array, maxPointsToLoad: numb
   return {
     header: {
       version: `${verMajor}.${verMinor}`,
+      pointFormat,
       pointCount: totalPoints,
+      loadedCount: features.length,
+      truncated,
       scale: [scaleX, scaleY, scaleZ],
       offset: [offsetX, offsetY, offsetZ],
       min: [minX, minY, minZ],
@@ -1183,48 +1219,173 @@ export function parseLasHeaderAndPoints(bytes: Uint8Array, maxPointsToLoad: numb
 }
 
 /**
- * Parses GeoTIFF raster header metadata & bounds
+ * Reads a GeoTIFF's real header: image dimensions from the IFD, and the
+ * georeferencing from the ModelPixelScale (33550) and ModelTiepoint (33922)
+ * tags. Returns the true raster footprint as a polygon in the file's own
+ * coordinate system.
+ *
+ * This replaces an earlier stub that validated the TIFF magic number and then
+ * returned invented values — a fixed 1024x1024 size, a pixel scale of
+ * [1,1,1] and a 1000x1000 square at the origin — while the UI advertised
+ * "GeoTIFF" as supported. Importing real terrain produced a fake rectangle at
+ * (0,0) presented as the user's own data, with no error raised.
+ *
+ * A plain TIFF carrying no georeferencing tags is not silently placed
+ * somewhere plausible: `isGeoReferenced` comes back false and `features` is
+ * empty, so callers can say the file has no spatial reference instead of
+ * inventing one.
  */
-export function parseGeoTiffRaster(bytes: Uint8Array): {
+export interface GeoTiffInfo {
   isGeoTiff: boolean;
+  /** True only when the file carries usable ModelPixelScale + ModelTiepoint tags. */
+  isGeoReferenced: boolean;
   width: number;
   height: number;
   pixelScale?: [number, number, number];
   tiePoint?: [number, number, number, number, number, number];
+  /** Raster footprint in the file's own CRS. Empty when not georeferenced. */
+  bounds?: { minX: number; minY: number; maxX: number; maxY: number };
+  /** EPSG code read from the GeoKeyDirectory when present. */
+  epsg?: number;
   features: GeoFeature[];
-} {
+}
+
+export function parseGeoTiffRaster(bytes: Uint8Array): GeoTiffInfo {
+  if (bytes.byteLength < 8) {
+    throw new Error('File is too small to be a TIFF raster.');
+  }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const b0 = view.getUint8(0);
   const b1 = view.getUint8(1);
-  const isLittle = (b0 === 0x49 && b1 === 0x49); // 'II'
-  const isBig = (b0 === 0x4D && b1 === 0x4D); // 'MM'
-
+  const isLittle = b0 === 0x49 && b1 === 0x49; // 'II'
+  const isBig = b0 === 0x4d && b1 === 0x4d;    // 'MM'
   if (!isLittle && !isBig) {
     throw new Error('Not a valid TIFF/GeoTIFF raster file.');
   }
-
-  const magic = view.getUint16(2, isLittle);
-  if (magic !== 42) {
-    throw new Error('Invalid TIFF magic version header.');
+  if (view.getUint16(2, isLittle) !== 42) {
+    throw new Error('Unsupported TIFF variant (BigTIFF is not supported).');
   }
 
-  // Generate bounding grid feature representing the raster domain
+  // ---- Walk the first IFD ----
+  const ifdOffset = view.getUint32(4, isLittle);
+  if (ifdOffset <= 0 || ifdOffset + 2 > bytes.byteLength) {
+    throw new Error('TIFF image directory offset is outside the file.');
+  }
+  const entryCount = view.getUint16(ifdOffset, isLittle);
+
+  const TYPE_SIZE: Record<number, number> = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8 };
+
+  const readScalar = (offset: number, type: number): number => {
+    switch (type) {
+      case 1: case 7: return view.getUint8(offset);
+      case 3: return view.getUint16(offset, isLittle);
+      case 4: return view.getUint32(offset, isLittle);
+      case 6: return view.getInt8(offset);
+      case 8: return view.getInt16(offset, isLittle);
+      case 9: return view.getInt32(offset, isLittle);
+      case 11: return view.getFloat32(offset, isLittle);
+      case 12: return view.getFloat64(offset, isLittle);
+      case 5: return view.getUint32(offset, isLittle) / (view.getUint32(offset + 4, isLittle) || 1);
+      default: return NaN;
+    }
+  };
+
+  const tags = new Map<number, number[]>();
+  for (let i = 0; i < entryCount; i++) {
+    const entry = ifdOffset + 2 + i * 12;
+    if (entry + 12 > bytes.byteLength) break;
+    const tag = view.getUint16(entry, isLittle);
+    const type = view.getUint16(entry + 2, isLittle);
+    const count = view.getUint32(entry + 4, isLittle);
+    const size = TYPE_SIZE[type];
+    if (!size) continue;
+    const total = size * count;
+    const dataOffset = total <= 4 ? entry + 8 : view.getUint32(entry + 8, isLittle);
+    if (dataOffset + total > bytes.byteLength) continue;
+    // Cap: georeferencing tags are short; this guards against a corrupt count.
+    const values: number[] = [];
+    for (let v = 0; v < Math.min(count, 512); v++) {
+      values.push(readScalar(dataOffset + v * size, type));
+    }
+    tags.set(tag, values);
+  }
+
+  const width = tags.get(256)?.[0] ?? 0;   // ImageWidth
+  const height = tags.get(257)?.[0] ?? 0;  // ImageLength
+  if (!width || !height) {
+    throw new Error('TIFF is missing its image dimensions (tags 256/257).');
+  }
+
+  const scaleTag = tags.get(33550);   // ModelPixelScale
+  const tieTag = tags.get(33922);     // ModelTiepoint
+  const geoKeys = tags.get(34735);    // GeoKeyDirectory
+
+  // EPSG from the GeoKeyDirectory: key 3072 (Projected) or 2048 (Geographic).
+  let epsg: number | undefined;
+  if (geoKeys && geoKeys.length >= 4) {
+    const keyCount = geoKeys[3];
+    for (let k = 0; k < keyCount; k++) {
+      const base = 4 + k * 4;
+      if (base + 3 >= geoKeys.length) break;
+      const keyId = geoKeys[base];
+      const tiffTagLocation = geoKeys[base + 1];
+      const value = geoKeys[base + 3];
+      if ((keyId === 3072 || keyId === 2048) && tiffTagLocation === 0 && value > 0 && value < 32767) {
+        epsg = value;
+        break;
+      }
+    }
+  }
+
+  const pixelScale =
+    scaleTag && scaleTag.length >= 3 && Number.isFinite(scaleTag[0]) && scaleTag[0] !== 0
+      ? ([scaleTag[0], scaleTag[1], scaleTag[2] ?? 0] as [number, number, number])
+      : undefined;
+  const tiePoint =
+    tieTag && tieTag.length >= 6 && tieTag.every(Number.isFinite)
+      ? ([tieTag[0], tieTag[1], tieTag[2], tieTag[3], tieTag[4], tieTag[5]] as [number, number, number, number, number, number])
+      : undefined;
+
+  if (!pixelScale || !tiePoint) {
+    // A valid TIFF with no spatial reference. Say so; do not place it anywhere.
+    return { isGeoTiff: true, isGeoReferenced: false, width, height, epsg, features: [] };
+  }
+
+  // Map raster space to model space. Tiepoint maps raster (i,j) -> model (x,y);
+  // northing decreases as the row index increases.
+  const [rasterI, rasterJ, , modelX, modelY] = tiePoint;
+  const originX = modelX - rasterI * pixelScale[0];
+  const originY = modelY + rasterJ * pixelScale[1];
+  const farX = originX + width * pixelScale[0];
+  const farY = originY - height * pixelScale[1];
+
+  const minX = Math.min(originX, farX);
+  const maxX = Math.max(originX, farX);
+  const minY = Math.min(originY, farY);
+  const maxY = Math.max(originY, farY);
+
+  const isLonLat = Math.abs(minX) <= 180 && Math.abs(maxX) <= 180 && Math.abs(minY) <= 90 && Math.abs(maxY) <= 90;
+
   const features: GeoFeature[] = [
     {
-      name: 'GeoTIFF Raster Coverage Domain',
+      name: 'GeoTIFF Raster Footprint',
       geom: 'polygon',
-      kind: 'en',
+      kind: isLonLat ? 'll' : 'en',
       pts: [
-        { a: 0, b: 0 },
-        { a: 1000, b: 0 },
-        { a: 1000, b: 1000 },
-        { a: 0, b: 1000 },
-        { a: 0, b: 0 }
+        { a: minX, b: minY },
+        { a: maxX, b: minY },
+        { a: maxX, b: maxY },
+        { a: minX, b: maxY },
+        { a: minX, b: minY }
       ],
       props: {
-        Format: 'GeoTIFF / Elevation DEM',
+        Format: 'GeoTIFF',
+        Width_px: width,
+        Height_px: height,
+        Pixel_Size_X: pixelScale[0],
+        Pixel_Size_Y: pixelScale[1],
+        EPSG: epsg ?? 'not declared in file',
         Endianness: isLittle ? 'Little-Endian (Intel)' : 'Big-Endian (Motorola)',
-        Type: 'Raster Elevation Model',
         acc: null
       }
     }
@@ -1232,9 +1393,13 @@ export function parseGeoTiffRaster(bytes: Uint8Array): {
 
   return {
     isGeoTiff: true,
-    width: 1024,
-    height: 1024,
-    pixelScale: [1.0, 1.0, 1.0],
+    isGeoReferenced: true,
+    width,
+    height,
+    pixelScale,
+    tiePoint,
+    bounds: { minX, minY, maxX, maxY },
+    epsg,
     features
   };
 }

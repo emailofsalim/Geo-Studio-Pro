@@ -6,6 +6,13 @@ import { BhnxProjectPackage, BhnxManifest, CanonicalCRS, CanonicalUnitsConfig } 
 import { GeoProject, ProjectDataState } from '../types/project';
 import { makeZip, readZip, ZipFileEntry } from '../lib/zip';
 import { calculateSha256, verifySha256 } from '../lib/crypto';
+import { crsLabelFor, parseZone, DEFAULT_ZONE, crsIdentityFor } from '../lib/crsIdentity';
+
+/** EPSG code for a stored working zone; falls back to the default zone's code only when the project never declared one. */
+function crsEpsgFor(zone: string | undefined | null): number {
+  const parsed = parseZone(zone);
+  return crsIdentityFor(parsed ? (zone as string) : DEFAULT_ZONE).epsg;
+}
 
 export const DB_NAME = 'BhuNexStudio_Storage_v3';
 export const DB_VERSION = 3;
@@ -798,8 +805,8 @@ export class StorageService {
     const coordinateEpoch = (meta as any)?.coordinateEpoch || (data as any)?.coordinateEpoch || 'Unknown';
 
     const crs: CanonicalCRS = {
-      name: meta.crs || `WGS 84 / UTM Zone ${meta.workingZone || '45N'}`,
-      epsg: meta.workingZone ? `326${meta.workingZone.replace(/\D/g, '') || '45'}` : 32645,
+      name: meta.crs || crsLabelFor(meta.workingZone),
+      epsg: crsEpsgFor(meta.workingZone),
       datum: 'WGS 84',
       projection: 'Universal Transverse Mercator',
       zone: meta.workingZone || '45N',
@@ -1336,8 +1343,8 @@ export class StorageService {
     };
 
     const crs: CanonicalCRS = {
-      name: meta.crs || `WGS 84 / UTM Zone ${meta.workingZone || '45N'}`,
-      epsg: meta.workingZone ? `326${meta.workingZone.replace(/\D/g, '') || '45'}` : 32645,
+      name: meta.crs || crsLabelFor(meta.workingZone),
+      epsg: crsEpsgFor(meta.workingZone),
       datum: 'WGS 84',
       projection: 'Universal Transverse Mercator',
       zone: meta.workingZone || '45N',
