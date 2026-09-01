@@ -228,7 +228,7 @@ export const UniversalDataBridgeModal: React.FC<UniversalDataBridgeModalProps> =
     try {
       const result = await executeUniversalExport({
         format: selectedFormat,
-        fileName: fileName.trim() || 'geostudio_export',
+        fileName: fileName.trim() || 'bhunex_export',
         features: finalFeatures,
         allLayers: finalLayers,
         waypoints: finalWaypoints,

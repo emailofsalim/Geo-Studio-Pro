@@ -13,6 +13,9 @@ interface AuthContextType {
   setIsAuthModalOpen: (open: boolean) => void;
 }
 
+// Storage keys keep their pre-rebrand names deliberately. Renaming them would
+// orphan every existing user's saved session and projects on first launch of
+// the rebranded build. The name is internal; the product name is not.
 const AUTH_STORAGE_KEY = 'geostudio_user_session_v1';
 
 const DEFAULT_GOOGLE_USER: UserProfile = {
@@ -28,7 +31,7 @@ const DEFAULT_GOOGLE_USER: UserProfile = {
 
 const DEFAULT_GUEST_USER: UserProfile = {
   id: 'guest_local_user',
-  email: 'guest@geostudio.local',
+  email: 'guest@bhunex.local',
   name: 'Guest Surveyor (Offline)',
   photoUrl: '',
   isGuest: true,

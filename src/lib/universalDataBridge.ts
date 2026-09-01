@@ -946,7 +946,7 @@ export async function executeUniversalExport(options: UniversalExportOptions): P
     workingZoneStr = '45N',
     coordSystem = 'wgs84',
     include3dZ = true,
-    layerName = 'GeoStudio_Export',
+    layerName = 'BhuNex_Export',
     allLayers,
     waypoints,
     parcels,
@@ -955,7 +955,7 @@ export async function executeUniversalExport(options: UniversalExportOptions): P
   } = options;
 
   const { zone, south } = parseUtmZoneStr(workingZoneStr);
-  const cleanBase = safeFileName(baseInputName || 'geostudio_export');
+  const cleanBase = safeFileName(baseInputName || 'bhunex_export');
 
   // Consolidate all features if layers or waypoints are provided
   let exportFeatures: GeoFeature[] = [...features];
@@ -1566,7 +1566,7 @@ ${parcelsXml}  </Parcels>
       const projectStr = JSON.stringify(fullProject, null, 2);
       const outName = `${cleanBase}_project.json`;
       downloadBlob(projectStr, outName, 'application/json');
-      return { success: true, fileName: outName, byteCount: new Blob([projectStr]).size, formatName: 'GeoStudio Full Project Backup' };
+      return { success: true, fileName: outName, byteCount: new Blob([projectStr]).size, formatName: 'BhuNex Studio Full Project Backup' };
     }
 
     default:

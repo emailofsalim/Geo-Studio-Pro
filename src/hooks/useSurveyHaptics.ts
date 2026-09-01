@@ -16,6 +16,7 @@ export interface UseSurveyHapticsOptions {
 }
 
 export function useSurveyHaptics(options: UseSurveyHapticsOptions = {}) {
+  // Pre-rebrand key name retained so existing preferences survive the upgrade.
   const { storageKey = 'geostudio_haptics_enabled', defaultEnabled = true } = options;
 
   const [supported, setSupported] = useState<boolean>(false);

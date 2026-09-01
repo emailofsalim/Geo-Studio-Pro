@@ -80,7 +80,7 @@ async function startServer() {
         return res.status(400).json({ error: 'Prompt is required.' });
       }
 
-      const systemInstruction = `You are the built-in AI User Guide & Geomatics Specialist for "BhuNex GeoStudio".
+      const systemInstruction = `You are the built-in AI User Guide & Geomatics Specialist for "BhuNex Studio".
 Help the user learn and use BhuNex's surveying, GIS, and cadastral tools directly in the application interface.`;
 
       const contents = context
@@ -126,7 +126,7 @@ Help the user learn and use BhuNex's surveying, GIS, and cadastral tools directl
         return res.status(400).json({ error: 'Prompt is required.' });
       }
 
-      const systemInstruction = `You are the Smart AI GIS Spatial Copilot for GeoStudio GIS Map Studio.
+      const systemInstruction = `You are the Smart AI GIS Spatial Copilot for BhuNex Studio GIS Map Studio.
 Your role is to assist GIS cartographers, cadastral surveyors, and mining engineers by generating geometry, analyzing spatial layouts, and providing clear expert advice.
 
 When the user asks to generate, modify, or layout spatial features (like parcels, drillholes, pipelines, buffer zones, mining lease pillars, solar array grids, traverse corridors):
@@ -219,7 +219,7 @@ User Request: ${prompt}`;
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Geo Studio server active on port ${PORT}`);
+    console.log(`BhuNex Studio server active on port ${PORT}`);
   });
 }
 

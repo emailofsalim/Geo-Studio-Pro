@@ -28,7 +28,7 @@ async function fetchOpenSourceLlm(prompt: string, systemPrompt: string): Promise
       signal: controller.signal,
       headers: {
         'Accept': 'text/plain',
-        'User-Agent': 'BhuNex-GeoStudio/3.7'
+        'User-Agent': 'BhuNex-Studio/1.0'
       }
     });
     clearTimeout(timeoutId);

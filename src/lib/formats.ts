@@ -1627,7 +1627,7 @@ export function parseShapefile(
  */
 export function buildShapefileZip(
   features: GeoFeature[],
-  layerName: string = 'geostudio_layer',
+  layerName: string = 'bhunex_layer',
   zone: number = 45,
   south: boolean = false
 ): Uint8Array {

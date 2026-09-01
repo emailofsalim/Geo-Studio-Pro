@@ -371,6 +371,8 @@ export const FieldSensorsTab: React.FC<FieldSensorsTabProps> = ({
     }
 
     try {
+      // Channel name retained across the rebrand so a rebranded device can still
+      // mesh with a field device still running the previous build.
       const channel = new BroadcastChannel('geostudio_field_mesh');
       meshChannelRef.current = channel;
       channel.onmessage = (event: MessageEvent) => {
