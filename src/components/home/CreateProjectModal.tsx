@@ -14,6 +14,14 @@ import {
   Check
 } from 'lucide-react';
 import { ProjectCategory } from '../../types/project';
+import {
+  COMMON_ZONES,
+  NORTHERN_ZONES,
+  SOUTHERN_ZONES,
+  DEFAULT_ZONE,
+  crsLabelFor,
+  isValidZone
+} from '../../lib/crsIdentity';
 import { useProject } from '../../context/ProjectContext';
 
 interface CreateProjectModalProps {
@@ -81,15 +89,31 @@ const CATEGORY_OPTIONS: { id: ProjectCategory; label: string; icon: any; color: 
   }
 ];
 
-const CRS_PRESETS = [
-  { label: 'WGS 84 / UTM Zone 45N (EPSG:32645) — East India / Bangladesh', zone: '45N', crs: 'WGS 84 / UTM Zone 45N (EPSG:32645)' },
-  { label: 'WGS 84 / UTM Zone 44N (EPSG:32644) — Central India / Hyderabad', zone: '44N', crs: 'WGS 84 / UTM Zone 44N (EPSG:32644)' },
-  { label: 'WGS 84 / UTM Zone 43N (EPSG:32643) — West India / Mumbai / Delhi', zone: '43N', crs: 'WGS 84 / UTM Zone 43N (EPSG:32643)' },
-  { label: 'WGS 84 / UTM Zone 42N (EPSG:32642) — NW India / Rajasthan', zone: '42N', crs: 'WGS 84 / UTM Zone 42N (EPSG:32642)' },
-  { label: 'WGS 84 / UTM Zone 46N (EPSG:32646) — NE India / Myanmar', zone: '46N', crs: 'WGS 84 / UTM Zone 46N (EPSG:32646)' },
-  { label: 'WGS 84 Geographic 2D (EPSG:4326) — Latitude / Longitude', zone: '45N', crs: 'WGS 84 Geographic 2D (EPSG:4326)' },
-  { label: 'Universal UTM Grid (Custom Zone)', zone: '45N', crs: 'WGS 84 / UTM Global Grid' }
-];
+// ---------------------------------------------------------------------------
+// Coordinate reference system
+// ---------------------------------------------------------------------------
+// The working zone is the single source of truth here, and the CRS label is
+// derived from it rather than typed alongside it.
+//
+// This dialog previously carried a list of hand-written CRS strings and a
+// separate free-text zone box, and stored both. Nothing kept them in step, so
+// the two disagreed in three ways that all reached storage:
+//
+//   - Choosing "UTM Zone 45N (EPSG:32645)" and then typing 30S in the zone box
+//     stored that label against workingZone "30S". Every calculation and export
+//     then ran in Zone 30 SOUTH while every label read 45N north.
+//   - "WGS 84 Geographic 2D (EPSG:4326)" stored a geographic CRS against a UTM
+//     working zone of 45N. Nothing in the application reads project.crs to
+//     switch behaviour — it is only ever displayed — so the label was a claim
+//     with no arithmetic behind it.
+//   - "Universal UTM Grid (Custom Zone)" stored "WGS 84 / UTM Global Grid",
+//     which names neither a zone nor an EPSG code, against zone 45N.
+//
+// So the picker now offers zones, `ProjectService.createProject` derives the
+// label from the chosen zone through `crsIdentityFor`, and the derived label is
+// shown live so what is recorded is what was seen. The free-text zone box is
+// gone: it was a second control setting the same value as the picker, and the
+// picker reaches all 120 zones the projection engine supports.
 
 export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   isOpen,
@@ -101,25 +125,25 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<ProjectCategory>('Mining Survey');
-  const [selectedCrsIndex, setSelectedCrsIndex] = useState(0);
-  const [customZone, setCustomZone] = useState('45N');
+  const [workingZone, setWorkingZone] = useState(DEFAULT_ZONE);
   const [openImmediately, setOpenImmediately] = useState(true);
 
   if (!isOpen) return null;
 
+  // What will actually be recorded, shown before it is.
+  const zoneIsValid = isValidZone(workingZone);
+  const derivedCrs = crsLabelFor(workingZone);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || !zoneIsValid) return;
 
-    const preset = CRS_PRESETS[selectedCrsIndex];
-    const crs = preset.crs;
-    const workingZone = preset.zone === '45N' && customZone ? customZone : preset.zone;
-
+    // `crs` is deliberately not passed: ProjectService derives it from the
+    // working zone, so the label and the arithmetic cannot disagree.
     const newProject = await createProject({
       name: name.trim(),
       description: description.trim() || undefined,
       category,
-      crs,
       workingZone
     });
 
@@ -236,33 +260,39 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           <div className="space-y-1.5">
             <label className="block text-xs font-bold text-slate-200">Coordinate Reference System (CRS)</label>
             <select
-              value={selectedCrsIndex}
-              onChange={e => {
-                const idx = parseInt(e.target.value, 10);
-                setSelectedCrsIndex(idx);
-                setCustomZone(CRS_PRESETS[idx].zone);
-              }}
+              value={workingZone}
+              onChange={e => setWorkingZone(e.target.value)}
               className="w-full bg-[#1c1c1c] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-[#c9a063]"
             >
-              {CRS_PRESETS.map((preset, idx) => (
-                <option key={idx} value={idx}>
-                  {preset.label}
-                </option>
-              ))}
+              <optgroup label="Commonly used">
+                {COMMON_ZONES.map(z => (
+                  <option key={`c-${z.zone}`} value={z.zone}>
+                    {z.label} — EPSG:{z.epsg}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Northern hemisphere">
+                {NORTHERN_ZONES.map(z => (
+                  <option key={`n-${z.zone}`} value={z.zone}>
+                    {z.label} — EPSG:{z.epsg}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Southern hemisphere">
+                {SOUTHERN_ZONES.map(z => (
+                  <option key={`s-${z.zone}`} value={z.zone}>
+                    {z.label} — EPSG:{z.epsg}
+                  </option>
+                ))}
+              </optgroup>
             </select>
 
-            <div className="flex items-center gap-2 pt-1">
-              <span className="text-[11px] text-slate-400">UTM Working Zone:</span>
-              <input
-                type="text"
-                value={customZone}
-                onChange={e => setCustomZone(e.target.value.toUpperCase())}
-                placeholder="45N"
-                className="w-20 bg-[#1c1c1c] border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white font-mono text-center focus:outline-none focus:border-[#c9a063]"
-              />
-              <span className="text-[10px] text-slate-500 italic">
-                Can be updated at any time in Project Settings
-              </span>
+            <div className="pt-1 text-[11px] text-slate-400">
+              Recorded as <span className="text-[#c9a063] font-mono">{derivedCrs}</span>
+            </div>
+            <div className="text-[10px] text-slate-500 italic">
+              Every calculation and export in this project uses this grid. It can be changed later in Project
+              Settings, and the CRS label follows it.
             </div>
           </div>
 
@@ -290,7 +320,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={!name.trim()}
+              disabled={!name.trim() || !zoneIsValid}
               className="px-5 py-2 rounded-xl bg-[#c9a063] hover:bg-[#d6b074] disabled:opacity-40 text-black text-xs font-bold shadow-lg flex items-center gap-1.5 transition-all"
             >
               <Plus className="w-4 h-4" />

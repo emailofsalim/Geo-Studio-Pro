@@ -79,6 +79,12 @@ So, throughout:
   project switches the CRS in the same render.
 - Every EPSG code comes from `crsIdentityFor()`, which emits 326xx north and 327xx south.
   No EPSG code is written by hand anywhere.
+- A project's **working zone is the single source of truth, and its CRS label is derived
+  from it** — on creation, and on import. They are never stored as two independent
+  values, because nothing keeps two values in step. Where an imported package declares a
+  CRS naming a different zone from its working zone, the working zone wins (it is the
+  grid the coordinates were computed on) and the disagreement is reported as an import
+  issue rather than absorbed.
 - Every report declares its CRS in the header and repeats it in the footer, and cannot be
   generated without one.
 - An importer that cannot determine the CRS says so; it does not assume WGS 84.
