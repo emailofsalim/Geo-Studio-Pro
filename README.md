@@ -130,7 +130,8 @@ Indian Grid zones · Bursa-Wolf datum transforms · Helmert fit · Bowditch trav
 adjustment · differential levelling · circular curves · resection · grid-to-ground
 correction · end-area and DTM grid volumes · Delaunay TIN surfaces from surveyed
 points, with plan and 3D surface area, volume to a stated datum, surface-to-surface
-comparison and marching-triangle contours · boundary offset · topology checks ·
+comparison and marching-triangle contours linked into polylines and sent to GIS
+Studio as line features · boundary offset · topology checks ·
 borehole logging with grades · cadastral digitising with GCP georeferencing and
 residuals · GNSS averaging · bench and overall slope geometry · drill pattern
 layout · blast charge and powder factor · stockpile volumes from either measured
@@ -147,7 +148,8 @@ serial and HID (device selection; no total-station protocol layer).
 drone photogrammetry · DSM/DTM raster pipelines · 3D visualisation · breaklines and
 hard edges in a TIN (the triangulation is unconstrained, so a crest or a toe line is
 respected only where points are dense enough along it) · contour smoothing and
-labelling (contours are returned as raw segments, not linked and annotated polylines).
+labelling (contours are linked into polylines but drawn as the exact intersection
+with each face, with no spline fitting and no index-contour annotation).
 
 ## Import and export
 
@@ -183,6 +185,14 @@ whole application.
 Projects are isolated: data, layers and coordinate systems are keyed per project.
 Storage keys deliberately keep their pre-rebrand names — renaming them would orphan every
 existing user's saved work on first launch of the rebranded build.
+
+Every write into project data requires an open project. `updateActiveProjectData`
+returns without doing anything when none is open, so the paths that write through it
+check first and say so. They previously reported success regardless: an imported
+survey file that never landed, features "transferred" to a layer that was never
+created. The projects screen and the project dashboard were built but never mounted,
+so no project could be opened at all and that silent-discard path was the only one
+there was.
 
 ## Provenance
 

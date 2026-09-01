@@ -8,6 +8,7 @@ import {
   elevationAt,
   contourAt,
   contourSet,
+  linkContours,
   type Point3D
 } from '../tin';
 
@@ -275,17 +276,40 @@ describe('volumeBetween', () => {
     const lower = buildTin(grid(10, 10, () => 0));
     const upper = buildTin(flatPad(5));
     const v = volumeBetween(lower, upper);
-    expect(v.cutM3).toBeCloseTo(50_000, 3);
-    expect(v.fillM3).toBeCloseTo(0, 6);
-    expect(v.uncoveredAreaM2).toBeCloseTo(0, 6);
+    expect(v.cutM3).toBeCloseTo(50_000, 6);
+    expect(v.fillM3).toBe(0);
+    expect(v.uncoveredAreaM2).toBe(0);
+    expect(v.partialAreaM2).toBe(0);
+    expect(v.planAreaM2).toBeCloseTo(10_000, 6);
   });
 
   it('reports material removed as fill when the upper surface is lower', () => {
     const lower = buildTin(grid(10, 10, () => 8));
     const upper = buildTin(flatPad(3));
     const v = volumeBetween(lower, upper);
-    expect(v.fillM3).toBeCloseTo(50_000, 3);
-    expect(v.cutM3).toBeCloseTo(0, 6);
+    expect(v.fillM3).toBeCloseTo(50_000, 6);
+    expect(v.cutM3).toBe(0);
+    expect(v.netM3).toBeCloseTo(-50_000, 6);
+  });
+
+  it('separates cut from fill within a single triangle', () => {
+    // The 1-in-10 ramp against a level design surface at 5 m: the ramp is
+    // below it for x < 50 and above it beyond. Sampling one height per
+    // triangle would let the two sides cancel and report a net of zero with
+    // no earthworks at all; each side is 12,500 m3.
+    const lower = buildTin(ramp);
+    const upper = buildTin(flatPad(5));
+    const v = volumeBetween(lower, upper);
+    expect(v.cutM3).toBeCloseTo(12_500, 6);
+    expect(v.fillM3).toBeCloseTo(12_500, 6);
+    expect(v.netM3).toBeCloseTo(0, 6);
+  });
+
+  it('gives the same answer however finely the lower surface is picked up', () => {
+    const coarse = volumeBetween(buildTin(ramp), buildTin(flatPad(5)));
+    const dense = volumeBetween(buildTin(grid(20, 5, x => x / 10)), buildTin(flatPad(5)));
+    expect(dense.cutM3).toBeCloseTo(coarse.cutM3, 4);
+    expect(dense.fillM3).toBeCloseTo(coarse.fillM3, 4);
   });
 
   it('reports the ground the second pickup does not reach', () => {
@@ -300,10 +324,31 @@ describe('volumeBetween', () => {
     ]);
     const v = volumeBetween(lower, upper);
     expect(v.uncoveredAreaM2).toBeGreaterThan(0);
-    // Nothing is lost: every triangle is either measured or reported uncovered.
-    expect(v.planAreaM2 + v.uncoveredAreaM2).toBeCloseTo(planArea(lower), 6);
-    // Only the covered half contributes, so roughly half the full 50,000 m3.
-    expect(v.cutM3).toBeCloseTo(v.planAreaM2 * 5, 3);
+    // Nothing is lost: every triangle is measured, reported uncovered, or
+    // reported as straddling the edge of the second pickup.
+    expect(v.planAreaM2 + v.uncoveredAreaM2 + v.partialAreaM2).toBeCloseTo(planArea(lower), 6);
+    // Only the covered part contributes.
+    expect(v.cutM3).toBeCloseTo(v.planAreaM2 * 5, 6);
+  });
+
+  it('does not measure a triangle that straddles the edge of the upper surface', () => {
+    // Half a triangle's difference quoted over its whole area would overstate
+    // the volume, so it is reported apart rather than estimated.
+    const lower = buildTin([
+      { x: 0, y: 0, z: 0 },
+      { x: 100, y: 0, z: 0 },
+      { x: 100, y: 100, z: 0 },
+      { x: 0, y: 100, z: 0 }
+    ]);
+    const upper = buildTin([
+      { x: -10, y: -10, z: 5 },
+      { x: 50, y: -10, z: 5 },
+      { x: 50, y: 110, z: 5 },
+      { x: -10, y: 110, z: 5 }
+    ]);
+    const v = volumeBetween(lower, upper);
+    expect(v.partialAreaM2).toBeGreaterThan(0);
+    expect(v.planAreaM2 + v.uncoveredAreaM2 + v.partialAreaM2).toBeCloseTo(10_000, 6);
   });
 
   it('reports zero volume and the whole area uncovered when they do not overlap', () => {
@@ -318,18 +363,8 @@ describe('volumeBetween', () => {
     expect(v.cutM3).toBe(0);
     expect(v.fillM3).toBe(0);
     expect(v.planAreaM2).toBe(0);
+    expect(v.partialAreaM2).toBe(0);
     expect(v.uncoveredAreaM2).toBeCloseTo(10000, 6);
-  });
-
-  it('keeps cut and fill apart where one surface crosses the other', () => {
-    // A level design surface at 5 m against the 1-in-10 ramp: the ramp is
-    // below it for x < 50 and above it for x > 50.
-    const lower = buildTin(grid(20, 5, x => x / 10));
-    const upper = buildTin(flatPad(5));
-    const v = volumeBetween(lower, upper);
-    expect(v.cutM3).toBeGreaterThan(10_000);
-    expect(v.fillM3).toBeGreaterThan(10_000);
-    expect(v.netM3).toBeCloseTo(0, 2);
   });
 });
 
@@ -390,5 +425,107 @@ describe('contours', () => {
     // 10 m of range at 1 mm would be 10,000 contours; better to say so than to
     // lock the browser building them.
     expect(() => contourSet(buildTin(ramp), 0.001)).toThrow(/coarser interval/i);
+  });
+});
+
+describe('linkContours', () => {
+  const chain = [
+    { level: 5, x1: 0, y1: 0, x2: 10, y2: 0 },
+    { level: 5, x1: 10, y1: 0, x2: 20, y2: 0 },
+    { level: 5, x1: 20, y1: 0, x2: 30, y2: 0 }
+  ];
+
+  it('joins segments that share an end into one line', () => {
+    const lines = linkContours(chain);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].pts).toHaveLength(4);
+    expect(lines[0].pts[0]).toEqual({ x: 0, y: 0 });
+    expect(lines[0].pts[3]).toEqual({ x: 30, y: 0 });
+    expect(lines[0].closed).toBe(false);
+  });
+
+  it('joins them whatever order they arrive in', () => {
+    // Marching triangles emits in triangle order, not along the contour.
+    const shuffled = [chain[2], chain[0], chain[1]];
+    const lines = linkContours(shuffled);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].pts).toHaveLength(4);
+  });
+
+  it('joins them when a segment runs the other way round', () => {
+    const flipped = [chain[0], { level: 5, x1: 20, y1: 0, x2: 10, y2: 0 }, chain[2]];
+    const lines = linkContours(flipped);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].pts).toHaveLength(4);
+  });
+
+  it('marks a line that returns to its start as closed', () => {
+    const ring = [
+      { level: 3, x1: 0, y1: 0, x2: 10, y2: 0 },
+      { level: 3, x1: 10, y1: 0, x2: 10, y2: 10 },
+      { level: 3, x1: 10, y1: 10, x2: 0, y2: 10 },
+      { level: 3, x1: 0, y1: 10, x2: 0, y2: 0 }
+    ];
+    const lines = linkContours(ring);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].closed).toBe(true);
+    expect(lines[0].pts[0]).toEqual(lines[0].pts[lines[0].pts.length - 1]);
+  });
+
+  it('keeps contours at different levels apart', () => {
+    const lines = linkContours([...chain, { level: 9, x1: 0, y1: 50, x2: 10, y2: 50 }]);
+    expect(lines).toHaveLength(2);
+    expect(new Set(lines.map(l => l.level))).toEqual(new Set([5, 9]));
+  });
+
+  it('returns separate lines for contours that do not touch', () => {
+    const lines = linkContours([
+      { level: 5, x1: 0, y1: 0, x2: 10, y2: 0 },
+      { level: 5, x1: 100, y1: 0, x2: 110, y2: 0 }
+    ]);
+    expect(lines).toHaveLength(2);
+  });
+
+  it('uses every segment exactly once', () => {
+    const lines = linkContours(chain);
+    const totalPts = lines.reduce((n, l) => n + l.pts.length - 1, 0);
+    expect(totalPts).toBe(chain.length);
+  });
+
+  it('does not merge ends that are genuinely apart', () => {
+    // A millimetre is a real gap in survey terms and must stay a gap.
+    const lines = linkContours([
+      { level: 5, x1: 0, y1: 0, x2: 10, y2: 0 },
+      { level: 5, x1: 10.001, y1: 0, x2: 20, y2: 0 }
+    ]);
+    expect(lines).toHaveLength(2);
+  });
+
+  it('handles an empty set', () => {
+    expect(linkContours([])).toEqual([]);
+  });
+
+  it('refuses a tolerance that is not positive', () => {
+    expect(() => linkContours(chain, 0)).toThrow(/greater than zero/i);
+  });
+
+  it('links a real contour on a ramp into one straight line', () => {
+    const tin = buildTin(grid(6, 20, x => x / 10));
+    const lines = linkContours(contourAt(tin, 5));
+    expect(lines).toHaveLength(1);
+    expect(lines[0].closed).toBe(false);
+    for (const p of lines[0].pts) expect(p.x).toBeCloseTo(50, 6);
+    // The line spans the full 120 m width of the surface.
+    const ys = lines[0].pts.map(p => p.y);
+    expect(Math.min(...ys)).toBeCloseTo(0, 6);
+    expect(Math.max(...ys)).toBeCloseTo(120, 6);
+  });
+
+  it('links a contour round a peak into one closed ring', () => {
+    const lines = linkContours(contourAt(buildTin(pyramid), 15));
+    expect(lines).toHaveLength(1);
+    expect(lines[0].closed).toBe(true);
+    // Four faces, so four corners plus the repeated first point.
+    expect(lines[0].pts).toHaveLength(5);
   });
 });

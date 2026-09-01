@@ -319,7 +319,7 @@ export function volumeToDatum(tin: Tin, datumZ: number): VolumeResult {
 
 export interface SurfaceComparison extends VolumeResult {
   /**
-   * Plan area of the lower surface that the upper surface does not reach, m².
+   * Plan area of the lower surface with no part of the upper surface over it, m².
    *
    * Non-zero means the two pickups do not cover the same ground and the
    * volume above is only for the overlap. Reported rather than ignored,
@@ -327,45 +327,70 @@ export interface SurfaceComparison extends VolumeResult {
    * comparison silently under-reads.
    */
   uncoveredAreaM2: number;
+  /**
+   * Plan area of lower triangles straddling the edge of the upper surface, m².
+   *
+   * The difference is defined over part of such a triangle and not the rest,
+   * so it is left out of the volume and reported here instead of being
+   * measured on a fraction of its area and quoted as if whole.
+   */
+  partialAreaM2: number;
 }
 
 /**
  * Volume between two surfaces over their shared plan extent.
  *
- * The upper surface is sampled at the lower surface's triangle centroids, so
- * the two need not share vertices — a design surface and an as-built pickup
- * rarely do.
+ * The upper surface is sampled at the vertices of each lower triangle, so the
+ * two need not share vertices — a design surface and an as-built pickup rarely
+ * do. The difference is then linear across the triangle and is clipped at zero
+ * exactly, so cut and fill are separated within a triangle rather than
+ * cancelling: a triangle where the upper surface crosses the lower reports
+ * both, not their net.
  *
- * ACCURACY: the height difference is taken at each lower triangle's centroid
- * and applied across that triangle, so the resolution of the answer is the
- * lower surface's triangle size. That is exact wherever the upper surface is
- * planar over the triangle and approximate where it is not, so build the
- * lower TIN from the denser of the two pickups when the two differ.
+ * ACCURACY: sampling at the vertices makes the answer exact wherever the upper
+ * surface is planar across the lower triangle, and approximate where it folds
+ * within one. The resolution is therefore the lower surface's triangle size,
+ * so pass the denser of the two pickups as `lower`.
  */
 export function volumeBetween(lower: Tin, upper: Tin): SurfaceComparison {
   let cut = 0;
   let fill = 0;
   let coveredArea = 0;
   let uncoveredArea = 0;
+  let partialArea = 0;
 
   for (const t of lower.triangles) {
-    const A = lower.points[t.a], B = lower.points[t.b], C = lower.points[t.c];
+    const idx = [t.a, t.b, t.c];
     const area = Math.abs(signedArea2D(lower.points, t.a, t.b, t.c));
     if (area < EPS) continue;
 
-    const cxp = (A.x + B.x + C.x) / 3;
-    const cyp = (A.y + B.y + C.y) / 3;
-    const zLower = (A.z + B.z + C.z) / 3;
-    const zUpper = elevationAt(upper, cxp, cyp);
-    if (zUpper === null) {
-      uncoveredArea += area; // outside the upper surface
+    const verts = idx.map(i => lower.points[i]);
+    const zUpper = verts.map(v => elevationAt(upper, v.x, v.y));
+    const inside = zUpper.filter(z => z !== null).length;
+
+    if (inside === 0) {
+      uncoveredArea += area;
+      continue;
+    }
+    if (inside < 3) {
+      partialArea += area;
       continue;
     }
 
     coveredArea += area;
-    const d = zUpper - zLower;
-    if (d > 0) cut += d * area;
-    else fill += -d * area;
+    const h = verts.map((v, k) => (zUpper[k] as number) - v.z);
+    const above = h.filter(v => v > 0).length;
+    const below = h.filter(v => v < 0).length;
+
+    if (below === 0) {
+      cut += (area * (h[0] + h[1] + h[2])) / 3;
+    } else if (above === 0) {
+      fill += (area * -(h[0] + h[1] + h[2])) / 3;
+    } else {
+      const poly: PlanVertex[] = verts.map((v, k) => ({ x: v.x, y: v.y, h: h[k] }));
+      cut += prismVolume(clipToHalf(poly, true));
+      fill += -prismVolume(clipToHalf(poly, false));
+    }
   }
 
   return {
@@ -373,7 +398,8 @@ export function volumeBetween(lower: Tin, upper: Tin): SurfaceComparison {
     fillM3: fill,
     netM3: cut - fill,
     planAreaM2: coveredArea,
-    uncoveredAreaM2: uncoveredArea
+    uncoveredAreaM2: uncoveredArea,
+    partialAreaM2: partialArea
   };
 }
 
@@ -535,6 +561,97 @@ export function contourAt(tin: Tin, level: number): ContourSegment[] {
     if (crossings.length >= 2) {
       const [c0, c1] = crossings;
       out.push({ level, x1: c0.x, y1: c0.y, x2: c1.x, y2: c1.y });
+    }
+  }
+
+  return out;
+}
+
+export interface ContourPolyline {
+  level: number;
+  pts: { x: number; y: number }[];
+  /** True when the line returns to its start — a contour around a hill or hollow. */
+  closed: boolean;
+}
+
+/**
+ * Chains contour segments into polylines.
+ *
+ * `contourAt` yields one segment per triangle, which is correct but useless as
+ * a drawing: a modest surface produces thousands of two-point lines, and a
+ * CAD or GIS package receiving them cannot label a contour or offset it. Here
+ * segments that share an end are joined into a single line, and a line that
+ * returns to its start is marked closed.
+ *
+ * Adjacent triangles compute their shared crossing from the same two vertices,
+ * so the two ends agree to within floating-point noise; `toleranceM` is what
+ * counts as the same point, and defaults to a micron — far below any survey
+ * precision, so it can never merge two genuinely distinct contour ends.
+ *
+ * Where four segments meet at one node the surface has a saddle, and which
+ * pair continues through it is genuinely ambiguous. One consistent choice is
+ * made rather than guessing at the ground's intent.
+ */
+export function linkContours(segments: ContourSegment[], toleranceM = 1e-6): ContourPolyline[] {
+  if (!(toleranceM > 0)) throw new Error('Contour join tolerance must be greater than zero.');
+
+  const key = (x: number, y: number) => `${Math.round(x / toleranceM)}_${Math.round(y / toleranceM)}`;
+
+  const byLevel = new Map<number, ContourSegment[]>();
+  for (const s of segments) {
+    const at = byLevel.get(s.level);
+    if (at) at.push(s);
+    else byLevel.set(s.level, [s]);
+  }
+
+  const out: ContourPolyline[] = [];
+
+  for (const [level, segs] of byLevel) {
+    const incident = new Map<string, number[]>();
+    const register = (k: string, i: number) => {
+      const at = incident.get(k);
+      if (at) at.push(i);
+      else incident.set(k, [i]);
+    };
+    segs.forEach((s, i) => {
+      register(key(s.x1, s.y1), i);
+      register(key(s.x2, s.y2), i);
+    });
+
+    const used = new Array<boolean>(segs.length).fill(false);
+    const nextAt = (k: string) => {
+      for (const j of incident.get(k) ?? []) if (!used[j]) return j;
+      return -1;
+    };
+
+    for (let i = 0; i < segs.length; i++) {
+      if (used[i]) continue;
+      used[i] = true;
+      const pts = [
+        { x: segs[i].x1, y: segs[i].y1 },
+        { x: segs[i].x2, y: segs[i].y2 }
+      ];
+
+      // Grow from the tail, then from the head.
+      for (const fromTail of [true, false]) {
+        for (;;) {
+          const tip = fromTail ? pts[pts.length - 1] : pts[0];
+          const far = fromTail ? pts[0] : pts[pts.length - 1];
+          if (pts.length > 2 && key(tip.x, tip.y) === key(far.x, far.y)) break; // closed
+          const j = nextAt(key(tip.x, tip.y));
+          if (j < 0) break;
+          used[j] = true;
+          const s = segs[j];
+          const other =
+            key(s.x1, s.y1) === key(tip.x, tip.y) ? { x: s.x2, y: s.y2 } : { x: s.x1, y: s.y1 };
+          if (fromTail) pts.push(other);
+          else pts.unshift(other);
+        }
+      }
+
+      const closed =
+        pts.length > 3 && key(pts[0].x, pts[0].y) === key(pts[pts.length - 1].x, pts[pts.length - 1].y);
+      out.push({ level, pts, closed });
     }
   }
 
