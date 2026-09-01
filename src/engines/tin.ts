@@ -36,11 +36,45 @@ export interface Triangle {
   c: number;
 }
 
+/**
+ * A line the surface must break along — a crest, a toe, a road edge, a ditch.
+ *
+ * Its vertices carry surveyed heights like any other point, and the
+ * triangulation is forced to use the segments between them as triangle edges.
+ * Without that, a Delaunay triangulation is free to span across the feature
+ * and will do so whenever the circumcircle test prefers it: a ridge gets a
+ * triangle bridging its two flanks, so the modelled crest sags to the
+ * interpolated height of ground either side of it. Nothing in the output says
+ * this happened — the surface is simply wrong, and every volume taken from it
+ * with it.
+ */
+export interface Breakline {
+  /** Ordered points along the line. Consecutive pairs become forced edges. */
+  pts: Point3D[];
+  /** Optional label, used when reporting a segment that could not be honoured. */
+  name?: string;
+}
+
+export interface TinOptions {
+  /** Lines the triangulation must break along. */
+  breaklines?: Breakline[];
+}
+
 export interface Tin {
   points: Point3D[];
   triangles: Triangle[];
   /** Points discarded as duplicates before triangulation. */
   duplicatesRemoved: number;
+  /**
+   * Breakline segments the triangulation honours, as index pairs into `points`.
+   *
+   * Every requested segment either appears here or is explained in
+   * `breaklineIssues`. A breakline silently dropped would leave a surface that
+   * looks constrained and is not.
+   */
+  constraints: [number, number][];
+  /** Breakline segments that could not be honoured, and why. */
+  breaklineIssues: string[];
 }
 
 const EPS = 1e-9;
@@ -82,37 +116,300 @@ function signedArea2D(p: Point3D[], a: number, b: number, c: number): number {
   return ((p[b].x - p[a].x) * (p[c].y - p[a].y) - (p[c].x - p[a].x) * (p[b].y - p[a].y)) / 2;
 }
 
+// ---------------------------------------------------------------------------
+// Constraints (breaklines)
+// ---------------------------------------------------------------------------
+// Forcing an edge into a finished Delaunay triangulation, by the standard
+// cavity method: remove the triangles the edge crosses, which leaves a simple
+// polygon split in two by the edge, then re-triangulate each half. The halves
+// are triangulated Delaunay-optimally, so the result is a constrained Delaunay
+// triangulation — as close to Delaunay as the constraint permits, rather than
+// an arbitrary retriangulation.
+
+/** True when `ab` and `cd` cross at a point interior to both. Shared endpoints do not count. */
+function segmentsCross(p: Point3D[], a: number, b: number, c: number, d: number): boolean {
+  if (a === c || a === d || b === c || b === d) return false;
+  const d1 = signedArea2D(p, c, d, a);
+  const d2 = signedArea2D(p, c, d, b);
+  const d3 = signedArea2D(p, a, b, c);
+  const d4 = signedArea2D(p, a, b, d);
+  return (
+    ((d1 > EPS && d2 < -EPS) || (d1 < -EPS && d2 > EPS)) &&
+    ((d3 > EPS && d4 < -EPS) || (d3 < -EPS && d4 > EPS))
+  );
+}
+
 /**
- * Builds a Delaunay TIN from surveyed points.
+ * Vertices lying on the open segment `u`-`v`, ordered from `u` towards `v`.
+ *
+ * An edge cannot pass through a vertex without using it, so a constraint that
+ * runs over existing points has to be split at each one. This is not a corner
+ * case: a haul road or bench toe drawn across a gridded survey passes through
+ * a grid vertex at every step, and without splitting none of those steps is a
+ * proper crossing of anything, so the whole line would be refused.
+ *
+ * The tolerance is a micron of perpendicular distance — far below survey
+ * precision, so it cannot capture a point that genuinely sits off the line.
+ */
+function verticesOnSegment(p: Point3D[], u: number, v: number): number[] {
+  const a = p[u];
+  const b = p[v];
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 < EPS) return [];
+  const len = Math.sqrt(len2);
+
+  const on: { i: number; t: number }[] = [];
+  for (let i = 0; i < p.length; i++) {
+    if (i === u || i === v) continue;
+    const c = p[i];
+    // |cross| / |ab| is the perpendicular distance from the point to the line.
+    const cross = (c.x - a.x) * dy - (c.y - a.y) * dx;
+    if (Math.abs(cross) > 1e-6 * len) continue;
+    const t = ((c.x - a.x) * dx + (c.y - a.y) * dy) / len2;
+    if (t > EPS && t < 1 - EPS) on.push({ i, t });
+  }
+  on.sort((m, n) => m.t - n.t);
+  return on.map(o => o.i);
+}
+
+/** True when some triangle already carries the edge `u`-`v`. */
+function hasEdge(tris: Triangle[], u: number, v: number): boolean {
+  for (const t of tris) {
+    if (
+      (t.a === u && t.b === v) || (t.b === u && t.a === v) ||
+      (t.b === u && t.c === v) || (t.c === u && t.b === v) ||
+      (t.c === u && t.a === v) || (t.a === u && t.c === v)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** True when `d` lies strictly inside the circumcircle of `a`, `b`, `c`. */
+function insideCircumcircle(p: Point3D[], a: number, b: number, c: number, d: number): boolean {
+  const cc = circumcircle(p, a, b, c);
+  if (!cc) return false;
+  return (p[d].x - cc.cx) ** 2 + (p[d].y - cc.cy) ** 2 < cc.r2 - EPS;
+}
+
+/** Appends a triangle wound counter-clockwise, skipping degenerate ones. */
+function pushWound(p: Point3D[], out: Triangle[], a: number, b: number, c: number): void {
+  const area = signedArea2D(p, a, b, c);
+  if (Math.abs(area) < EPS) return;
+  out.push(area > 0 ? { a, b, c } : { a, b: c, c: b });
+}
+
+/**
+ * Triangulates a simple polygon whose first and last vertices are joined by the
+ * constraint edge.
+ *
+ * Picks, for each sub-polygon, the vertex whose circumcircle with the two ends
+ * contains no other vertex of the polygon — the Delaunay choice — then recurses
+ * on the two halves it creates.
+ */
+function triangulateCavity(p: Point3D[], poly: number[], out: Triangle[]): void {
+  const n = poly.length;
+  if (n < 3) return;
+  if (n === 3) {
+    pushWound(p, out, poly[0], poly[1], poly[2]);
+    return;
+  }
+  let best = 1;
+  for (let i = 2; i < n - 1; i++) {
+    if (insideCircumcircle(p, poly[0], poly[n - 1], poly[best], poly[i])) best = i;
+  }
+  pushWound(p, out, poly[0], poly[best], poly[n - 1]);
+  triangulateCavity(p, poly.slice(0, best + 1), out);
+  triangulateCavity(p, poly.slice(best, n), out);
+}
+
+/** Walks a set of boundary edges into a single closed ring, or null if they do not form one. */
+function ringFromEdges(edges: [number, number][]): number[] | null {
+  const adj = new Map<number, number[]>();
+  for (const [u, v] of edges) {
+    if (!adj.has(u)) adj.set(u, []);
+    if (!adj.has(v)) adj.set(v, []);
+    adj.get(u)!.push(v);
+    adj.get(v)!.push(u);
+  }
+  // A simple ring has exactly two neighbours at every vertex. Anything else is
+  // a pinched or branching cavity, which this method cannot resolve.
+  for (const list of adj.values()) if (list.length !== 2) return null;
+
+  const start = edges[0][0];
+  const ring: number[] = [start];
+  let prev = -1;
+  let cur = start;
+  for (;;) {
+    const [n1, n2] = adj.get(cur)!;
+    const next = n1 === prev ? n2 : n1;
+    if (next === start) break;
+    if (ring.length > edges.length) return null; // did not close
+    ring.push(next);
+    prev = cur;
+    cur = next;
+  }
+  return ring.length === adj.size ? ring : null;
+}
+
+/**
+ * Forces the edge `u`-`v` into the triangulation.
+ *
+ * Returns null on success, or a short reason it could not be done. The reasons
+ * are surfaced to the caller rather than swallowed: a breakline that was asked
+ * for and not applied leaves a surface that looks constrained and is not.
+ */
+function insertConstraint(p: Point3D[], tris: Triangle[], u: number, v: number): string | null {
+  if (u === v) return 'its two ends are the same point';
+  if (hasEdge(tris, u, v)) return null;
+
+  const crossed: number[] = [];
+  for (let i = 0; i < tris.length; i++) {
+    const t = tris[i];
+    if (
+      segmentsCross(p, u, v, t.a, t.b) ||
+      segmentsCross(p, u, v, t.b, t.c) ||
+      segmentsCross(p, u, v, t.c, t.a)
+    ) {
+      crossed.push(i);
+    }
+  }
+  if (crossed.length === 0) {
+    // Unreachable on well-formed input: the ends are both surface points, the
+    // hull is convex, and any vertex lying on the way has already split the
+    // segment. Kept as a guard, worded for what would actually be true.
+    return 'no triangle lies between its two ends, so the ground there is degenerate';
+  }
+
+  // The cavity boundary is the set of edges belonging to exactly one of the
+  // removed triangles — the same counting trick the point insertion uses.
+  const once = new Map<string, [number, number]>();
+  const bump = (a: number, b: number) => {
+    const key = a < b ? `${a}_${b}` : `${b}_${a}`;
+    if (once.has(key)) once.delete(key);
+    else once.set(key, [a, b]);
+  };
+  for (const i of crossed) {
+    const t = tris[i];
+    bump(t.a, t.b);
+    bump(t.b, t.c);
+    bump(t.c, t.a);
+  }
+
+  const ring = ringFromEdges([...once.values()]);
+  if (!ring) return 'the triangles it crosses do not form a single region';
+
+  const iu = ring.indexOf(u);
+  const iv = ring.indexOf(v);
+  if (iu < 0 || iv < 0) return 'one of its ends is not on the edge of the region it crosses';
+
+  // The ring, cut at u and v, gives the two polygons either side of the edge.
+  const side = (from: number, to: number): number[] => {
+    const out: number[] = [];
+    for (let i = from; ; i = (i + 1) % ring.length) {
+      out.push(ring[i]);
+      if (i === to) break;
+      if (out.length > ring.length) return [];
+    }
+    return out;
+  };
+  const left = side(iu, iv);
+  const right = side(iv, iu);
+  if (left.length < 3 || right.length < 3) return 'the region it crosses is too thin to retriangulate';
+
+  const replacement: Triangle[] = [];
+  triangulateCavity(p, left, replacement);
+  triangulateCavity(p, right, replacement);
+  if (replacement.length === 0) return 'retriangulating the region it crosses produced nothing';
+
+  const drop = new Set(crossed);
+  const kept = tris.filter((_, i) => !drop.has(i));
+  tris.length = 0;
+  tris.push(...kept, ...replacement);
+  return null;
+}
+
+/**
+ * Builds a Delaunay TIN from surveyed points, honouring any breaklines given.
  *
  * Bowyer-Watson incremental insertion. Duplicate plan positions are dropped —
  * two observations at the same easting and northing cannot both define the
  * surface there, and keeping them degenerates the triangulation.
  *
+ * Breakline vertices join the point set and their segments are then forced in
+ * as triangle edges, giving a constrained Delaunay triangulation. Anything that
+ * could not be honoured is reported in `breaklineIssues` rather than dropped.
+ *
  * Throws when the points cannot form a surface, rather than returning an empty
  * TIN that would silently compute a volume of zero.
  */
-export function buildTin(input: Point3D[]): Tin {
+export function buildTin(input: Point3D[], options: TinOptions = {}): Tin {
   if (!Array.isArray(input) || input.length < 3) {
     throw new Error('A surface needs at least three points.');
   }
 
+  const breaklines = options.breaklines ?? [];
+  const breaklineIssues: string[] = [];
+
   // Drop duplicate plan positions, keeping the first observation.
-  const seen = new Set<string>();
+  const indexByPosition = new Map<string, number>();
   const points: Point3D[] = [];
   let duplicatesRemoved = 0;
+
+  const planKey = (p: Point3D) => `${p.x.toFixed(6)},${p.y.toFixed(6)}`;
+
   for (const p of input) {
     if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y) || !Number.isFinite(p?.z)) {
       throw new Error('Every surface point needs finite x, y and z values.');
     }
-    const key = `${p.x.toFixed(6)},${p.y.toFixed(6)}`;
-    if (seen.has(key)) {
+    const key = planKey(p);
+    if (indexByPosition.has(key)) {
       duplicatesRemoved++;
       continue;
     }
-    seen.add(key);
+    indexByPosition.set(key, points.length);
     points.push({ x: p.x, y: p.y, z: p.z });
   }
+
+  // Breakline vertices become surface points. Where one falls on a position
+  // already surveyed, the existing observation is kept — the same rule as any
+  // other duplicate — but a disagreement in height is reported rather than
+  // absorbed, because the two sources are stating different things about the
+  // same piece of ground.
+  const lineIndices: { name: string; idx: number[] }[] = [];
+  breaklines.forEach((line, li) => {
+    const name = line?.name?.trim() || `Breakline ${li + 1}`;
+    const pts = Array.isArray(line?.pts) ? line.pts : [];
+    if (pts.length < 2) {
+      breaklineIssues.push(`${name} has fewer than two points, so it defines no edge.`);
+      return;
+    }
+    const idx: number[] = [];
+    for (const p of pts) {
+      if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y) || !Number.isFinite(p?.z)) {
+        throw new Error(`${name} has a point without finite x, y and z values.`);
+      }
+      const key = planKey(p);
+      const existing = indexByPosition.get(key);
+      if (existing !== undefined) {
+        const held = points[existing].z;
+        if (Math.abs(held - p.z) > 1e-3) {
+          breaklineIssues.push(
+            `${name} gives ${p.z.toFixed(3)} m at ${p.x.toFixed(3)}, ${p.y.toFixed(3)}, where a point of ${held.toFixed(3)} m was already surveyed. The surveyed height was kept.`
+          );
+        }
+        idx.push(existing);
+        continue;
+      }
+      indexByPosition.set(key, points.length);
+      points.push({ x: p.x, y: p.y, z: p.z });
+      idx.push(points.length - 1);
+    }
+    lineIndices.push({ name, idx });
+  });
 
   if (points.length < 3) {
     throw new Error('A surface needs at least three points at distinct positions.');
@@ -181,7 +478,52 @@ export function buildTin(input: Point3D[]): Tin {
     throw new Error('These points are collinear, so they do not define a surface.');
   }
 
-  return { points, triangles, duplicatesRemoved };
+  // ---- Breaklines -------------------------------------------------------
+  // Gather every requested segment, then refuse any pair that cross before
+  // forcing any of them in. Two breaklines meeting at a point not shared by
+  // both state different heights for the same ground; resolving that would
+  // mean inventing an elevation at the crossing, so both are reported and
+  // left out instead.
+  const wanted: { name: string; u: number; v: number }[] = [];
+  for (const { name, idx } of lineIndices) {
+    for (let i = 0; i + 1 < idx.length; i++) {
+      const u = idx[i];
+      const v = idx[i + 1];
+      if (u === v) continue;
+      // Any surveyed point sitting on this segment becomes part of the line:
+      // an edge cannot run through a vertex without using it.
+      const chain = [u, ...verticesOnSegment(points, u, v), v];
+      for (let k = 0; k + 1 < chain.length; k++) {
+        wanted.push({ name, u: chain[k], v: chain[k + 1] });
+      }
+    }
+  }
+
+  const conflicted = new Set<number>();
+  for (let i = 0; i < wanted.length; i++) {
+    for (let j = i + 1; j < wanted.length; j++) {
+      if (segmentsCross(points, wanted[i].u, wanted[i].v, wanted[j].u, wanted[j].v)) {
+        conflicted.add(i);
+        conflicted.add(j);
+        breaklineIssues.push(
+          `${wanted[i].name} crosses ${wanted[j].name} away from a shared point. Each states its own height there, so neither segment was applied — split them at their intersection and give that point a surveyed height.`
+        );
+      }
+    }
+  }
+
+  const constraints: [number, number][] = [];
+  wanted.forEach((seg, i) => {
+    if (conflicted.has(i)) return;
+    const failure = insertConstraint(points, triangles, seg.u, seg.v);
+    if (failure) {
+      breaklineIssues.push(`A segment of ${seg.name} was not applied because ${failure}.`);
+    } else {
+      constraints.push([seg.u, seg.v]);
+    }
+  });
+
+  return { points, triangles, duplicatesRemoved, constraints, breaklineIssues };
 }
 
 // ---------------------------------------------------------------------------

@@ -9,7 +9,8 @@ import {
   contourAt,
   contourSet,
   linkContours,
-  type Point3D
+  type Point3D,
+  type Triangle
 } from '../tin';
 
 // ---------------------------------------------------------------------------
@@ -527,5 +528,253 @@ describe('linkContours', () => {
     expect(lines[0].closed).toBe(true);
     // Four faces, so four corners plus the repeated first point.
     expect(lines[0].pts).toHaveLength(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Breaklines
+// ---------------------------------------------------------------------------
+// The control case is a ridge across a diamond-shaped site, chosen because the
+// unconstrained Delaunay triangulation is provably WRONG on it.
+//
+//              (10,10,0)
+//                  *
+//                /   \
+//   (0,5,10) *           * (20,5,10)      the crest runs west to east
+//                \   /
+//                  *
+//              (10,0,0)
+//
+// The hull is a rhombus with diagonals 20 m (the crest) and 10 m (across the
+// valley). Delaunay takes the shorter diagonal: the circumcircle of the crest
+// triangle contains the fourth point, so the crest edge fails the test and the
+// cross edge wins. The modelled surface then runs through (10, 5) at 0 m —
+// ground level — when the surveyed crest there is 10 m.
+
+/** The diamond site. Indices: 0 west crest, 1 south, 2 east crest, 3 north. */
+const ridgeSite: Point3D[] = [
+  { x: 0, y: 5, z: 10 },
+  { x: 10, y: 0, z: 0 },
+  { x: 20, y: 5, z: 10 },
+  { x: 10, y: 10, z: 0 }
+];
+
+const crest = { name: 'Crest', pts: [{ x: 0, y: 5, z: 10 }, { x: 20, y: 5, z: 10 }] };
+
+/** True when some triangle carries the edge between these two plan positions. */
+function carriesEdge(tin: { points: Point3D[]; triangles: Triangle[] }, a: Point3D, b: Point3D): boolean {
+  const at = (p: Point3D) =>
+    tin.points.findIndex(q => Math.abs(q.x - p.x) < 1e-6 && Math.abs(q.y - p.y) < 1e-6);
+  const u = at(a);
+  const v = at(b);
+  if (u < 0 || v < 0) return false;
+  return tin.triangles.some(t => {
+    const s = [t.a, t.b, t.c];
+    return s.includes(u) && s.includes(v);
+  });
+}
+
+describe('breaklines — the ridge that Delaunay gets wrong', () => {
+  it('spans the crest without a breakline, sinking it to ground level', () => {
+    // Not a bug in the triangulation: this IS the Delaunay answer. It is the
+    // reason breaklines exist.
+    const tin = buildTin(ridgeSite);
+    expect(carriesEdge(tin, ridgeSite[0], ridgeSite[2])).toBe(false);
+    expect(elevationAt(tin, 10, 5)).toBeCloseTo(0, 9);
+  });
+
+  it('honours the crest as an edge when given one', () => {
+    const tin = buildTin(ridgeSite, { breaklines: [crest] });
+    expect(carriesEdge(tin, ridgeSite[0], ridgeSite[2])).toBe(true);
+    expect(tin.breaklineIssues).toEqual([]);
+    expect(tin.constraints).toHaveLength(1);
+  });
+
+  it('models the crest at its surveyed height', () => {
+    const tin = buildTin(ridgeSite, { breaklines: [crest] });
+    expect(elevationAt(tin, 10, 5)).toBeCloseTo(10, 9);
+    // Halfway up the western flank, midway between crest and the south point.
+    expect(elevationAt(tin, 5, 2.5)).toBeCloseTo(5, 9);
+  });
+
+  it('doubles the volume, which is the whole point', () => {
+    // Unconstrained: two triangles of 50 m2, mean height 10/3 -> 333.33 m3.
+    // Constrained:   two triangles of 50 m2, mean height 20/3 -> 666.67 m3.
+    // A quarry quoting the first figure would be out by half the stockpile.
+    const without = volumeToDatum(buildTin(ridgeSite), 0);
+    const withIt = volumeToDatum(buildTin(ridgeSite, { breaklines: [crest] }), 0);
+    expect(without.cutM3).toBeCloseTo(1000 / 3, 6);
+    expect(withIt.cutM3).toBeCloseTo(2000 / 3, 6);
+    expect(withIt.cutM3 / without.cutM3).toBeCloseTo(2, 9);
+  });
+
+  it('does not change the plan area it covers', () => {
+    // A constraint reshuffles triangles inside the hull; it must not add or
+    // lose ground. The rhombus is 20 x 10 / 2 = 100 m2 either way.
+    const without = planArea(buildTin(ridgeSite));
+    const withIt = planArea(buildTin(ridgeSite, { breaklines: [crest] }));
+    expect(without).toBeCloseTo(100, 9);
+    expect(withIt).toBeCloseTo(100, 9);
+  });
+
+  it('leaves every triangle wound counter-clockwise', () => {
+    const tin = buildTin(ridgeSite, { breaklines: [crest] });
+    for (const t of tin.triangles) {
+      const A = tin.points[t.a], B = tin.points[t.b], C = tin.points[t.c];
+      expect(((B.x - A.x) * (C.y - A.y) - (C.x - A.x) * (B.y - A.y)) / 2).toBeGreaterThan(0);
+    }
+  });
+
+  it('puts the contour on the flanks rather than across the crest', () => {
+    const tin = buildTin(ridgeSite, { breaklines: [crest] });
+    const segs = contourAt(tin, 5);
+    expect(segs.length).toBeGreaterThan(0);
+    // The 5 m contour sits halfway down each flank, never crossing y = 5.
+    for (const s of segs) {
+      expect(Math.abs(s.y1 - 5)).toBeGreaterThan(1e-6);
+      expect(Math.abs(s.y2 - 5)).toBeGreaterThan(1e-6);
+    }
+  });
+});
+
+describe('breaklines — bookkeeping', () => {
+  it('records a segment that the triangulation already had', () => {
+    // The south-west edge is on the hull, so it is an edge already. Asking for
+    // it must still count as honoured, not silently do nothing.
+    const line = { name: 'Toe', pts: [{ x: 0, y: 5, z: 10 }, { x: 10, y: 0, z: 0 }] };
+    const tin = buildTin(ridgeSite, { breaklines: [line] });
+    expect(tin.constraints).toHaveLength(1);
+    expect(tin.breaklineIssues).toEqual([]);
+  });
+
+  it('adds breakline vertices that were not surveyed separately', () => {
+    const line = { name: 'Spur', pts: [{ x: 8, y: 5, z: 6 }, { x: 12, y: 5, z: 6 }] };
+    const tin = buildTin(ridgeSite, { breaklines: [line] });
+    expect(tin.points).toHaveLength(6);
+    expect(carriesEdge(tin, { x: 8, y: 5, z: 6 }, { x: 12, y: 5, z: 6 })).toBe(true);
+  });
+
+  it('counts a multi-segment line as one constraint per segment', () => {
+    const line = {
+      name: 'Crest',
+      pts: [{ x: 0, y: 5, z: 10 }, { x: 10, y: 5, z: 12 }, { x: 20, y: 5, z: 10 }]
+    };
+    const tin = buildTin(ridgeSite, { breaklines: [line] });
+    expect(tin.constraints).toHaveLength(2);
+    expect(tin.breaklineIssues).toEqual([]);
+  });
+});
+
+describe('breaklines — what it refuses to do', () => {
+  it('reports a line with fewer than two points', () => {
+    const tin = buildTin(ridgeSite, { breaklines: [{ name: 'Stub', pts: [{ x: 5, y: 5, z: 1 }] }] });
+    expect(tin.constraints).toHaveLength(0);
+    expect(tin.breaklineIssues.join(' ')).toMatch(/fewer than two points/i);
+  });
+
+  it('extends the surveyed extent to reach a distant breakline, rather than refusing it', () => {
+    // Breakline vertices ARE survey observations, so a crest picked up beyond
+    // the spot heights genuinely adds ground. The consequence is the same one
+    // the surface panels warn about: a mis-keyed breakline coordinate stretches
+    // the hull across ground nobody surveyed, and ADDS volume.
+    const away = { name: 'Elsewhere', pts: [{ x: 500, y: 500, z: 1 }, { x: 600, y: 500, z: 1 }] };
+    const near = planArea(buildTin(ridgeSite));
+    const far = buildTin(ridgeSite, { breaklines: [away] });
+    expect(far.breaklineIssues).toEqual([]);
+    expect(far.constraints).toHaveLength(1);
+    expect(planArea(far)).toBeGreaterThan(near * 100);
+  });
+
+  it('refuses two breaklines that cross, and applies neither', () => {
+    // Each line asserts its own height at the crossing. Splitting them there
+    // would mean inventing an elevation, so both are reported instead.
+    const a = { name: 'Crest', pts: [{ x: 0, y: 5, z: 10 }, { x: 20, y: 5, z: 10 }] };
+    const b = { name: 'Drain', pts: [{ x: 10, y: 0, z: 0 }, { x: 10, y: 10, z: 0 }] };
+    const tin = buildTin(ridgeSite, { breaklines: [a, b] });
+    expect(tin.constraints).toHaveLength(0);
+    const said = tin.breaklineIssues.join(' ');
+    expect(said).toMatch(/Crest crosses Drain|Drain crosses Crest/);
+    expect(said).toMatch(/split them at their intersection/i);
+  });
+
+  it('splits two breaklines that cross exactly at a surveyed point, and holds both', () => {
+    // A surveyed X-junction is not ambiguous: the crossing point has one
+    // observed height, so both lines are split there and both are honoured.
+    // The diagonals of the diamond meet at (10, 5), which is on the crest.
+    const site = [...ridgeSite, { x: 10, y: 5, z: 10 }];
+    const a = { name: 'Crest', pts: [{ x: 0, y: 5, z: 10 }, { x: 20, y: 5, z: 10 }] };
+    const b = { name: 'Drain', pts: [{ x: 10, y: 0, z: 0 }, { x: 10, y: 10, z: 0 }] };
+    const tin = buildTin(site, { breaklines: [a, b] });
+    expect(tin.breaklineIssues).toEqual([]);
+    // Each line is cut in two at the shared vertex.
+    expect(tin.constraints).toHaveLength(4);
+  });
+
+  it('allows two breaklines that meet at a shared point', () => {
+    // Meeting is not crossing: a shared vertex has one height, so there is
+    // nothing ambiguous about it.
+    const a = { name: 'West arm', pts: [{ x: 0, y: 5, z: 10 }, { x: 10, y: 5, z: 12 }] };
+    const b = { name: 'East arm', pts: [{ x: 10, y: 5, z: 12 }, { x: 20, y: 5, z: 10 }] };
+    const tin = buildTin(ridgeSite, { breaklines: [a, b] });
+    expect(tin.constraints).toHaveLength(2);
+    expect(tin.breaklineIssues).toEqual([]);
+  });
+
+  it('reports a breakline height that contradicts a surveyed point', () => {
+    // Same ground, two different statements about how high it is.
+    const line = { name: 'Crest', pts: [{ x: 0, y: 5, z: 99 }, { x: 20, y: 5, z: 10 }] };
+    const tin = buildTin(ridgeSite, { breaklines: [line] });
+    expect(tin.breaklineIssues.join(' ')).toMatch(/99\.000 m/);
+    expect(tin.breaklineIssues.join(' ')).toMatch(/10\.000 m was already surveyed/);
+    expect(tin.breaklineIssues.join(' ')).toMatch(/surveyed height was kept/i);
+    // The surveyed value stands.
+    expect(tin.points[0].z).toBe(10);
+  });
+
+  it('throws on a breakline point without a finite height', () => {
+    expect(() =>
+      buildTin(ridgeSite, { breaklines: [{ pts: [{ x: 1, y: 1, z: NaN }, { x: 2, y: 2, z: 0 }] }] })
+    ).toThrow(/finite/i);
+  });
+
+  it('is unchanged when given no breaklines at all', () => {
+    const plain = buildTin(ridgeSite);
+    const empty = buildTin(ridgeSite, { breaklines: [] });
+    expect(empty.triangles).toEqual(plain.triangles);
+    expect(empty.constraints).toEqual([]);
+    expect(empty.breaklineIssues).toEqual([]);
+  });
+});
+
+describe('breaklines — on a dense surface', () => {
+  it('holds a diagonal constraint across a regular grid without losing area', () => {
+    // A grid is the degenerate case for Delaunay, and a long constraint has to
+    // cut through many triangles. The hull area must survive it exactly.
+    const pts = grid(10, 10, (x, y) => 100 + x / 20 + y / 25);
+    const line = {
+      name: 'Haul road',
+      pts: [{ x: 0, y: 0, z: 100 }, { x: 100, y: 100, z: 109 }]
+    };
+    const tin = buildTin(pts, { breaklines: [line] });
+    expect(tin.breaklineIssues).toEqual([]);
+    expect(planArea(tin)).toBeCloseTo(10000, 6);
+
+    // The diagonal runs over the grid vertices at (10,10) ... (90,90), so it is
+    // split into ten sub-segments rather than forced as one impossible edge.
+    expect(tin.constraints).toHaveLength(10);
+    expect(carriesEdge(tin, { x: 0, y: 0, z: 0 }, { x: 10, y: 10, z: 0 })).toBe(true);
+    expect(carriesEdge(tin, { x: 40, y: 40, z: 0 }, { x: 50, y: 50, z: 0 })).toBe(true);
+    expect(carriesEdge(tin, { x: 90, y: 90, z: 0 }, { x: 100, y: 100, z: 0 })).toBe(true);
+  });
+
+  it('keeps every triangle wound counter-clockwise on the dense case', () => {
+    const pts = grid(8, 12.5, () => 50);
+    const line = { name: 'Bench toe', pts: [{ x: 0, y: 50, z: 50 }, { x: 100, y: 50, z: 50 }] };
+    const tin = buildTin(pts, { breaklines: [line] });
+    for (const t of tin.triangles) {
+      const A = tin.points[t.a], B = tin.points[t.b], C = tin.points[t.c];
+      expect(((B.x - A.x) * (C.y - A.y) - (C.x - A.x) * (B.y - A.y)) / 2).toBeGreaterThan(0);
+    }
+    expect(planArea(tin)).toBeCloseTo(10000, 6);
   });
 });

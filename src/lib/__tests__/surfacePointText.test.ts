@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSurfacePoints } from '../surfacePointText';
+import { parseSurfacePoints, parseBreaklines } from '../surfacePointText';
 
 describe('parseSurfacePoints', () => {
   it('reads comma-separated E, N, RL', () => {
@@ -82,5 +82,74 @@ describe('parseSurfacePoints', () => {
   it('returns nothing for empty input rather than throwing', () => {
     expect(parseSurfacePoints('').pts).toHaveLength(0);
     expect(parseSurfacePoints('   \n\n  ').rejected).toHaveLength(0);
+  });
+});
+
+describe('parseBreaklines', () => {
+  it('reads one block as one line', () => {
+    const { lines, rejected } = parseBreaklines('1000, 2000, 10\n1010, 2000, 11');
+    expect(lines).toHaveLength(1);
+    expect(lines[0].pts).toHaveLength(2);
+    expect(rejected).toHaveLength(0);
+  });
+
+  it('splits blocks on a blank line', () => {
+    const text = ['1000, 2000, 10', '1010, 2000, 11', '', '2000, 3000, 20', '2010, 3000, 21'].join('\n');
+    expect(parseBreaklines(text).lines).toHaveLength(2);
+  });
+
+  it('splits on several blank lines and stray whitespace', () => {
+    const text = ['1000, 2000, 10', '1010, 2000, 11', '', '   ', '', '2000, 3000, 20', '2010, 3000, 21'].join('\n');
+    expect(parseBreaklines(text).lines).toHaveLength(2);
+  });
+
+  it('takes the name from a leading comment', () => {
+    const text = ['# Crest', '1000, 2000, 10', '1010, 2000, 11'].join('\n');
+    expect(parseBreaklines(text).lines[0].name).toBe('Crest');
+  });
+
+  it('names each block independently', () => {
+    const text = ['# Crest', '1000,2000,10', '1010,2000,11', '', '# Toe', '900,2000,5', '910,2000,5'].join('\n');
+    const { lines } = parseBreaklines(text);
+    expect(lines.map(l => l.name)).toEqual(['Crest', 'Toe']);
+  });
+
+  it('numbers a block that has no name', () => {
+    const text = ['1000,2000,10', '1010,2000,11', '', '# Toe', '900,2000,5', '910,2000,5'].join('\n');
+    expect(parseBreaklines(text).lines.map(l => l.name)).toEqual(['Breakline 1', 'Toe']);
+  });
+
+  it('treats a later comment as a comment, not a rename', () => {
+    const text = ['# Crest', '1000,2000,10', '# picked up 12/03', '1010,2000,11'].join('\n');
+    const { lines } = parseBreaklines(text);
+    expect(lines[0].name).toBe('Crest');
+    expect(lines[0].pts).toHaveLength(2);
+  });
+
+  it('reports a malformed point line and keeps the rest of the block', () => {
+    const text = ['# Crest', '1000,2000,10', 'rubbish', '1010,2000,11'].join('\n');
+    const { lines, rejected } = parseBreaklines(text);
+    expect(lines[0].pts).toHaveLength(2);
+    expect(rejected).toHaveLength(1);
+  });
+
+  it('drops a block with no usable points rather than emitting an empty line', () => {
+    const text = ['# Crest', 'rubbish', '', '900,2000,5', '910,2000,5'].join('\n');
+    const { lines, rejected } = parseBreaklines(text);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].pts).toHaveLength(2);
+    expect(rejected).toHaveLength(1);
+  });
+
+  it('returns nothing for empty input', () => {
+    expect(parseBreaklines('').lines).toHaveLength(0);
+    expect(parseBreaklines('\n\n   \n').lines).toHaveLength(0);
+  });
+
+  it('applies the same strict column rules as the surface list', () => {
+    // Four numbers stays ambiguous here too.
+    const { lines, rejected } = parseBreaklines('# Crest\n1, 1000, 2000, 10\n1010, 2000, 11');
+    expect(rejected[0]).toMatch(/only E, N, RL/);
+    expect(lines[0].pts).toHaveLength(1);
   });
 });

@@ -41,12 +41,13 @@ src/
   engines/     Domain engines, independent of React
     crs.js       Coordinate reference systems, projections, datums, zone detection
     mining.ts    Bench geometry, drill pattern, blast design, stockpiles, reserves
-    tin.ts       Delaunay TIN surfaces: areas, volumes, surface comparison, contours
+    tin.ts       Constrained Delaunay TIN surfaces: breaklines, areas, volumes,
+                 surface comparison, contours
     reports.ts   Print-ready report generation
   lib/         Computation and IO
     crsIdentity.ts     CRS naming, EPSG codes, the zone catalogue
     geodesy.ts         Survey mathematics: traverse, levelling, curves, volumes
-    surfacePointText.ts Reads a pasted E, N, RL point list
+    surfacePointText.ts Reads a pasted E, N, RL point list, and breakline blocks
     formats.ts         Format readers and writers
     universalDataBridge.ts  Central import detection and export routing
     parseClient.ts     Import front door; offloads large files to a worker
@@ -137,7 +138,9 @@ adjustment · differential levelling · circular curves · resection · grid-to-
 correction · end-area and DTM grid volumes · Delaunay TIN surfaces from surveyed
 points, with plan and 3D surface area, volume to a stated datum, surface-to-surface
 comparison and marching-triangle contours linked into polylines and sent to GIS
-Studio as line features · boundary offset · topology checks ·
+Studio as line features · constrained Delaunay, so a crest, toe, road edge or
+ditch given as a breakline is held as a triangle edge · boundary offset ·
+topology checks ·
 borehole logging with grades · cadastral digitising with GCP georeferencing and
 residuals · GNSS averaging · bench and overall slope geometry · drill pattern
 layout · blast charge and powder factor · stockpile volumes from either measured
@@ -151,11 +154,11 @@ theodolite, spirit level and AR stakeout (device-sensor views, not instrument pr
 serial and HID (device selection; no total-station protocol layer).
 
 **Not implemented:** haul-road design · production, dispatch and reconciliation ·
-drone photogrammetry · DSM/DTM raster pipelines · 3D visualisation · breaklines and
-hard edges in a TIN (the triangulation is unconstrained, so a crest or a toe line is
-respected only where points are dense enough along it) · contour smoothing and
-labelling (contours are linked into polylines but drawn as the exact intersection
-with each face, with no spline fitting and no index-contour annotation).
+drone photogrammetry · DSM/DTM raster pipelines · 3D visualisation · contour
+smoothing and labelling (contours are linked into polylines but drawn as the exact
+intersection with each face, with no spline fitting and no index-contour annotation)
+· automatic splitting of breaklines that cross each other (both are reported and
+left out instead — see below).
 
 ## Import and export
 
@@ -185,6 +188,40 @@ switch, both surfaced in the Sensor Privacy Monitor.
 Camera, microphone, location, orientation, motion, Bluetooth, NFC, serial, HID and
 screen wake lock all run through it, so the audit log and the kill switch cover the
 whole application.
+
+## Breaklines
+
+A Delaunay triangulation is free to span across a crest, and will do so whenever
+that produces rounder triangles. The modelled ridge then sags to the height of the
+ground either side of it — with no error, because the triangulation is doing exactly
+what it is supposed to. On the control case in the tests, a 20 m crest across a
+diamond-shaped site, the unconstrained surface puts the crest at ground level and
+reports **333.3 m³**; the same points with the crest given as a breakline report
+**666.7 m³**. Exactly double, and the second figure is the right one.
+
+So `buildTin` takes breaklines and forces their segments in as triangle edges, by
+the standard cavity method: remove the triangles the edge crosses, then
+re-triangulate the two halves Delaunay-optimally. What it will not do:
+
+- **Guess at a crossing.** Two breaklines meeting away from a shared point each
+  state their own height there. Splitting them would mean inventing an elevation,
+  so both segments are reported and left out. Where they cross *at* a surveyed
+  point there is nothing to guess — that point has one observed height — so both
+  are split there and both are honoured.
+- **Overrule a surveyed point.** A breakline vertex landing on a position already
+  surveyed keeps the surveyed height, and the disagreement is reported.
+- **Drop one silently.** Every requested segment is either in `constraints` or
+  explained in `breaklineIssues`. A breakline that was asked for and not applied
+  would leave a surface that looks constrained and is not.
+
+A constraint running over existing vertices is split at each one — a haul road
+across a gridded survey passes through a grid vertex at every step, and an edge
+cannot run through a vertex without using it.
+
+Breakline vertices are survey observations, so they join the point set and extend
+the surface if they fall outside the spot heights. That is correct, and it carries
+the same risk as any stray point: a mis-keyed breakline coordinate stretches the
+hull across ground nobody surveyed, and adds volume.
 
 ## Data safety
 
