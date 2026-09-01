@@ -35,6 +35,7 @@ import { BhunakshaDigitizerTab } from './components/BhunakshaDigitizerTab';
 import { BoundaryOffsetTab } from './components/BoundaryOffsetTab';
 import { TutorialTab } from './components/TutorialTab';
 import { HelpFaqTab } from './components/HelpFaqTab';
+import { ReportsTab } from './components/ReportsTab';
 import { crsIdentityFor, isValidZone, DEFAULT_ZONE } from './lib/crsIdentity';
 
 export function App() {
@@ -588,6 +589,10 @@ export function App() {
                 customBighaM2={customBighaM2}
                 customKathaPerBigha={customKathaPerBigha}
               />
+            )}
+
+            {activeTab === 'reports' && (
+              <ReportsTab workingZone={workingZone} distanceUnit={distanceUnit} />
             )}
 
             {(activeTab === 'tut' || activeTab === 'tutorials') && (

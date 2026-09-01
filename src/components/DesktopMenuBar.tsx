@@ -43,6 +43,7 @@ import { AppTabId, APPS_CONFIG } from './Navigation';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useAuth } from '../context/AuthContext';
 import { useProject } from '../context/ProjectContext';
+import { COMMON_ZONES, NORTHERN_ZONES, SOUTHERN_ZONES } from '../lib/crsIdentity';
 
 interface DesktopMenuBarProps {
   activeTab: AppTabId;
@@ -126,16 +127,6 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
     }
   };
 
-  const utmZones = [
-    { zone: '42N', epsg: '32642', label: 'UTM 42N (West India / PK)' },
-    { zone: '43N', epsg: '32643', label: 'UTM 43N (West / Central India)' },
-    { zone: '44N', epsg: '32644', label: 'UTM 44N (Central / South India)' },
-    { zone: '45N', epsg: '32645', label: 'UTM 45N (East India / BD)' },
-    { zone: '46N', epsg: '32646', label: 'UTM 46N (North-East / MM)' },
-    { zone: '47N', epsg: '32647', label: 'UTM 47N (SE Asia / Thailand)' },
-    { zone: '43S', epsg: '32743', label: 'UTM 43S (Indian Ocean South)' },
-    { zone: '45S', epsg: '32745', label: 'UTM 45S (Southern Hemisphere)' }
-  ];
 
   const handleOpenProfile = () => {
     if (openProfile) openProfile();
@@ -621,11 +612,27 @@ export const DesktopMenuBar: React.FC<DesktopMenuBarProps> = ({
             className="appearance-none bg-white/[0.04] hover:bg-white/[0.07] text-white/90 font-mono text-xs py-1 pl-2.5 pr-6 rounded-md border border-white/[0.08] cursor-pointer focus:outline-none focus:border-[#c9a063]/40 transition-colors"
             title="Active Coordinate Datum"
           >
-            {utmZones.map(z => (
-              <option key={z.zone} value={z.zone} className="bg-[#141414] text-white">
-                UTM {z.zone}
-              </option>
-            ))}
+            <optgroup label="Commonly used" className="bg-[#141414] text-white">
+              {COMMON_ZONES.map(z => (
+                <option key={`c-${z.zone}`} value={z.zone} className="bg-[#141414] text-white">
+                  UTM {z.zone} — EPSG:{z.epsg}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Northern hemisphere" className="bg-[#141414] text-white">
+              {NORTHERN_ZONES.map(z => (
+                <option key={`n-${z.zone}`} value={z.zone} className="bg-[#141414] text-white">
+                  UTM {z.zone} — EPSG:{z.epsg}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Southern hemisphere" className="bg-[#141414] text-white">
+              {SOUTHERN_ZONES.map(z => (
+                <option key={`s-${z.zone}`} value={z.zone} className="bg-[#141414] text-white">
+                  UTM {z.zone} — EPSG:{z.epsg}
+                </option>
+              ))}
+            </optgroup>
           </select>
           <ChevronDown className="w-3 h-3 text-white/40 absolute right-2 pointer-events-none" />
         </div>

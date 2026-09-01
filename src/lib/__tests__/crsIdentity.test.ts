@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { parseZone, isValidZone, crsIdentityFor, crsLabelFor, zoneParams, DEFAULT_ZONE } from '../crsIdentity';
+import {
+  parseZone,
+  isValidZone,
+  crsIdentityFor,
+  crsLabelFor,
+  zoneParams,
+  DEFAULT_ZONE,
+  COMMON_ZONES,
+  NORTHERN_ZONES,
+  SOUTHERN_ZONES,
+  ALL_ZONES
+} from '../crsIdentity';
 
 describe('CRS identity', () => {
   describe('EPSG authority matches the hemisphere', () => {
@@ -91,5 +102,46 @@ describe('CRS identity', () => {
 
   it('exposes a default zone that is itself valid', () => {
     expect(isValidZone(DEFAULT_ZONE)).toBe(true);
+  });
+});
+
+describe('zone catalogue', () => {
+  it('offers all 60 zones in each hemisphere', () => {
+    expect(NORTHERN_ZONES).toHaveLength(60);
+    expect(SOUTHERN_ZONES).toHaveLength(60);
+    expect(ALL_ZONES).toHaveLength(120);
+  });
+
+  it('derives every EPSG code from crsIdentityFor rather than a hand-written list', () => {
+    for (const z of ALL_ZONES) {
+      expect(z.epsg).toBe(crsIdentityFor(z.zone).epsg);
+    }
+  });
+
+  it('keeps northern and southern codes in their own authority ranges', () => {
+    expect(NORTHERN_ZONES.every(z => z.epsg >= 32601 && z.epsg <= 32660)).toBe(true);
+    expect(SOUTHERN_ZONES.every(z => z.epsg >= 32701 && z.epsg <= 32760)).toBe(true);
+  });
+
+  it('surfaces the South Asian zones as the common set', () => {
+    const zones = COMMON_ZONES.map(z => z.zone);
+    expect(zones).toContain('43N');
+    expect(zones).toContain('45N');
+    expect(zones).toContain('45S');
+    // Each common zone must also exist in the full catalogue.
+    for (const z of zones) expect(ALL_ZONES.some(a => a.zone === z)).toBe(true);
+  });
+
+  it('makes zones outside South Asia reachable', () => {
+    // The picker previously offered only eight India-region zones, so a survey
+    // anywhere else could not select its own CRS through the UI.
+    for (const z of ['30N', '18N', '56S', '1N', '60S']) {
+      expect(ALL_ZONES.some(a => a.zone === z)).toBe(true);
+    }
+  });
+
+  it('labels each zone with its longitude band', () => {
+    expect(NORTHERN_ZONES[0].label).toContain('180°W');
+    expect(NORTHERN_ZONES[30].label).toContain('0°');
   });
 });

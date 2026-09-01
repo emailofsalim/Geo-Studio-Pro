@@ -107,3 +107,63 @@ export function zoneParams(zone: string): { zNum: number; isSouth: boolean } {
   const id = crsIdentityFor(zone);
   return { zNum: id.zoneNumber, isSouth: id.south };
 }
+
+// ---------------------------------------------------------------------------
+// Zone catalogue
+// ---------------------------------------------------------------------------
+// The zone picker previously offered eight hand-written entries covering the
+// India region, each with its EPSG code typed in by hand. That made every zone
+// outside South Asia unreachable through the UI even though the projection
+// engine handles all sixty, and it was a second place for an EPSG code to drift
+// out of step with crsIdentityFor. The catalogue below is generated, so the
+// codes cannot disagree, and the regional zones stay grouped first because they
+// are the common case.
+
+export interface ZoneOption {
+  zone: string;
+  epsg: number;
+  label: string;
+}
+
+/** Regional context for the zones most used in South Asian survey work. */
+const REGION_NOTES: Record<string, string> = {
+  '42N': 'West India / Pakistan',
+  '43N': 'West & Central India',
+  '44N': 'Central & South India',
+  '45N': 'East India / Bangladesh',
+  '46N': 'North-East India / Myanmar',
+  '47N': 'SE Asia / Thailand',
+  '43S': 'Indian Ocean, south',
+  '45S': 'Southern hemisphere'
+};
+
+/** The zones surfaced first in pickers. */
+export const COMMON_ZONES: ZoneOption[] = Object.keys(REGION_NOTES).map(zone => {
+  const id = crsIdentityFor(zone);
+  return { zone: id.zone, epsg: id.epsg, label: `UTM ${id.zone} (${REGION_NOTES[zone]})` };
+});
+
+function buildHemisphere(south: boolean): ZoneOption[] {
+  const out: ZoneOption[] = [];
+  for (let z = 1; z <= 60; z++) {
+    const id = crsIdentityFor(`${z}${south ? 'S' : 'N'}`);
+    const west = (z - 1) * 6 - 180;
+    out.push({
+      zone: id.zone,
+      epsg: id.epsg,
+      label: `UTM ${id.zone} (${Math.abs(west)}°${west < 0 ? 'W' : 'E'} to ${Math.abs(west + 6)}°${
+        west + 6 <= 0 ? 'W' : 'E'
+      })`
+    });
+  }
+  return out;
+}
+
+/** All 60 northern-hemisphere zones. */
+export const NORTHERN_ZONES: ZoneOption[] = buildHemisphere(false);
+
+/** All 60 southern-hemisphere zones. */
+export const SOUTHERN_ZONES: ZoneOption[] = buildHemisphere(true);
+
+/** Every selectable zone, north then south. */
+export const ALL_ZONES: ZoneOption[] = [...NORTHERN_ZONES, ...SOUTHERN_ZONES];
