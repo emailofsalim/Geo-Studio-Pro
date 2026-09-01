@@ -220,6 +220,13 @@ A constraint running over existing vertices is split at each one — a haul road
 across a gridded survey passes through a grid vertex at every step, and an edge
 cannot run through a vertex without using it.
 
+**Each surface carries its own breaklines.** A design crest is not the as-built
+one, so in a surface comparison B is constrained by its own lines rather than by
+A's. Comparing a constrained surface against an unconstrained one half-applies
+the correction and is worth a real amount: on the test case, an unconstrained B
+reports 333.3 m³ against A where the same B with its crest held reports 666.7 m³.
+When A has breaklines and B has none, the panel says so.
+
 Breakline vertices are survey observations, so they join the point set and extend
 the surface if they fall outside the spot heights. That is correct, and it carries
 the same risk as any stray point: a mis-keyed breakline coordinate stretches the
