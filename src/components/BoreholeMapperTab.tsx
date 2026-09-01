@@ -45,6 +45,26 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
   const [selectedPresetKey, setSelectedPresetKey] = useState<string>('bauxite');
   const [activeProfile, setActiveProfile] = useState<MineProfile>(BORE_PRESETS.bauxite);
 
+  /**
+   * Updates one cutoff condition without touching the preset it came from.
+   *
+   * The editor previously did `const next = [...rule.conds]` and then assigned
+   * to `next[idx].param`. That copies the array but not the condition objects
+   * inside it, so the assignment wrote straight through to the module-level
+   * preset: changing a bauxite cutoff silently rewrote BORE_PRESETS.bauxite for
+   * the rest of the session, and switching profile and back showed the edited
+   * value rather than the published default.
+   */
+  const updateCondition = (idx: number, patch: Partial<MineProfile['rule']['conds'][number]>) => {
+    setActiveProfile(prev => ({
+      ...prev,
+      rule: {
+        ...prev.rule,
+        conds: prev.rule.conds.map((c, i) => (i === idx ? { ...c, ...patch } : c))
+      }
+    }));
+  };
+
   // Raw Borehole Rows State
   const [boreRows, setBoreRows] = useState<BoreRow[]>([
     { bh: 'BH-01', lon: 84.6012, lat: 23.5410, from: 0.0, to: 1.5, lith: 'Laterite Soil', g1: 18.2, g2: 42.1 },
@@ -641,11 +661,7 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
                   <div key={idx} className="flex items-center gap-2 p-2 bg-[#181818] rounded-xl border border-white/5">
                     <select
                       value={cond.param}
-                      onChange={e => {
-                        const next = [...activeProfile.rule.conds];
-                        next[idx].param = e.target.value;
-                        setActiveProfile({ ...activeProfile, rule: { ...activeProfile.rule, conds: next } });
-                      }}
+                      onChange={e => updateCondition(idx, { param: e.target.value })}
                       className="px-2 py-1 bg-[#222] border border-white/10 rounded-lg text-xs text-white"
                     >
                       {activeProfile.params.map(p => (
@@ -657,11 +673,7 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
 
                     <select
                       value={cond.op}
-                      onChange={e => {
-                        const next = [...activeProfile.rule.conds];
-                        next[idx].op = e.target.value as any;
-                        setActiveProfile({ ...activeProfile, rule: { ...activeProfile.rule, conds: next } });
-                      }}
+                      onChange={e => updateCondition(idx, { op: e.target.value as any })}
                       className="px-2 py-1 bg-[#222] border border-white/10 rounded-lg text-xs text-white"
                     >
                       <option value="ge">≥ (greater or equal)</option>
@@ -680,9 +692,11 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
                         step="any"
                         value={cond.v ?? ''}
                         onChange={e => {
-                          const next = [...activeProfile.rule.conds];
-                          next[idx].v = parseFloat(e.target.value) || 0;
-                          setActiveProfile({ ...activeProfile, rule: { ...activeProfile.rule, conds: next } });
+                          // An empty field is "no threshold set", not a threshold
+                          // of zero - which would pass every sample.
+                          const raw = e.target.value.trim();
+                          const parsed = raw === '' ? undefined : parseFloat(raw);
+                          updateCondition(idx, { v: Number.isFinite(parsed) ? parsed : undefined });
                         }}
                         placeholder="Value"
                         className="w-20 px-2 py-1 bg-[#222] border border-white/10 rounded-lg text-xs text-white"
@@ -695,9 +709,9 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
                         step="any"
                         value={cond.v2 ?? ''}
                         onChange={e => {
-                          const next = [...activeProfile.rule.conds];
-                          next[idx].v2 = parseFloat(e.target.value) || 0;
-                          setActiveProfile({ ...activeProfile, rule: { ...activeProfile.rule, conds: next } });
+                          const raw = e.target.value.trim();
+                          const parsed = raw === '' ? undefined : parseFloat(raw);
+                          updateCondition(idx, { v2: Number.isFinite(parsed) ? parsed : undefined });
                         }}
                         placeholder="Upper"
                         className="w-20 px-2 py-1 bg-[#222] border border-white/10 rounded-lg text-xs text-white"

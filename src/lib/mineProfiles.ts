@@ -328,7 +328,12 @@ export function boreClassifyInterval(vals: Record<string, number | null>, rule: 
       if (!res[i]) {
         let s = `${c.param} ${boreOpSym(c.op)}`;
         if (c.op !== 'nz' && c.op !== 'blank') {
-          s += ` ${c.v}${c.op === 'between' ? '..' + c.v2 : ''}`;
+          // A cleared threshold shows as "not set" rather than the literal
+          // "undefined". The interval still fails, which is the safe direction:
+          // an unset cutoff must never classify barren material as ore.
+          const bound = c.v == null ? '(not set)' : String(c.v);
+          const upper = c.op === 'between' ? '..' + (c.v2 == null ? '(not set)' : String(c.v2)) : '';
+          s += ` ${bound}${upper}`;
         }
         fails.push(s);
       }
