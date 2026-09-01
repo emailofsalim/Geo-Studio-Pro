@@ -32,7 +32,7 @@ const PORT = process.argv[2] || '4200';
 const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium'});
 const p=await b.newPage({viewport:{width:1500,height:1000}});
 await p.route('**://*', r => /localhost/.test(r.request().url()) ? r.continue() : r.abort());
-await p.goto('http://localhost:4202/',{waitUntil:'domcontentloaded'});
+await p.goto(`http://localhost:${PORT}/`,{waitUntil:'domcontentloaded'});
 await p.waitForTimeout(3000);
 const go=async n=>{for(let i=0;i<4;i++){const ok=await p.evaluate(x=>{const e=[...document.querySelectorAll('button,a,[role=button]')];
   const t=e.find(y=>(y.textContent||'').trim().startsWith(x)); if(t){t.click();return true;}

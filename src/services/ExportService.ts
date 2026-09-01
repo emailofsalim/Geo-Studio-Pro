@@ -9,13 +9,14 @@ import {
   SUPPORTED_EXPORT_FORMATS,
   UniversalExportOptions
 } from '../lib/universalDataBridge';
-import { GeodesyService } from './GeodesyService';
+
 import { GeoFeature, GisLayer, SurveyWaypoint, CadastralParcel, PhotoLandmark } from '../types';
 import { stripBOM, toCSVtext, kmlBuild, geoJsonBuild, dxfBuild, gpxBuild, wktBuild } from '../lib/formats';
 // Statically imported: formats.ts is already in the main graph via eighteen
 // other modules, so the previous dynamic imports split nothing and only
 // produced a bundler warning.
 import { geoJsonParse, kmlParse, gpxParse, wktParse, dxfParse } from '../lib/formats';
+import { canonicalCrsFor } from '../lib/crsIdentity';
 
 export interface ExportValidationResult {
   canExport: boolean;
@@ -67,7 +68,7 @@ export class ExportService {
     }
 
     const zone = options.workingZone || '45N';
-    const crs = options.exportCRS || GeodesyService.getUTMCrs(zone);
+    const crs = options.exportCRS || canonicalCrsFor(zone);
 
     return {
       canExport: errors.length === 0,
@@ -179,7 +180,7 @@ export class ExportService {
     } = {}
   ): Promise<CanonicalExportResult> {
     const zone = options.workingZone || '45N';
-    const crs = options.exportCRS || GeodesyService.getUTMCrs(zone);
+    const crs = options.exportCRS || canonicalCrsFor(zone);
 
     const bridgeResult = await executeUniversalExport({
       format,

@@ -3,7 +3,8 @@
 // ============================================================================
 
 import { GeoFeature, CadastralParcel, BoreholeHole } from '../types';
-import { GeometryService } from './GeometryService';
+import { selfIntersects } from '../lib/geodesy';
+
 
 export interface QAProblem {
   id: string;
@@ -124,7 +125,7 @@ export class QAService {
             });
           } else {
             const xy = pts.map(p => ({ x: p.a, y: p.b }));
-            if (GeometryService.checkSelfIntersection(xy)) {
+            if (selfIntersects(xy)) {
               issues.push({
                 id: `qa_geom_self_int_${layer.id}_${fIdx}`,
                 severity: 'warning',
