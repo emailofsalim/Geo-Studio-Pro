@@ -1,6 +1,18 @@
 import React, { useState } from 'react';
 import { BookOpen, CheckCircle, ArrowRight, Play, Layers, Compass, MapPin } from 'lucide-react';
-import { AppTabId } from './Navigation';
+import { AppTabId, APPS_CONFIG } from './Navigation';
+
+/**
+ * Name of the app a tutorial step opens.
+ *
+ * Every step's button previously read "Launch Tool", so a reader scanning the
+ * page saw the same button three times over with nothing to say where each
+ * one went. Resolved from the app registry so the label cannot drift from the
+ * destination.
+ */
+function appNameFor(tab: AppTabId): string {
+  return APPS_CONFIG.find(a => a.id === tab)?.shortName || 'Tool';
+}
 
 interface TutorialTabProps {
   setActiveTab: (tab: AppTabId) => void;
@@ -153,7 +165,7 @@ export const TutorialTab: React.FC<TutorialTabProps> = ({ setActiveTab }) => {
                 onClick={() => setActiveTab(st.targetTab)}
                 className="px-5 py-2.5 bg-[#c9a063] hover:bg-[#d6b074] text-black rounded-full text-xs font-bold uppercase tracking-widest transition-all shadow-lg shadow-[#c9a063]/10 shrink-0 flex items-center gap-1.5"
               >
-                Launch Tool <ArrowRight className="w-3.5 h-3.5" />
+                Open {appNameFor(st.targetTab)} <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
           ))}
