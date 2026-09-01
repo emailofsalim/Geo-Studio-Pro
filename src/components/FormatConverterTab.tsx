@@ -24,32 +24,18 @@ import {
 } from 'lucide-react';
 import {
   parseCSV,
-  stripBOM,
   csvToFeatures,
-  kmlParse,
   kmlBuild,
   featuresToKMZ,
-  dxfParse,
   dxfBuild,
-  geoJsonParse,
   geoJsonBuild,
-  gpxParse,
   gpxBuild,
-  wktParse,
   wktBuild,
   buildExcelZip,
   toCSVtext,
   csvEnc,
-  parseShapefile,
   buildShapefileZip,
   extractAllFeaturesFromZip,
-  mapinfoMifMidParse,
-  topoJsonParse,
-  gmlXmlParse,
-  landXmlParse,
-  surpacMiningStringParse,
-  asciiGridDemParse,
-  worldFileRasterParse,
   osmXmlParse
 } from '../lib/formats';
 import { validateFeatures } from '../lib/qa';
@@ -58,6 +44,7 @@ import { GeoFeature, QAResult } from '../types';
 import { VectorRadarMap } from './VectorRadarMap';
 import { deduplicateFeatures } from '../lib/deduplication';
 import { useToast } from '../context/ToastContext';
+import { parseImportFile } from '../lib/parseClient';
 
 interface FormatConverterTabProps {
   workingZone: string;
@@ -117,76 +104,28 @@ export const FormatConverterTab: React.FC<FormatConverterTabProps> = ({ workingZ
   const zNum = parseInt(workingZone, 10) || 45;
   const isSouth = workingZone.endsWith('S');
 
-  // Helper to extract features from any raw file
+  // Extract features from any raw file.
+  //
+  // Delegates to the central parser rather than repeating its format chain.
+  // This function previously reimplemented the same eleven parsers the bridge
+  // already dispatches to - a second, extension-only detector that could drift
+  // out of step with the signature-based one. Routing through the bridge also
+  // means large files here get the same worker treatment as the global import.
   const parseFileToFeatures = async (file: File): Promise<{ feats: GeoFeature[]; format: string }> => {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'dat';
-    let feats: GeoFeature[] = [];
 
+    // Archives can hold several datasets; the converter flattens them all,
+    // which the single-result bridge contract does not express.
     if (ext === 'zip' || ext === 'kmz') {
       const buf = await file.arrayBuffer();
+      const feats: GeoFeature[] = [];
       const extractedDatasets = await extractAllFeaturesFromZip(buf, zNum, isSouth);
       extractedDatasets.forEach(ds => feats.push(...ds.features));
       return { feats, format: ext };
     }
 
-    if (ext === 'shp') {
-      const buf = await file.arrayBuffer();
-      feats = parseShapefile(new Uint8Array(buf), undefined, undefined, zNum, isSouth);
-      return { feats, format: 'shp' };
-    }
-
-    const text = stripBOM(await file.text());
-
-    if (ext === 'csv' || ext === 'tsv' || ext === 'xyz' || ext === 'txt') {
-      const rows = parseCSV(text);
-      feats = csvToFeatures(rows, zNum, isSouth);
-      return { feats, format: 'csv' };
-    } else if (ext === 'kml') {
-      feats = kmlParse(text);
-      return { feats, format: 'kml' };
-    } else if (ext === 'dxf') {
-      feats = dxfParse(text);
-      return { feats, format: 'dxf' };
-    } else if (ext === 'geojson' || ext === 'json' || ext === 'topojson') {
-      if (text.includes('"Topology"') || ext === 'topojson') {
-        feats = topoJsonParse(text);
-        return { feats, format: 'topojson' };
-      } else {
-        feats = geoJsonParse(text);
-        return { feats, format: 'geojson' };
-      }
-    } else if (ext === 'gpx') {
-      feats = gpxParse(text);
-      return { feats, format: 'gpx' };
-    } else if (ext === 'wkt') {
-      feats = wktParse(text);
-      return { feats, format: 'wkt' };
-    } else if (ext === 'mif') {
-      feats = mapinfoMifMidParse(text, undefined, zNum, isSouth);
-      return { feats, format: 'mif' };
-    } else if (ext === 'xml' || ext === 'landxml') {
-      if (text.includes('<LandXML') || text.includes('<CgPoint') || text.includes('<Parcel')) {
-        feats = landXmlParse(text, zNum, isSouth);
-        return { feats, format: 'landxml' };
-      } else {
-        feats = gmlXmlParse(text, zNum, isSouth);
-        return { feats, format: 'gml' };
-      }
-    } else if (ext === 'osm') {
-      feats = osmXmlParse(text);
-      return { feats, format: 'osm' };
-    } else if (ext === 'str' || ext === 'dat') {
-      feats = surpacMiningStringParse(text, zNum, isSouth);
-      return { feats, format: 'str' };
-    } else if (ext === 'asc' || ext === 'grd' || ext === 'dem') {
-      feats = asciiGridDemParse(file.name, text, zNum, isSouth);
-      return { feats, format: 'dem' };
-    } else if (ext === 'tfw' || ext === 'jgw' || ext === 'pgw' || ext === 'wld') {
-      feats = worldFileRasterParse(file.name, text, zNum, isSouth);
-      return { feats, format: 'wld' };
-    }
-
-    return { feats, format: ext };
+    const { result } = await parseImportFile(file, workingZone);
+    return { feats: result.features || [], format: result.formatId || ext };
   };
 
   // Convert parsed features into binary/text payload

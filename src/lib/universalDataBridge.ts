@@ -29,6 +29,7 @@ import {
   csvToFeatures,
   cleanDxfText,
   parseXlsxZip,
+  worldFileRasterParse,
   parseLasHeaderAndPoints,
   parseGeoTiffRaster
 } from './formats';
@@ -754,6 +755,27 @@ export async function detectAndParseGeospatialFile(
       if (feats.length > 0) {
         return buildDetectedResult('asc', 'ASCII Elevation Grid DEM', 'GIS', '.asc', 0.91, feats, 'gis', {
           warnings,
+          detectedCRS: `WGS 84 / UTM Zone ${zone}${south ? 'S' : 'N'}`,
+          crsStatus: 'INFERRED',
+          detectedUnits: 'm'
+        });
+      }
+    } catch {}
+  }
+
+  // F2. ESRI world file (.tfw / .jgw / .pgw / .wld)
+  // Six numeric lines giving the affine transform of a companion image. Added
+  // so the central parser is a superset of the per-tab import chains it
+  // replaces; without it, routing the converter through here would have
+  // silently dropped world-file support.
+  if (/\.(tfw|jgw|pgw|wld)$/i.test(fileName)) {
+    try {
+      const feats = worldFileRasterParse(fileName, trimmed, zone, south);
+      if (feats.length > 0) {
+        return buildDetectedResult('wld', 'ESRI World File (raster georeference)', 'Raster', '.wld', 0.93, feats, 'gis', {
+          warnings: warnings.concat(
+            'A world file positions a companion image; it carries no imagery itself. Import the image alongside it.'
+          ),
           detectedCRS: `WGS 84 / UTM Zone ${zone}${south ? 'S' : 'N'}`,
           crsStatus: 'INFERRED',
           detectedUnits: 'm'

@@ -514,7 +514,12 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
     const img = new Image();
     img.onload = () => {
       setImageDimensions({ w: img.width, h: img.height });
-      setMapImageSrc(url);
+      // Release the previous sheet's object URL, as the PDF path does.
+      // Replacing it without revoking leaks the old blob for the session.
+      setMapImageSrc(prev => {
+        if (prev && prev.startsWith('blob:') && prev !== url) URL.revokeObjectURL(prev);
+        return url;
+      });
       setZoom(1);
       setPan({ x: 0, y: 0 });
     };

@@ -30,10 +30,6 @@ import {
   dxfBuild,
   buildExcelZip,
   geoJsonBuild,
-  geoJsonParse,
-  kmlParse,
-  dxfParse,
-  parseShapefile,
   buildShapefileZip,
   extractAllFeaturesFromZip
 } from '../lib/formats';
@@ -41,6 +37,7 @@ import { downloadBlob } from '../lib/zip';
 import { VectorRadarMap } from './VectorRadarMap';
 import { deduplicateCadastralParcels } from '../lib/deduplication';
 import { useToast } from '../context/ToastContext';
+import { parseImportFile } from '../lib/parseClient';
 
 export const CAD_PRESETS: Record<string, CadastralProfile> = {
   jharkhand: {
@@ -281,18 +278,12 @@ export const CadastralMapperTab: React.FC<CadastralMapperTabProps> = ({
         datasets.forEach(ds => {
           feats.push(...ds.features);
         });
-      } else if (ext === 'shp') {
-        const buf = await file.arrayBuffer();
-        feats = parseShapefile(new Uint8Array(buf), undefined, undefined, zNum, isSouth);
-      } else if (ext === 'geojson' || ext === 'json') {
-        const text = stripBOM(await file.text());
-        feats = geoJsonParse(text);
-      } else if (ext === 'kml') {
-        const text = stripBOM(await file.text());
-        feats = kmlParse(text);
-      } else if (ext === 'dxf') {
-        const text = stripBOM(await file.text());
-        feats = dxfParse(text);
+      } else if (ext === 'shp' || ext === 'geojson' || ext === 'json' || ext === 'kml' || ext === 'dxf') {
+        // Generic geospatial formats go to the central parser. The CSV branch
+        // below stays local: grouping rows into parcels by khasra, village and
+        // owner is cadastral domain logic, not format detection.
+        const { result } = await parseImportFile(file, workingZone);
+        feats = result.features || [];
       } else {
         const text = stripBOM(await file.text());
         const rows = parseCSV(text);

@@ -12,26 +12,18 @@ import {
   Sparkles
 } from 'lucide-react';
 import {
-  parseCSV,
-  stripBOM,
-  csvToFeatures,
-  kmlParse,
   kmlBuild,
   featuresToKMZ,
-  dxfParse,
   dxfBuild,
-  geoJsonParse,
   geoJsonBuild,
-  gpxParse,
-  wktParse,
   toCSVtext,
   csvEnc,
-  parseShapefile,
   buildShapefileZip,
   extractAllFeaturesFromZip
 } from '../lib/formats';
 import { zipFiles, downloadBlob, readZip, makeZip } from '../lib/zip';
 import { GeoFeature } from '../types';
+import { parseImportFile } from '../lib/parseClient';
 
 interface MergeSplitTabProps {
   workingZone: string;
@@ -72,29 +64,12 @@ export const MergeSplitTab: React.FC<MergeSplitTabProps> = ({ workingZone }) => 
             newFiles.push({ name: `${file.name} ➔ ${ds.layerName}`, features: ds.features });
           }
         });
-      } else if (ext === 'shp') {
-        const buf = await file.arrayBuffer();
-        const feats = parseShapefile(new Uint8Array(buf), undefined, undefined, zNum, isSouth);
-        if (feats.length > 0) {
-          newFiles.push({ name: file.name, features: feats });
-        }
       } else {
-        const text = stripBOM(await file.text());
-        let feats: GeoFeature[] = [];
-
-        if (ext === 'csv') {
-          feats = csvToFeatures(parseCSV(text), zNum, isSouth);
-        } else if (ext === 'kml') {
-          feats = kmlParse(text);
-        } else if (ext === 'dxf') {
-          feats = dxfParse(text);
-        } else if (ext === 'geojson' || ext === 'json') {
-          feats = geoJsonParse(text);
-        } else if (ext === 'gpx') {
-          feats = gpxParse(text);
-        } else if (ext === 'wkt') {
-          feats = wktParse(text);
-        }
+        // Delegated to the central parser instead of repeating its format
+        // chain here; it covers more formats and detects by content signature
+        // rather than extension alone.
+        const { result } = await parseImportFile(file, workingZone);
+        const feats = result.features || [];
 
         if (feats.length > 0) {
           newFiles.push({ name: file.name, features: feats });
@@ -155,24 +130,9 @@ export const MergeSplitTab: React.FC<MergeSplitTabProps> = ({ workingZone }) => 
       datasets.forEach(ds => {
         feats.push(...ds.features);
       });
-    } else if (ext === 'shp') {
-      const buf = await file.arrayBuffer();
-      feats = parseShapefile(new Uint8Array(buf), undefined, undefined, zNum, isSouth);
     } else {
-      const text = stripBOM(await file.text());
-      if (ext === 'csv') {
-        feats = csvToFeatures(parseCSV(text), zNum, isSouth);
-      } else if (ext === 'kml') {
-        feats = kmlParse(text);
-      } else if (ext === 'dxf') {
-        feats = dxfParse(text);
-      } else if (ext === 'geojson' || ext === 'json') {
-        feats = geoJsonParse(text);
-      } else if (ext === 'gpx') {
-        feats = gpxParse(text);
-      } else if (ext === 'wkt') {
-        feats = wktParse(text);
-      }
+      const { result } = await parseImportFile(file, workingZone);
+      feats = result.features || [];
     }
 
     setSplitFeatures(feats);
