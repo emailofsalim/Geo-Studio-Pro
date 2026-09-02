@@ -289,6 +289,109 @@ cancels away most of its significant digits. The check was less accurate than th
 code it was judging. It now centres the points first, and the honest UTM finding
 is the one recorded above.
 
+## Exports are records, so they carry only what was recorded
+
+A plot register, a Khatian land schedule and an ore QA report each settle
+something: who holds a parcel, how large it is, whether a hole is worth mining.
+A value substituted for one that was never recorded reads as a real observation
+to whoever opens the file, and nothing in the file marks it as invented.
+
+Every one of those builders used to fill its gaps with something plausible.
+Given three holes logged as ore, ore and barren, the **Ore QA/QC Statistical
+Report** produced this:
+
+| Hole | Logged | Reported |
+| --- | --- | --- |
+| BH-01 | ore, 7.20 m | POSITIVE ORE, 32.50 m |
+| BH-02 | ore, 5.80 m | SUB-ECONOMIC, 12.00 m |
+| BH-03 | barren, 3.70 m | POSITIVE ORE, 32.50 m |
+
+Not one figure came from the holes. The collar level was 180.5 m for every
+hole, the depth was `85 + index × 15`, the intercept alternated between 32.5
+and 12.0 according to whether the hole was even or odd in the list, and the
+grade was "58.4% Fe" whatever the commodity. The POSITIVE/SUB-ECONOMIC verdict
+was then decided by comparing the invented intercept against 20, so two holes
+logged identically disagreed and a barren hole was reported as ore.
+
+The cadastral exports did the same to legal facts: a missing owner became
+"Standard Landholder" or "Authenticated Rayat", a missing village "Primary
+Mouza", a missing land class "Agricultural (Dhani-1)", a missing settlement
+status "Final Settled", and a missing area `1000 + index × 250` square metres —
+then reported to four decimal places in hectares and acres and totalled into a
+"Revenue Summary" audit figure. The Khatian schedule also stamped a Parchha
+number, `P-1000 + index`, on every row unconditionally: an invented document
+reference against a real landholder. The summary sheet asserted "IBM /
+Cadastral Validated" on every export, claiming an external validation that
+nothing in this application performs.
+
+All of it now reports what the feature carries and leaves the rest blank. A
+blank cell reads as "not recorded"; a plausible number does not. Figures that
+derive from missing ones — a strip ratio without a depth, hectares without an
+area — are blank too rather than computed from a substitute, the area total
+counts only parcels that have one and says how many do not, and the
+certification claim is gone. The ore verdict now comes from the classification
+the hole was logged with, and is blank when the hole was never classified.
+
+Four more sites in the same builders did the same thing:
+
+- **QGIS ground control points.** A `.points` file pairs image pixel positions
+  with ground coordinates so a scanned map can be georeferenced. When no
+  feature carried a pixel position the builder took the first ten features
+  anyway and laid them out on a grid — (100, −100), (300, −250), (500, −400) —
+  pairing real ground coordinates with invented pixel ones. QGIS warps the
+  raster onto that correspondence, so every parcel digitised from it sits in
+  the wrong place, and the residual column, written as 0.000, claimed a perfect
+  fit. Only recorded control points are written now.
+- **Surpac geological strings.** An unlevelled string was given
+  `100 − pointIndex × 5`, a steady five-metre fall per point that reads as
+  surveyed relief in mine planning. It is now the format's no-data level.
+- **Ore type in those strings.** An unlabelled string defaulted to `ORE`,
+  asserting a geological classification nobody made.
+- **Elevation in the table and LandXML exports.** A feature with no level was
+  written at 0, which is a real elevation and a surveyed one in coastal work.
+  Tables leave it blank; a LandXML CogoPoint is written without its third
+  value, which is valid.
+
+The rule was already written down in this codebase, on the collar-depth helper
+in the borehole tab: *never substitutes a default; a fabricated depth or
+elevation in a collar export reads as a real observation to whoever opens the
+file.* It simply had not been applied to the export builders.
+
+## The export zone is never assumed
+
+The CRS layer already refuses an unreadable zone rather than substituting one,
+and says why it was written that way: it replaced a service-layer version that
+parsed the zone with `parseInt(...) || 45`. That substitution had survived in
+the export service, in six places — the preview generator for five formats, and
+round-trip verification.
+
+A project in Zone 43 whose zone string could not be read was previewed and
+verified against Zone 45, which puts the same eastings and northings several
+hundred kilometres away. The preview is the last thing anyone looks at before
+exporting, so it is the worst place for a plausible wrong answer.
+
+Three further paths defaulted a missing zone to `'45N'` outright, including
+`exportData`, which is the export itself rather than a preview. The zone is now
+required of the caller in each, and an unreadable one is reported: the preview
+returns a notice, and round-trip verification returns a failed result rather
+than throwing at the modal awaiting it.
+
+## The working cutoff rule survives
+
+A cutoff grade decides what counts as ore, so it is a setting, not a scratch
+value. It used to live in component state in a tab that is mounted only while
+it is the active tab, so setting Al₂O₃ ≥ 40 for a contract, glancing at another
+screen and coming back silently restored the published ≥ 30 — and every
+interval between the two flipped from barren to ore with nothing on screen to
+say the rule had changed.
+
+The rule now persists across tab switches and reloads. Reading it back is
+deliberately strict: a saved rule that does not validate is refused and the
+reason shown, rather than quietly becoming the preset. In particular a
+threshold that has gone missing is refused, because comparing every assay
+against `undefined` returns false for all of them and reads a whole deposit as
+barren while the screen still shows the commodity name.
+
 ## Data safety
 
 Projects are isolated: data, layers and coordinate systems are keyed per project.

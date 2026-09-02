@@ -16,7 +16,7 @@ import { stripBOM, toCSVtext, kmlBuild, geoJsonBuild, dxfBuild, gpxBuild, wktBui
 // other modules, so the previous dynamic imports split nothing and only
 // produced a bundler warning.
 import { geoJsonParse, kmlParse, gpxParse, wktParse, dxfParse } from '../lib/formats';
-import { canonicalCrsFor } from '../lib/crsIdentity';
+import { canonicalCrsFor, zoneParams } from '../lib/crsIdentity';
 
 export interface ExportValidationResult {
   canExport: boolean;
@@ -50,9 +50,9 @@ export class ExportService {
     features: GeoFeature[],
     format: ExportFormatId,
     options: {
-      workingZone?: string;
+      workingZone: string;
       exportCRS?: CanonicalCRS;
-    } = {}
+    }
   ): ExportValidationResult {
     const meta = SUPPORTED_EXPORT_FORMATS.find(f => f.id === format) || SUPPORTED_EXPORT_FORMATS[0];
     const warnings: string[] = [];
@@ -67,7 +67,7 @@ export class ExportService {
       warnings.push(`${invalidPoints.length} feature(s) have incomplete or NaN coordinates and will be skipped.`);
     }
 
-    const zone = options.workingZone || '45N';
+    const zone = options.workingZone;
     const crs = options.exportCRS || canonicalCrsFor(zone);
 
     return {
@@ -91,27 +91,25 @@ export class ExportService {
     features: GeoFeature[],
     format: ExportFormatId,
     options: {
-      workingZone?: string;
+      workingZone: string;
       coordSystem?: 'wgs84' | 'utm';
       include3dZ?: boolean;
-    } = {}
+    }
   ): string {
-    const zone = options.workingZone || '45N';
+    const zone = options.workingZone;
     const sample = features.slice(0, 10);
 
     try {
       switch (format) {
         case 'geojson': {
-          const zoneNum = parseInt(zone.replace(/\D/g, ''), 10) || 45;
-          const isSouth = zone.toUpperCase().includes('S');
+          const { zNum: zoneNum, isSouth } = zoneParams(zone);
           const jsonStr = geoJsonBuild(sample, zoneNum, isSouth);
           const parsed = JSON.parse(jsonStr);
           return JSON.stringify(parsed, null, 2).slice(0, 1500) + (jsonStr.length > 1500 ? '\n... [truncated]' : '');
         }
 
         case 'kml': {
-          const zoneNum = parseInt(zone.replace(/\D/g, ''), 10) || 45;
-          const isSouth = zone.toUpperCase().includes('S');
+          const { zNum: zoneNum, isSouth } = zoneParams(zone);
           const kmlStr = kmlBuild(sample, 'BhuNex_Preview', options.include3dZ ?? true, zoneNum, isSouth);
           const lines = kmlStr.split('\n').slice(0, 25).join('\n');
           return lines + (kmlStr.split('\n').length > 25 ? '\n... [truncated]' : '');
@@ -133,22 +131,19 @@ export class ExportService {
         }
 
         case 'dxf': {
-          const zoneNum = parseInt(zone.replace(/\D/g, ''), 10) || 45;
-          const isSouth = zone.toUpperCase().includes('S');
+          const { zNum: zoneNum, isSouth } = zoneParams(zone);
           const dxfRes = dxfBuild(sample, options.coordSystem === 'wgs84' ? 'wgs84' : 'utm', zoneNum, isSouth, true, { title: 'BhuNex DXF Preview' });
           return dxfRes.dxf.split('\n').slice(0, 30).join('\n') + '\n... [AutoCAD R12/2000 Drawing Entities]';
         }
 
         case 'gpx': {
-          const zoneNum = parseInt(zone.replace(/\D/g, ''), 10) || 45;
-          const isSouth = zone.toUpperCase().includes('S');
+          const { zNum: zoneNum, isSouth } = zoneParams(zone);
           const gpxStr = gpxBuild(sample, 'BhuNex_GPX_Preview', options.include3dZ ?? true, zoneNum, isSouth);
           return gpxStr.split('\n').slice(0, 25).join('\n') + '\n... [truncated]';
         }
 
         case 'wkt': {
-          const zoneNum = parseInt(zone.replace(/\D/g, ''), 10) || 45;
-          const isSouth = zone.toUpperCase().includes('S');
+          const { zNum: zoneNum, isSouth } = zoneParams(zone);
           const wktStr = wktBuild(sample, zoneNum, isSouth);
           return wktStr.split('\n').slice(0, 15).join('\n');
         }
@@ -170,16 +165,16 @@ export class ExportService {
     baseFilename: string,
     options: {
       exportCRS?: CanonicalCRS;
-      workingZone?: string;
+      workingZone: string;
       coordSystem?: 'wgs84' | 'utm';
       include3dZ?: boolean;
       allLayers?: GisLayer[];
       waypoints?: SurveyWaypoint[];
       parcels?: CadastralParcel[];
       landmarks?: PhotoLandmark[];
-    } = {}
+    }
   ): Promise<CanonicalExportResult> {
-    const zone = options.workingZone || '45N';
+    const zone = options.workingZone;
     const crs = options.exportCRS || canonicalCrsFor(zone);
 
     const bridgeResult = await executeUniversalExport({
@@ -218,12 +213,14 @@ export class ExportService {
   static async verifyRoundTrip(
     features: GeoFeature[],
     format: ExportFormatId,
-    workingZone: string = '45N'
+    workingZone: string
   ): Promise<RoundTripResult> {
-    const zoneNum = parseInt(workingZone.replace(/\D/g, ''), 10) || 45;
-    const isSouth = workingZone.toUpperCase().includes('S');
-
     try {
+      // Inside the try: an unreadable zone is a verification failure to be
+      // reported like any other, not an exception thrown at the caller, who
+      // is a modal awaiting a result object.
+      const { zNum: zoneNum, isSouth } = zoneParams(workingZone);
+
       let exportText = '';
       let reimported: GeoFeature[] = [];
 

@@ -955,6 +955,73 @@ export interface UniversalExportOptions {
  * Universal Exporter Engine
  * Produces and triggers direct browser download of any chosen geospatial or project format.
  */
+/**
+ * Reporting helpers for exports that are read as records.
+ *
+ * A land schedule, a plot register and an ore QA report are all documents
+ * somebody acts on: they settle who holds a plot, how big it is, and whether a
+ * hole is worth mining. A value substituted for one that was never recorded
+ * reads as a real observation to whoever opens the file, and nothing in the
+ * file marks it as invented.
+ *
+ * These builders used to fill every gap with something plausible — a collar
+ * level of 180.5 m, an ore intercept alternating 32.5 and 12.0 by position in
+ * the list, an owner of "Standard Landholder", an area of 1000 + index * 250.
+ * The QA report then decided POSITIVE ORE or SUB-ECONOMIC from the invented
+ * intercept, so holes were reported against their own logs.
+ *
+ * The rule is the one already stated for collar depths in the borehole tab:
+ * report what was recorded, and leave the rest blank. A blank cell reads
+ * as "not recorded". A plausible number is not.
+ */
+
+/** The first value actually recorded, or blank. Never a stand-in. */
+function recordedText(...candidates: unknown[]): string {
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim() !== '') return c.trim();
+    if (typeof c === 'number' && Number.isFinite(c)) return String(c);
+  }
+  return '';
+}
+
+/**
+ * The first value actually recorded as a number, or null.
+ *
+ * Accepts a measurement written with its unit ("7.20 m"), which is how the
+ * borehole tab labels thicknesses, but only when the text begins with the
+ * number — so "approx 7 m" is treated as not recorded rather than as 7.
+ */
+function recordedNumber(...candidates: unknown[]): number | null {
+  for (const c of candidates) {
+    if (typeof c === 'number' && Number.isFinite(c)) return c;
+    if (typeof c === 'string') {
+      const m = /^\s*(-?\d+(?:\.\d+)?)\s*[a-zA-Z%°]*\s*$/.exec(c);
+      if (m) {
+        const n = parseFloat(m[1]);
+        if (Number.isFinite(n)) return n;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * The elevation term of a LandXML CogoPoint, or nothing.
+ *
+ * A CogoPoint is valid with northing and easting alone, so a point that was
+ * never levelled is written without a third value rather than being placed at
+ * zero — which is a real elevation, and a surveyed one in coastal work.
+ */
+function cogoZ(f: { props?: Record<string, unknown> }): string {
+  const z = recordedNumber(f.props?.elevation, f.props?.Z);
+  return z == null ? '' : ` ${z}`;
+}
+
+/** A recorded number at a fixed precision, or a blank cell. */
+function reportNum(v: number | null, dp = 2): string {
+  return v == null ? '' : v.toFixed(dp);
+}
+
 export async function executeUniversalExport(options: UniversalExportOptions): Promise<{
   success: boolean;
   fileName: string;
@@ -1085,7 +1152,9 @@ export async function executeUniversalExport(options: UniversalExportOptions): P
             lon = ll.lon;
             lat = ll.lat;
           }
-          const z = f.props?.elevation ?? f.props?.Z ?? 0;
+          // Blank, not 0. Zero is a real elevation, so defaulting to it puts
+          // every 2D feature at mean sea level in whatever reads this back.
+          const z = reportNum(recordedNumber(f.props?.elevation, f.props?.Z), 3);
           rows.push([
             f.name || 'Feature',
             f.geom || 'point',
@@ -1127,7 +1196,9 @@ export async function executeUniversalExport(options: UniversalExportOptions): P
             lon = ll.lon;
             lat = ll.lat;
           }
-          const z = f.props?.elevation ?? f.props?.Z ?? 0;
+          // Blank, not 0. Zero is a real elevation, so defaulting to it puts
+          // every 2D feature at mean sea level in whatever reads this back.
+          const z = reportNum(recordedNumber(f.props?.elevation, f.props?.Z), 3);
           rows.push([
             f.name || 'Feature',
             f.geom || 'point',
@@ -1225,7 +1296,7 @@ export async function executeUniversalExport(options: UniversalExportOptions): P
           f.pts.forEach(pt => {
             let lat = pt.b, lon = pt.a;
             const utm = lonLatToUtm(lon, lat, zone, south);
-            cogoPointsXml += `      <CogoPoint id="${pointId}" name="${f.name || `PT${pointId}`}" desc="${f.props?.code || ''}">${utm.N.toFixed(4)} ${utm.E.toFixed(4)} ${f.props?.elevation || 0}</CogoPoint>\n`;
+            cogoPointsXml += `      <CogoPoint id="${pointId}" name="${f.name || `PT${pointId}`}" desc="${f.props?.code || ''}">${utm.N.toFixed(4)} ${utm.E.toFixed(4)}${cogoZ(f)}</CogoPoint>\n`;
             pointId++;
           });
         } else if (f.geom === 'polygon') {
@@ -1282,8 +1353,14 @@ ${parcelsXml}  </Parcels>
             lon = ll.lon;
             lat = ll.lat;
           }
-          const z = f.props?.elevation ?? f.props?.Z ?? (100 - pIdx * 5);
-          const desc = f.props?.oreType || f.props?.rockType || f.name || 'ORE';
+          // 0.000 is the string format's no-data level. The previous fallback
+          // was `100 - pIdx * 5`, which walked every unlevelled string steadily
+          // downhill and read as surveyed relief in mine planning.
+          const zVal = recordedNumber(f.props?.elevation, f.props?.Z);
+          const z = zVal == null ? 0 : zVal;
+          // An unlabelled string is not ore. Calling it ORE by default asserts
+          // a geological classification nobody made.
+          const desc = recordedText(f.props?.oreType, f.props?.rockType, f.name);
           strLines.push(`${sId}, ${N.toFixed(3)}, ${E.toFixed(3)}, ${Number(z).toFixed(3)}, ${desc}`);
         });
       });
@@ -1321,10 +1398,21 @@ ${parcelsXml}  </Parcels>
     case 'qgis_points': {
       // Build QGIS GCP points file
       let pointsLines: string[] = ['mapX,mapY,pixelX,pixelY,enable,dX,dY,residual'];
-      let gcps = exportFeatures.filter(f => f.geom === 'point' || f.props?.pixelX);
-      if (gcps.length === 0) gcps = exportFeatures.slice(0, 10);
+      // A .points file pairs image pixel positions with ground coordinates so
+      // a scanned map can be georeferenced. Only features that actually carry
+      // a pixel position can do that.
+      //
+      // This used to fall back to the first ten features and lay them out on a
+      // grid — (100, -100), (300, -250), (500, -400) — pairing real ground
+      // coordinates with invented pixel positions. QGIS would warp the raster
+      // onto that fabricated correspondence and every parcel digitised from it
+      // would sit in the wrong place, while the residual column, written as
+      // 0.000, claimed a perfect fit.
+      const gcps = exportFeatures.filter(
+        f => recordedNumber(f.props?.pixelX) != null && recordedNumber(f.props?.pixelY) != null
+      );
 
-      gcps.forEach((f, idx) => {
+      gcps.forEach(f => {
         let E = 0, N = 0;
         if (f.kind === 'll') {
           const utm = lonLatToUtm(f.pts[0].a, f.pts[0].b, zone, south);
@@ -1334,8 +1422,8 @@ ${parcelsXml}  </Parcels>
           E = f.pts[0].a;
           N = f.pts[0].b;
         }
-        const px = f.props?.pixelX ?? (idx * 200 + 100);
-        const py = f.props?.pixelY ?? (idx * 150 + 100);
+        const px = recordedNumber(f.props?.pixelX) as number;
+        const py = recordedNumber(f.props?.pixelY) as number;
         pointsLines.push(`${E.toFixed(4)},${N.toFixed(4)},${px},-${py},1,0.000,0.000,0.000`);
       });
 
@@ -1363,22 +1451,22 @@ ${parcelsXml}  </Parcels>
         });
         const cLat = f.pts.length ? (totalLat / f.pts.length).toFixed(7) : '0';
         const cLon = f.pts.length ? (totalLon / f.pts.length).toFixed(7) : '0';
-        const areaM2 = Number(f.props?.areaM2 || f.props?.area || 1000 + idx * 250);
-        const areaHa = (areaM2 / 10000).toFixed(4);
-        const areaAc = (areaM2 / 4046.8564224).toFixed(4);
-        const areaBigha = (areaM2 / 2529.285264).toFixed(4);
-        const areaKatha = (Number(areaBigha) * 20).toFixed(2);
+        // A plot register is read as a statement about somebody's land. An
+        // owner, a village or a settlement status that was never recorded is
+        // left blank, never filled in with a plausible-sounding placeholder.
+        const areaM2 = recordedNumber(f.props?.areaM2, f.props?.area);
+        const bigha = areaM2 == null ? null : areaM2 / 2529.285264;
 
         rows.push([
-          f.props?.khasra || f.name || `Plot-${idx + 1}`,
-          f.props?.owner || 'Standard Landholder',
-          f.props?.village || 'Primary Mouza',
-          f.props?.status || 'Active Certified',
-          areaM2.toFixed(2),
-          areaHa,
-          areaAc,
-          areaBigha,
-          areaKatha,
+          recordedText(f.props?.khasra, f.name) || `Plot-${idx + 1}`,
+          recordedText(f.props?.owner),
+          recordedText(f.props?.village),
+          recordedText(f.props?.status),
+          reportNum(areaM2),
+          reportNum(areaM2 == null ? null : areaM2 / 10000, 4),
+          reportNum(areaM2 == null ? null : areaM2 / 4046.8564224, 4),
+          reportNum(bigha, 4),
+          reportNum(bigha == null ? null : bigha * 20),
           f.pts.length,
           cLat,
           cLon
@@ -1396,17 +1484,22 @@ ${parcelsXml}  </Parcels>
       const rows: (string | number)[][] = [];
 
       exportFeatures.forEach((f, idx) => {
-        const areaM2 = Number(f.props?.areaM2 || f.props?.area || 1200 + idx * 300);
+        // A Khatian schedule states holdings. Every column here is either
+        // what the parcel carries or blank. In particular the Parchha number
+        // is a real document reference: it used to be generated as
+        // `P-${1000 + idx}` for every row regardless, which put an invented
+        // document number against a real landholder.
+        const areaM2 = recordedNumber(f.props?.areaM2, f.props?.area);
         rows.push([
-          f.props?.khasra || f.name || `Khasra-${idx + 1}`,
-          `P-${1000 + idx}`,
-          f.props?.owner || 'Authenticated Rayat',
-          f.props?.landClass || 'Agricultural (Dhani-1)',
-          f.props?.village || 'Survey Mouza',
-          areaM2.toFixed(2),
-          (areaM2 / 10000).toFixed(4),
-          (areaM2 / 4046.856).toFixed(4),
-          f.props?.status || 'Final Settled'
+          recordedText(f.props?.khasra, f.name) || `Khasra-${idx + 1}`,
+          recordedText(f.props?.parchha, f.props?.Parchha, f.props?.parchhaNo),
+          recordedText(f.props?.owner),
+          recordedText(f.props?.landClass),
+          recordedText(f.props?.village),
+          reportNum(areaM2),
+          reportNum(areaM2 == null ? null : areaM2 / 10000, 4),
+          reportNum(areaM2 == null ? null : areaM2 / 4046.856, 4),
+          recordedText(f.props?.status)
         ]);
       });
 
@@ -1417,9 +1510,19 @@ ${parcelsXml}  </Parcels>
           rows: [
             ['Parameter', 'Audit Figure'],
             ['Total Plots Digitized', exportFeatures.length],
-            ['Total Gross Area (Ha)', (rows.reduce((acc, r) => acc + Number(r[6]), 0)).toFixed(4)],
-            ['UTM Zone Reference', `UTM ${zone}${south ? 'S' : 'N'}`],
-            ['Certification Status', 'IBM / Cadastral Validated']
+            // Sums only the parcels that carry an area, and says how many do
+            // not. A total that quietly counts blanks as zero reads as a
+            // complete figure for the whole block.
+            ['Plots With Recorded Area', rows.filter(r => String(r[6]) !== '').length],
+            ['Plots Without Recorded Area', rows.filter(r => String(r[6]) === '').length],
+            [
+              'Total Gross Area (Ha), recorded plots only',
+              rows.reduce((acc, r) => acc + (String(r[6]) === '' ? 0 : Number(r[6])), 0).toFixed(4)
+            ],
+            ['UTM Zone Reference', `UTM ${zone}${south ? 'S' : 'N'}`]
+            // No certification row. This file is a digitising output, and
+            // stating "IBM / Cadastral Validated" on every export claimed an
+            // external validation that nothing here has performed.
           ]
         }
       ]);
@@ -1442,22 +1545,40 @@ ${parcelsXml}  </Parcels>
           E = f.pts[0].a;
           N = f.pts[0].b;
         }
-        const depth = Number(f.props?.depth || 85 + (idx % 5) * 15);
-        const ore = Number(f.props?.ore || (idx % 2 === 0 ? 32.5 : 12.0));
-        const waste = depth - ore;
-        const strip = ore > 0 ? (waste / ore).toFixed(2) : 'N/A';
+        // Only what the hole actually carries. A depth or an intercept that
+        // was never logged stays blank: this report is read as a record of
+        // drilling, and a plausible figure here becomes someone's reserve.
+        const depth = recordedNumber(f.props?.depth, f.props?.eoh, f.props?.Total_Depth, f.props?.totalDepth);
+        const ore = recordedNumber(
+          f.props?.ore, f.props?.Ore_Thk, f.props?.oreThk, f.props?.Ore_Thickness, f.props?.oreThickness
+        );
+        const rl = recordedNumber(f.props?.elevation, f.props?.Z, f.props?.rl, f.props?.RL, f.props?.Collar_RL);
+
+        // Derived figures are only as real as what they came from.
+        const waste = depth != null && ore != null ? depth - ore : null;
+        const strip = waste != null && ore != null && ore > 0 ? waste / ore : null;
+
+        // The verdict comes from the classification the hole was logged with,
+        // never from a threshold applied to a number this report invented.
+        // Where nothing was logged the cell is blank rather than a guess.
+        const logged = recordedText(f.props?.Status, f.props?.status, f.props?.Ore_Status).toLowerCase();
+        const verdict = logged === ''
+          ? ''
+          : /positive|\bore\b/.test(logged) && !/barren|waste|sub/.test(logged)
+            ? 'POSITIVE ORE'
+            : 'BARREN / WASTE';
 
         rows.push([
           f.name || `BH-${idx + 1}`,
           E.toFixed(3),
           N.toFixed(3),
-          f.props?.elevation || f.props?.Z || 180.5,
-          depth.toFixed(2),
-          ore.toFixed(2),
-          waste.toFixed(2),
-          strip,
-          ore > 20 ? 'POSITIVE ORE' : 'SUB-ECONOMIC',
-          f.props?.grade ? `${f.props.grade}%` : '58.4% Fe'
+          reportNum(rl),
+          reportNum(depth),
+          reportNum(ore),
+          reportNum(waste),
+          reportNum(strip),
+          verdict,
+          recordedText(f.props?.grade, f.props?.Assay_Mean_Grade, f.props?.meanGrade)
         ]);
       });
 

@@ -1,4 +1,12 @@
-import { BoreholeHole, BoreInterval, CadastralProfile, CutoffCondition, MineProfile } from '../types';
+import {
+  BoreholeHole,
+  BoreInterval,
+  CadastralProfile,
+  CutoffCondition,
+  CutoffOp,
+  MineParam,
+  MineProfile
+} from '../types';
 import { lonLatToUtm, utmToLonLat } from './geodesy';
 import { csvEnc, toCSVtext, xmlesc } from './formats';
 
@@ -287,6 +295,121 @@ export const CAD_PRESETS: Record<string, CadastralProfile> = {
   }
 };
 
+/**
+ * Reads back a cutoff profile saved from a previous session.
+ *
+ * A cutoff grade decides what counts as ore, so restoring one that is not
+ * exactly what was saved would be worse than restoring nothing. Anything that
+ * does not validate is refused and the reason returned, so the caller can fall
+ * back to a published preset **and say so**. Silently substituting a different
+ * rule is the failure this whole path exists to prevent: the numbers would
+ * change under the user while the screen still read "Bauxite".
+ *
+ * Returns `profile: null` with `issue: null` when nothing was saved at all,
+ * which is the ordinary first-run case and not worth a warning.
+ */
+export function restoreMineProfile(raw: string | null | undefined): {
+  profile: MineProfile | null;
+  issue: string | null;
+} {
+  if (raw == null || raw.trim() === '') return { profile: null, issue: null };
+
+  const refuse = (why: string) => ({
+    profile: null,
+    issue: `A saved cutoff rule could not be read (${why}), so the published preset is in use. Check it before classifying.`
+  });
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return refuse('it is not readable');
+  }
+  if (typeof parsed !== 'object' || parsed === null) return refuse('it is not a profile');
+
+  const p = parsed as Record<string, unknown>;
+  if (typeof p.name !== 'string' || p.name.trim() === '') return refuse('it has no name');
+
+  if (!Array.isArray(p.params) || p.params.length === 0) return refuse('it lists no parameters');
+  const params: MineParam[] = [];
+  for (const raw of p.params) {
+    if (typeof raw !== 'object' || raw === null) return refuse('a parameter is malformed');
+    const q = raw as Record<string, unknown>;
+    if (typeof q.key !== 'string' || q.key.trim() === '') return refuse('a parameter has no key');
+    params.push({
+      key: q.key,
+      label: typeof q.label === 'string' ? q.label : q.key,
+      unit: typeof q.unit === 'string' ? q.unit : ''
+    });
+  }
+
+  const rule = p.rule as Record<string, unknown> | undefined;
+  if (typeof rule !== 'object' || rule === null) return refuse('it has no rule');
+  if (rule.logic !== 'AND' && rule.logic !== 'OR') return refuse('its logic is not AND or OR');
+  if (typeof rule.minThick !== 'number' || !isFinite(rule.minThick) || rule.minThick < 0) {
+    return refuse('its minimum thickness is not a length');
+  }
+  if (!Array.isArray(rule.conds) || rule.conds.length === 0) return refuse('it sets no conditions');
+
+  const OPS: CutoffOp[] = ['ge', 'le', 'gt', 'lt', 'eq', 'ne', 'between', 'nz', 'blank'];
+  const keys = new Set(params.map(q => q.key));
+  const conds: CutoffCondition[] = [];
+  for (const raw of rule.conds) {
+    if (typeof raw !== 'object' || raw === null) return refuse('a condition is malformed');
+    const c = raw as Record<string, unknown>;
+    if (typeof c.param !== 'string' || !keys.has(c.param)) {
+      return refuse('a condition tests a parameter the profile does not carry');
+    }
+    if (typeof c.op !== 'string' || !OPS.includes(c.op as CutoffOp)) {
+      return refuse('a condition uses an unknown comparison');
+    }
+    const op = c.op as CutoffOp;
+
+    // Only 'nz' and 'blank' take no threshold. For every other comparison a
+    // missing or non-numeric bound would decide ore against a value that is
+    // not a number, so it is refused rather than guessed at.
+    const needsBound = op !== 'nz' && op !== 'blank';
+    if (needsBound && (typeof c.v !== 'number' || !isFinite(c.v))) {
+      return refuse('a threshold is missing or is not a number');
+    }
+    if (op === 'between' && (typeof c.v2 !== 'number' || !isFinite(c.v2))) {
+      return refuse('a range is missing its upper bound');
+    }
+    conds.push({
+      param: c.param,
+      op,
+      v: needsBound ? (c.v as number) : null,
+      v2: op === 'between' ? (c.v2 as number) : null
+    });
+  }
+
+  return {
+    profile: {
+      name: p.name,
+      pos: typeof p.pos === 'string' ? p.pos : '#1B5E20',
+      neg: typeof p.neg === 'string' ? p.neg : '#b3261e',
+      params,
+      rule: { logic: rule.logic, minThick: rule.minThick, conds }
+    },
+    issue: null
+  };
+}
+
+/** The active rule in one line, for a report header or an export column. */
+export function cutoffRuleText(profile: MineProfile): string {
+  const conds = profile.rule?.conds || [];
+  if (!conds.length) return 'No rule set';
+  const parts = conds.map(c => {
+    if (c.op === 'nz' || c.op === 'blank') return `${c.param} ${boreOpSym(c.op)}`;
+    const bound = c.v == null ? '(not set)' : String(c.v);
+    const upper = c.op === 'between' ? `..${c.v2 == null ? '(not set)' : String(c.v2)}` : '';
+    return `${c.param} ${boreOpSym(c.op)} ${bound}${upper}`;
+  });
+  const joined = parts.join(` ${profile.rule.logic} `);
+  const thick = profile.rule.minThick > 0 ? `, minimum thickness ${profile.rule.minThick} m` : '';
+  return `${joined}${thick}`;
+}
+
 export function boreEval(val: number | null, c: CutoffCondition): boolean {
   const op = c.op;
   if (op === 'nz') return val != null && val !== 0;
@@ -470,6 +593,7 @@ export function boreCardHTML(hole: BoreholeHole, profile: MineProfile) {
   h += `
     </table>
     <div style="margin-top:8px;padding-top:5px;border-top:1px solid #C3CDD4;font-size:7px;color:#617584;line-height:11px">
+      Cutoff: ${xmlesc(cutoffRuleText(profile))}<br>
       Profile: ${xmlesc(profile.name)} | BhuNex Studio | UTM ${hole.zone}${hole.south ? 'S' : 'N'} / WGS84
     </div>
   </div>`;
