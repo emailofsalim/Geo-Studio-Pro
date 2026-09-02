@@ -167,6 +167,13 @@ residuals · GNSS averaging · bench and overall slope geometry · drill pattern
 layout · blast charge and powder factor · stockpile volumes from either measured
 cone/frustum dimensions or a surveyed pickup · block reserves and stripping ratio.
 
+The survey mathematics is checked against values it did not produce:
+`surveyMath.test.ts` uses Vincenty's own 1975 worked example (Flinders Peak to
+Buninyong, 54 972.271 m, bearing 306°52′05.37″), the published meridian and
+equatorial arc lengths, and closed-form geometry for areas, curves and
+radiation. Expected values taken from the implementation's own output would only
+prove it still does what it did.
+
 **Partial:** Bluetooth RTK (link and GATT plumbing; no NTRIP client, no RTCM decoding) ·
 pit modelling (bench and wall geometry are calculated, but there is no 3D pit shell or
 ramp design) · point
