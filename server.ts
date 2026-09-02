@@ -213,7 +213,11 @@ User Request: ${prompt}`;
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    // Express 5 routes through path-to-regexp v8, which rejects a bare '*' as a
+    // path. A regular expression is the direct equivalent for the single-page
+    // application fallback: anything not served as a static file returns the
+    // shell so client-side routing can take over.
+    app.get(/.*/, (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

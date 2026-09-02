@@ -16,7 +16,23 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        run: npm install
+        # npm ci installs exactly what the lockfile pins and fails if
+        # package.json and the lockfile disagree. npm install would silently
+        # resolve new versions, so two runs of the same commit could build
+        # different dependency trees.
+        run: npm ci
+
+      - name: Audit production dependencies
+        # Blocking: nothing that ships to a user may carry a known advisory.
+        run: npm audit --omit=dev --audit-level=moderate
+
+      - name: Audit build and test tooling (informational)
+        # Not blocking, and deliberately so. The outstanding advisories here are
+        # in vitest, vite and esbuild, and the only fix npm offers is a vitest
+        # v2 -> v4 major upgrade across 41 test files. That is real work, it is
+        # tracked separately, and failing every build until it lands would only
+        # teach people to ignore a red CI. This step keeps them visible.
+        run: npm audit --audit-level=low || true
 
       - name: Typecheck
         run: npm run lint
