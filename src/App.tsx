@@ -25,6 +25,8 @@ const TAB_FALLBACK = (
   <div className="p-8 text-sm opacity-60">Loading module\u2026</div>
 );
 
+import { NoProjectOpen } from './components/NoProjectOpen';
+
 const ProjectsHomeScreen = lazy(() => import('./components/home/ProjectsHomeScreen').then(m => ({ default: m.ProjectsHomeScreen })));
 const ProjectDashboardView = lazy(() => import('./components/home/ProjectDashboardView').then(m => ({ default: m.ProjectDashboardView })));
 const HomeTemplatesTab = lazy(() => import('./components/HomeTemplatesTab').then(m => ({ default: m.HomeTemplatesTab })));
@@ -557,18 +559,10 @@ export function App() {
                   onOpenSettings={() => setIsSettingsOpen(true)}
                 />
               ) : (
-                <div className="max-w-lg mx-auto mt-16 text-center space-y-3">
-                  <h2 className="text-lg font-semibold">No project is open</h2>
-                  <p className="text-sm opacity-70">
-                    The dashboard reports on one project's data. Open or create a project first.
-                  </p>
-                  <button
-                    onClick={() => setActiveTab('home')}
-                    className="px-4 py-2 rounded-xl bg-[#c9a063] text-black text-xs font-bold uppercase tracking-wider"
-                  >
-                    Go to My Projects
-                  </button>
-                </div>
+                <NoProjectOpen
+                  explanation="The dashboard reports on one project's data. Open or create a project first."
+                  onGoToProjects={() => setActiveTab('home')}
+                />
               ))}
 
             {activeTab === 'templates' && (
@@ -589,21 +583,31 @@ export function App() {
               />
             )}
 
-            {activeTab === 'gis' && (
+            {activeTab === 'gis' && (activeProject ? (
               <GisStudioTab
                 workingZone={workingZone}
                 localLandUnitPreset={localLandUnitPreset}
                 customBighaM2={customBighaM2}
                 customKathaPerBigha={customKathaPerBigha}
               />
-            )}
+            ) : (
+              <NoProjectOpen
+                explanation="GIS Map Studio saves its layers into a project. Open or create one first, or the layers will be lost when you leave."
+                onGoToProjects={() => setActiveTab('home')}
+              />
+            ))}
 
-            {(activeTab === 'geofence' || activeTab === 'gf') && (
+            {(activeTab === 'geofence' || activeTab === 'gf') && (activeProject ? (
               <GeofenceStudioTab
                 workingZone={workingZone}
                 onSendToGis={(features) => handleAddFeaturesToGis(features, 'Geofence Boundaries')}
               />
-            )}
+            ) : (
+              <NoProjectOpen
+                explanation="Geofence Sentinel saves its zones into a project. Open or create one first, or the zones will be lost when you leave."
+                onGoToProjects={() => setActiveTab('home')}
+              />
+            ))}
 
             {(activeTab === 'camera' || activeTab === 'cam' || activeTab === 'photo') && (
               <CameraLandmarkStudio
@@ -619,12 +623,17 @@ export function App() {
               />
             )}
 
-            {activeTab === 'gps' && (
+            {activeTab === 'gps' && (activeProject ? (
               <GpsSurveyorTab
                 workingZone={workingZone}
                 distanceUnit={distanceUnit}
               />
-            )}
+            ) : (
+              <NoProjectOpen
+                explanation="GNSS Field Survey saves waypoints into a project. Open or create one first — without it, a saved fix is kept only until you leave this screen."
+                onGoToProjects={() => setActiveTab('home')}
+              />
+            ))}
 
             {activeTab === 'calc' && (
               <SurveyCalculatorTab

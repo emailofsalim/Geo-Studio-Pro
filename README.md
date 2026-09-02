@@ -486,6 +486,21 @@ created. The projects screen and the project dashboard were built but never moun
 so no project could be opened at all and that silent-discard path was the only one
 there was.
 
+That check was added at the application level, for import and "send to GIS". The
+**tools** that write project data were not covered, and they are reachable with no
+project open: GNSS Field Survey, GIS Map Studio and Geofence Sentinel all appear in
+the sidebar from a cold start. GNSS Field Survey offered *Save Current Fix to
+Registry* and *Start Recording*, showed a waypoint count, and said nothing about
+needing a project — while every write no-opped. The tools kept their own local
+state, so a saved fix appeared in the list, counted in the header, and was gone on
+reload. Nothing failed, and nothing said so.
+
+Those three now show the same panel the dashboard has always shown, naming what the
+tool would be doing with a project. The panel is extracted rather than copied, so
+there is one implementation instead of four. Tools that only compute — the
+coordinate converter, the survey calculator — are deliberately not gated: they write
+nothing, so they lose nothing.
+
 ## Provenance
 
 | Source | Contribution |
