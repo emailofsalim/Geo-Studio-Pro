@@ -900,6 +900,42 @@ export function wktBuild(feats: GeoFeature[], zone: number = 45, south: boolean 
   return toCSVtext(rows[0], rows.slice(1));
 }
 
+/**
+ * Counts DXF entities that were read but cannot become features, by type.
+ *
+ * `dxfParse` converts POINT, LINE, POLYLINE and LWPOLYLINE. It recognises ARC,
+ * CIRCLE, SPLINE, TEXT and MTEXT well enough to parse them, and then drops
+ * them, because there is no arc or spline in the feature model to put them in.
+ *
+ * Dropping them is the honest limit of the reader. Dropping them in silence is
+ * not: a cadastral drawing whose plot boundaries are arcs, or a road layout
+ * built from curves, imports as a smaller set of straight lines and reports
+ * only how many features arrived. The count of what did not arrive is the
+ * difference between a partial import the user can act on and one that looks
+ * complete.
+ */
+export function dxfUnconvertedEntities(text: string): Record<string, number> {
+  const CONVERTED = new Set(['POINT', 'LINE', 'POLYLINE', 'LWPOLYLINE']);
+  const counts: Record<string, number> = {};
+  for (const e of parseDXF(text) as { type?: string }[]) {
+    const t = e?.type;
+    if (!t || CONVERTED.has(t)) continue;
+    counts[t] = (counts[t] || 0) + 1;
+  }
+  return counts;
+}
+
+/** Renders those counts as a sentence for an import warning, or null if none. */
+export function dxfUnconvertedWarning(text: string): string | null {
+  const counts = dxfUnconvertedEntities(text);
+  const parts = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, n]) => `${n} ${type}`);
+  if (!parts.length) return null;
+  return `This drawing also contains ${parts.join(', ')}. ` +
+    `The reader handles points, lines and polylines, so that geometry was not imported.`;
+}
+
 export function dxfParse(text: string): GeoFeature[] {
   const ents = parseDXF(text);
   const feats: GeoFeature[] = [];
