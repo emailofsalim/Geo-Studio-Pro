@@ -266,6 +266,23 @@ tested only for a vanishing sum of weights, but the weights blow up there rather
 than cancelling, so the case went straight through and the screen announced
 "Resection point determined: E=NaN, N=NaN". It now refuses.
 
+**The topology audit no longer calls every closed parcel broken.** A polygon ring
+that repeats its first position at the end is closed by convention — GeoJSON
+requires it, KML and Shapefile produce it, and the reader keeps it. Left in
+place, that repeat made the last edge end exactly where the first begins, and
+the segment test read the shared endpoint as a crossing. Every properly closed
+parcel came back as a **self-intersection error**: a square, a pentagon,
+anything. Importing a spec-compliant GeoJSON parcel layer and running the audit
+condemned all of it. The ring is now normalised before the checks, as the DXF
+writer and the boundary offset already do, and a bow-tie that happens to be
+closed is still caught.
+
+One limit worth knowing: the crossing test uses a strict orientation comparison,
+so it finds edges that properly cross but not ones that merely touch — a vertex
+lying exactly on another edge is not reported. That is a false negative rather
+than a false alarm, and it is left as-is because loosening the test is the
+change most likely to bring the false alarms back.
+
 **Partial:** Bluetooth RTK (link and GATT plumbing; no NTRIP client, no RTCM decoding) ·
 pit modelling (bench and wall geometry are calculated, but there is no 3D pit shell or
 ramp design) · point

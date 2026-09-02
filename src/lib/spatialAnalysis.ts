@@ -241,6 +241,18 @@ export function auditLayerTopology(layer: GisLayer, zone: number = 45, south: bo
       return;
     }
 
+    // A polygon ring that repeats its first position at the end is closed by
+    // convention, not broken -- GeoJSON requires it, and KML and Shapefile
+    // produce it. Left in place, that repeat makes the last edge end exactly
+    // where the first begins, and the segment test below reads that shared
+    // endpoint as a crossing: every properly closed parcel was reported as a
+    // self-intersection error. Drop it, as the DXF writer and the boundary
+    // offset already do.
+    if (feat.geom === 'polygon' && pts.length > 1) {
+      const first = pts[0], last = pts[pts.length - 1];
+      if (Math.hypot(first.x - last.x, first.y - last.y) < 1e-9) pts.pop();
+    }
+
     // 1. Duplicate Vertices Check
     for (let i = 0; i < pts.length - 1; i++) {
       const p1 = pts[i];
