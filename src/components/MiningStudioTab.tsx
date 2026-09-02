@@ -10,7 +10,7 @@ import {
   blockReserve
 } from '../engines/mining';
 import { buildTin, planArea, surfaceArea3D, volumeToDatum } from '../engines/tin';
-import { parseSurfacePoints } from '../lib/surfacePointText';
+import { parseSurfacePoints, parseBreaklines } from '../lib/surfacePointText';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { crsLabelFor, isValidZone } from '../lib/crsIdentity';
 
@@ -130,6 +130,7 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
       '254812.00, 2605212.00, 107.00'
     ].join('\n')
   );
+  const [pileBreaklineText, setPileBreaklineText] = useState('');
   const [datumMode, setDatumMode] = useState<'toe' | 'rl'>('toe');
   const [datumRl, setDatumRl] = useState('100');
 
@@ -206,6 +207,7 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
    */
   // Debounced so a large pickup is triangulated once per pause, not per keystroke.
   const surfaceTextSettled = useDebouncedValue(surfaceText, 350);
+  const pileBreaklineSettled = useDebouncedValue(pileBreaklineText, 350);
 
   const surface = useMemo(() => {
     const { pts, rejected } = parseSurfacePoints(surfaceTextSettled);
@@ -217,7 +219,8 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
       };
     }
 
-    const built = safe(() => buildTin(pts));
+    const bl = parseBreaklines(pileBreaklineSettled);
+    const built = safe(() => buildTin(pts, { breaklines: bl.lines }));
     if (!built.ok) return { ok: false as const, error: built.error, rejected };
     const tin = built.value;
 
@@ -235,6 +238,10 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
           tin.duplicatesRemoved === 1 ? 'was' : 'were'
         } dropped. The first observation at each position was kept.`
       );
+    }
+    for (const issue of tin.breaklineIssues) warnings.push(issue);
+    if (bl.rejected.length > 0) {
+      warnings.push(`${bl.rejected.length} breakline line${bl.rejected.length === 1 ? '' : 's'} could not be read.`);
     }
     if (rejected.length > 0) {
       warnings.push(`${rejected.length} line${rejected.length === 1 ? '' : 's'} could not be read and ${rejected.length === 1 ? 'was' : 'were'} left out.`);
@@ -267,9 +274,11 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
       surfaceAreaM2: surfaceArea3D(tin),
       tonnes: density > 0 ? (vol.cutM3 * density) / 1000 : null,
       warnings,
-      rejected
+      breaklineCount: bl.lines.length,
+      constraintCount: tin.constraints.length,
+      rejected: [...rejected, ...bl.rejected]
     };
-  }, [surfaceTextSettled, datumMode, datumRl, looseDensity]);
+  }, [surfaceTextSettled, pileBreaklineSettled, datumMode, datumRl, looseDensity]);
 
   const reserve = useMemo<Calc<ReturnType<typeof blockReserve>>>(
     () =>
@@ -494,6 +503,25 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
                   className="w-full px-2.5 py-2 rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-xs font-mono focus:outline-none focus:border-teal-600/60"
                 />
                 <div className="space-y-1.5">
+                  <span className="text-[11px] uppercase tracking-wider opacity-60">
+                    Breaklines <span className="normal-case opacity-70">(optional)</span>
+                  </span>
+                  <p className="text-[11px] opacity-70">
+                    The toe of the pile, or a crest along its top. Blocks of <span className="font-mono">E, N, RL</span>,
+                    one blank line between lines, <span className="font-mono">#</span> to name each. Without a toe line
+                    the triangulation can span from the pile onto the pad and count ground as stockpile.
+                  </p>
+                  <textarea
+                    value={pileBreaklineText}
+                    onChange={e => setPileBreaklineText(e.target.value)}
+                    spellCheck={false}
+                    rows={5}
+                    placeholder={'# Toe\n254800.00, 2605200.00, 100.00\n254824.00, 2605200.00, 100.00'}
+                    className="w-full px-2.5 py-2 rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-xs font-mono focus:outline-none focus:border-teal-600/60 placeholder:opacity-40"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
                   <span className="text-[11px] uppercase tracking-wider opacity-60">Datum for the volume</span>
                   <div className="flex flex-wrap gap-1.5">
                     <button
@@ -537,6 +565,12 @@ export const MiningStudioTab: React.FC<MiningStudioTabProps> = ({ workingZone })
                 <>
                   <Row label="Points used" value={`${surface.tin.points.length}`} />
                   <Row label="Triangles" value={`${surface.tin.triangles.length}`} />
+                  {surface.breaklineCount > 0 && (
+                    <Row
+                      label="Breaklines"
+                      value={`${surface.breaklineCount} line${surface.breaklineCount === 1 ? '' : 's'}, ${surface.constraintCount} segment${surface.constraintCount === 1 ? '' : 's'} held`}
+                    />
+                  )}
                   <Row label="Surveyed range" value={`${fmt(surface.lowest, 2)} – ${fmt(surface.highest, 2)} m RL`} />
                   <Row
                     label="Datum"

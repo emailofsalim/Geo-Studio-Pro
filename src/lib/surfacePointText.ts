@@ -6,7 +6,7 @@
 // of reduced levels in front of them and types or pastes them in.
 // ============================================================================
 
-import type { Point3D } from '../engines/tin';
+import type { Point3D, Breakline } from '../engines/tin';
 
 /**
  * Reads a pasted list of survey points as `E, N, RL` per line.
@@ -44,4 +44,64 @@ export function parseSurfacePoints(text: string): { pts: Point3D[]; rejected: st
   }
 
   return { pts, rejected };
+}
+
+/**
+ * Reads pasted breaklines: blocks of `E, N, RL` points separated by blank lines.
+ *
+ * A `#` line at the head of a block names it, and that name is what any later
+ * complaint about the line refers to — "Crest crosses Drain" is worth more to a
+ * surveyor than "Breakline 2 crosses Breakline 5". Later `#` lines in a block
+ * are ordinary comments.
+ *
+ *     # Crest
+ *     254800, 2605200, 106.0
+ *     254830, 2605210, 106.4
+ *
+ *     # Toe of stockpile
+ *     254790, 2605190, 100.0
+ *     ...
+ *
+ * Point lines are read by exactly the same rules as the surface list, so a
+ * mis-shaped line is rejected and reported rather than guessed at.
+ */
+export function parseBreaklines(text: string): { lines: Breakline[]; rejected: string[] } {
+  const lines: Breakline[] = [];
+  const rejected: string[] = [];
+
+  const blocks = text.split(/\r?\n\s*\r?\n/);
+  let unnamed = 0;
+
+  for (const block of blocks) {
+    if (!block.trim()) continue;
+
+    const rows = block.split(/\r?\n/);
+    let name: string | undefined;
+    const body: string[] = [];
+
+    for (const row of rows) {
+      const t = row.trim();
+      if (!t) continue;
+      if (t.startsWith('#')) {
+        // Only the first comment of a block names it.
+        if (name === undefined && body.length === 0) {
+          const label = t.replace(/^#+\s*/, '').trim();
+          if (label) name = label;
+        }
+        continue;
+      }
+      body.push(row);
+    }
+
+    if (body.length === 0) continue;
+
+    const parsed = parseSurfacePoints(body.join('\n'));
+    rejected.push(...parsed.rejected);
+    if (parsed.pts.length === 0) continue;
+
+    unnamed++;
+    lines.push({ name: name ?? `Breakline ${unnamed}`, pts: parsed.pts });
+  }
+
+  return { lines, rejected };
 }

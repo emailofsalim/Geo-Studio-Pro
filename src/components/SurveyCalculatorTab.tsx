@@ -49,7 +49,7 @@ import {
   contourSet,
   linkContours
 } from '../engines/tin';
-import { parseSurfacePoints } from '../lib/surfacePointText';
+import { parseSurfacePoints, parseBreaklines } from '../lib/surfacePointText';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { crsLabelFor, isValidZone } from '../lib/crsIdentity';
 import { downloadBlob } from '../lib/zip';
@@ -158,6 +158,8 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
     ].join('\n')
   );
   const [surfBText, setSurfBText] = useState<string>('');
+  const [breaklineText, setBreaklineText] = useState<string>('');
+  const [breaklineBText, setBreaklineBText] = useState<string>('');
   const [surfDatumMode, setSurfDatumMode] = useState<'toe' | 'rl'>('toe');
   const [surfDatumRl, setSurfDatumRl] = useState<string>('100');
   const [contourInterval, setContourInterval] = useState<string>('1');
@@ -382,6 +384,8 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
   // Debounced so a large pickup is triangulated once per pause, not per keystroke.
   const surfATextSettled = useDebouncedValue(surfAText, 350);
   const surfBTextSettled = useDebouncedValue(surfBText, 350);
+  const breaklineTextSettled = useDebouncedValue(breaklineText, 350);
+  const breaklineBTextSettled = useDebouncedValue(breaklineBText, 350);
 
   const surfaceResult = useMemo(() => {
     const a = parseSurfacePoints(surfATextSettled);
@@ -389,11 +393,17 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
       return { ok: false as const, error: 'Surface A needs at least three points, as E, N, RL per line.', rejected: a.rejected };
     }
 
+    const bl = parseBreaklines(breaklineTextSettled);
+
     let tinA;
     try {
-      tinA = buildTin(a.pts);
+      tinA = buildTin(a.pts, { breaklines: bl.lines });
     } catch (err: any) {
-      return { ok: false as const, error: `Surface A: ${err.message}`, rejected: a.rejected };
+      return {
+        ok: false as const,
+        error: `Surface A: ${err.message}`,
+        rejected: [...a.rejected, ...bl.rejected]
+      };
     }
 
     const zs = tinA.points.map(p => p.z);
@@ -404,11 +414,18 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
 
     // Surface B is optional; a comparison is only offered once it parses.
     const b = parseSurfacePoints(surfBTextSettled);
+    const blB = parseBreaklines(breaklineBTextSettled);
     let comparison: ReturnType<typeof volumeBetween> | null = null;
     let comparisonError: string | null = null;
+    let tinBIssues: string[] = [];
     if (b.pts.length > 0) {
       try {
-        comparison = volumeBetween(tinA, buildTin(b.pts));
+        // B carries its own breaklines: a design crest is not the as-built one,
+        // and comparing a constrained surface against an unconstrained one
+        // would half-apply the very correction breaklines exist for.
+        const tinB = buildTin(b.pts, { breaklines: blB.lines });
+        tinBIssues = tinB.breaklineIssues;
+        comparison = volumeBetween(tinA, tinB);
       } catch (err: any) {
         comparisonError = `Surface B: ${err.message}`;
       }
@@ -437,9 +454,12 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
       comparisonError,
       contours,
       contourError,
-      rejected: [...a.rejected, ...b.rejected]
+      breaklineCount: bl.lines.length,
+      breaklineBCount: blB.lines.length,
+      tinBIssues,
+      rejected: [...a.rejected, ...b.rejected, ...bl.rejected, ...blB.rejected]
     };
-  }, [surfATextSettled, surfBTextSettled, surfDatumMode, surfDatumRl, contourInterval]);
+  }, [surfATextSettled, surfBTextSettled, breaklineTextSettled, breaklineBTextSettled, surfDatumMode, surfDatumRl, contourInterval]);
 
   /** Sends the linked contours to GIS Studio as line features in the project grid. */
   const handleSendContours = () => {
@@ -1339,6 +1359,48 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
             </div>
           </div>
 
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-white/60 block">
+                Breaklines for Surface A — optional. Blocks of{' '}
+                <code className="text-[#c9a063]">E, N, RL</code>, one blank line between lines, a{' '}
+                <code className="text-[#c9a063]">#</code> comment to name each.
+              </label>
+              <textarea
+                rows={6}
+                spellCheck={false}
+                value={breaklineText}
+                placeholder={'# Crest\n254800, 2605200, 106.0\n254830, 2605210, 106.4\n\n# Toe\n254790, 2605190, 100.0\n254830, 2605195, 100.2'}
+                onChange={e => setBreaklineText(e.target.value)}
+                className="w-full p-3.5 rounded-xl border border-white/10 bg-[#141414] text-white font-mono text-xs focus:outline-none focus:border-[#c9a063] placeholder:text-white/25"
+              />
+            </div>
+
+            {/* B only gets a box once there is a B to constrain. */}
+            {surfBText.trim() !== '' && (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-white/60 block">
+                  Breaklines for Surface B — optional, and separate from A&apos;s
+                </label>
+                <textarea
+                  rows={6}
+                  spellCheck={false}
+                  value={breaklineBText}
+                  placeholder={"B's own crests and toes. A design crest is not the as-built one, so B is\nconstrained by its own lines, not by A's."}
+                  onChange={e => setBreaklineBText(e.target.value)}
+                  className="w-full p-3.5 rounded-xl border border-white/10 bg-[#141414] text-white font-mono text-xs focus:outline-none focus:border-[#c9a063] placeholder:text-white/25"
+                />
+              </div>
+            )}
+          </div>
+
+          <p className="text-[11px] text-white/40 -mt-2">
+            A crest, toe, road edge or ditch. Without one, the triangulation is free to span across the feature and
+            will do so whenever that gives rounder triangles — a ridge then sags to the height of the ground either
+            side of it, and every volume follows the sag. Breakline vertices are survey points too, so they extend
+            the surface if they fall outside the spot heights.
+          </p>
+
           <div className="flex flex-wrap items-end gap-4">
             <div className="space-y-1.5">
               <span className="text-[10px] uppercase tracking-wider text-white/40 block">Datum for A</span>
@@ -1442,6 +1504,43 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
                   {surfDatumMode === 'toe' && <span className="text-white/40"> (lowest)</span>}
                 </div>
               </div>
+
+              {/* Breaklines: what was asked for, and what the surface actually honours. */}
+              {(surfaceResult.breaklineCount > 0 ||
+                surfaceResult.breaklineBCount > 0 ||
+                surfaceResult.tinA.breaklineIssues.length > 0 ||
+                surfaceResult.tinBIssues.length > 0) && (
+                <div className="p-4 rounded-xl border border-white/10 bg-[#141414] space-y-2">
+                  <div className="text-xs font-medium text-white/60">Breaklines</div>
+                  <div className="font-mono text-xs text-white/70">
+                    Surface A: <span className="text-white font-bold">{surfaceResult.breaklineCount}</span> line
+                    {surfaceResult.breaklineCount === 1 ? '' : 's'} read,{' '}
+                    <span className="text-white font-bold">{surfaceResult.tinA.constraints.length}</span> segment
+                    {surfaceResult.tinA.constraints.length === 1 ? '' : 's'} held as triangle edges.
+                  </div>
+                  {surfaceResult.comparison && (
+                    <div className="font-mono text-xs text-white/70">
+                      Surface B: <span className="text-white font-bold">{surfaceResult.breaklineBCount}</span> line
+                      {surfaceResult.breaklineBCount === 1 ? '' : 's'} read.
+                      {surfaceResult.breaklineBCount === 0 && (
+                        <span className="text-amber-300/90">
+                          {' '}B is unconstrained, so a crest of its own would be spanned across.
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {[...surfaceResult.tinA.breaklineIssues, ...surfaceResult.tinBIssues].length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      {[...surfaceResult.tinA.breaklineIssues, ...surfaceResult.tinBIssues].map((issue, i) => (
+                        <div key={i} className="text-[11px] text-amber-300/90 flex gap-2">
+                          <Mountain className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <span>{issue}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {surfaceResult.comparisonError && (
                 <div className="p-4 rounded-xl border border-rose-500/40 bg-rose-500/10 text-xs text-rose-200">

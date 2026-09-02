@@ -41,12 +41,13 @@ src/
   engines/     Domain engines, independent of React
     crs.js       Coordinate reference systems, projections, datums, zone detection
     mining.ts    Bench geometry, drill pattern, blast design, stockpiles, reserves
-    tin.ts       Delaunay TIN surfaces: areas, volumes, surface comparison, contours
+    tin.ts       Constrained Delaunay TIN surfaces: breaklines, areas, volumes,
+                 surface comparison, contours
     reports.ts   Print-ready report generation
   lib/         Computation and IO
     crsIdentity.ts     CRS naming, EPSG codes, the zone catalogue
     geodesy.ts         Survey mathematics: traverse, levelling, curves, volumes
-    surfacePointText.ts Reads a pasted E, N, RL point list
+    surfacePointText.ts Reads a pasted E, N, RL point list, and breakline blocks
     formats.ts         Format readers and writers
     universalDataBridge.ts  Central import detection and export routing
     parseClient.ts     Import front door; offloads large files to a worker
@@ -137,7 +138,9 @@ adjustment · differential levelling · circular curves · resection · grid-to-
 correction · end-area and DTM grid volumes · Delaunay TIN surfaces from surveyed
 points, with plan and 3D surface area, volume to a stated datum, surface-to-surface
 comparison and marching-triangle contours linked into polylines and sent to GIS
-Studio as line features · boundary offset · topology checks ·
+Studio as line features · constrained Delaunay, so a crest, toe, road edge or
+ditch given as a breakline is held as a triangle edge · boundary offset ·
+topology checks ·
 borehole logging with grades · cadastral digitising with GCP georeferencing and
 residuals · GNSS averaging · bench and overall slope geometry · drill pattern
 layout · blast charge and powder factor · stockpile volumes from either measured
@@ -151,11 +154,11 @@ theodolite, spirit level and AR stakeout (device-sensor views, not instrument pr
 serial and HID (device selection; no total-station protocol layer).
 
 **Not implemented:** haul-road design · production, dispatch and reconciliation ·
-drone photogrammetry · DSM/DTM raster pipelines · 3D visualisation · breaklines and
-hard edges in a TIN (the triangulation is unconstrained, so a crest or a toe line is
-respected only where points are dense enough along it) · contour smoothing and
-labelling (contours are linked into polylines but drawn as the exact intersection
-with each face, with no spline fitting and no index-contour annotation).
+drone photogrammetry · DSM/DTM raster pipelines · 3D visualisation · contour
+smoothing and labelling (contours are linked into polylines but drawn as the exact
+intersection with each face, with no spline fitting and no index-contour annotation)
+· resolving a breakline crossing where the two lines disagree on the height (both
+are reported with the gap between them and left out — see below).
 
 ## Import and export
 
@@ -185,6 +188,106 @@ switch, both surfaced in the Sensor Privacy Monitor.
 Camera, microphone, location, orientation, motion, Bluetooth, NFC, serial, HID and
 screen wake lock all run through it, so the audit log and the kill switch cover the
 whole application.
+
+## Breaklines
+
+A Delaunay triangulation is free to span across a crest, and will do so whenever
+that produces rounder triangles. The modelled ridge then sags to the height of the
+ground either side of it — with no error, because the triangulation is doing exactly
+what it is supposed to. On the control case in the tests, a 20 m crest across a
+diamond-shaped site, the unconstrained surface puts the crest at ground level and
+reports **333.3 m³**; the same points with the crest given as a breakline report
+**666.7 m³**. Exactly double, and the second figure is the right one.
+
+So `buildTin` takes breaklines and forces their segments in as triangle edges, by
+the standard cavity method: remove the triangles the edge crosses, then
+re-triangulate the two halves Delaunay-optimally. What it will not do:
+
+- **Guess at a crossing.** Where two breaklines cross, the ground has one
+  elevation. Usually both lines agree on it — a track crossing a crest at grade —
+  and then there is nothing to resolve: the junction becomes a surface point and
+  both lines are split there. Only a genuine disagreement is refused, and then
+  both heights and the gap between them are quoted: *"Crest and Drain cross at
+  10.000, 5.000, where one is 10.000 m and the other 0.000 m — 10.000 m apart."*
+  Agreement is judged to a millimetre, which is the same point in survey terms.
+- **Overrule a surveyed point.** A breakline vertex landing on a position already
+  surveyed keeps the surveyed height, and the disagreement is reported.
+- **Drop one silently.** Every requested segment is either in `constraints` or
+  explained in `breaklineIssues`. A breakline that was asked for and not applied
+  would leave a surface that looks constrained and is not.
+
+A constraint running over existing vertices is split at each one — a haul road
+across a gridded survey passes through a grid vertex at every step, and an edge
+cannot run through a vertex without using it.
+
+**Each surface carries its own breaklines.** A design crest is not the as-built
+one, so in a surface comparison B is constrained by its own lines rather than by
+A's. Comparing a constrained surface against an unconstrained one half-applies
+the correction and is worth a real amount: on the test case, an unconstrained B
+reports 333.3 m³ against A where the same B with its crest held reports 666.7 m³.
+When A has breaklines and B has none, the panel says so.
+
+Breakline vertices are survey observations, so they join the point set and extend
+the surface if they fall outside the spot heights. That is correct, and it carries
+the same risk as any stray point: a mis-keyed breakline coordinate stretches the
+hull across ground nobody surveyed, and adds volume.
+
+## What the triangulation is checked against
+
+A triangulation covers the convex hull of its points exactly once. A gap, an
+overlap or an inverted triangle all show up as a mismatch against an area
+computed from the hull alone, which is why `tinProperties.test.ts` checks that
+rather than checking triangles against themselves.
+
+That check found a bug in the triangulation that had nothing to do with
+breaklines. Bowyer-Watson starts from a super-triangle enclosing every point and
+discards whatever still touches it at the end; the enclosing triangle was sized
+at 100× the survey's own width, which is not enough. Three nearly collinear
+points have an enormous circumcircle, and when a super-triangle vertex fell
+inside it, a real triangle at the edge of the hull counted as touching the border
+and was thrown away. Nothing reported it. The surface was simply missing a piece,
+and every volume taken from it was short by that much.
+
+Measured over 120 point sets per case: 5 in 120 random scatters lost up to 13 m²,
+11 in 120 dense ones up to 28 m², and **every** near-collinear set lost area.
+That last family is not a corner case — a road corridor, a bench crest and a
+drain string are all near-collinear, and they are most of what a survey contains.
+
+Two things fix it, and a third looked like it did:
+
+- **Enlarging the super-triangle**, which is the substantive fix. The size is a
+  trade, not a maximum: too small discards hull triangles, too large lets the
+  super-triangle's own coordinates swamp the precision of the in-circle test,
+  which then admits triangles that *overlap* — a worse failure, because
+  overlapping triangles double-count volume rather than dropping it. Sweeping the
+  span showed 1e7 overlapping by 4,480 m² and 1e8 by 3,840 m² on sets that 1e6
+  gets exactly right. 1e6 was the only value clean across all six geometry
+  families tested.
+- **Triangulating in normalised coordinates.** Delaunay is invariant under
+  translation and scaling, so the mesh is built centred on the origin and the
+  measurements are taken from the original coordinates. On well-spread scatters
+  this changes nothing. It earns its place on near-collinear geometry at real UTM
+  positions: triangulating those at their true coordinates overlapped on 60 of
+  120 sets, the worst double-counting 22,719 m² — an error larger than the pit.
+- **Restricting the cavity to the region connected to the new point** was also
+  tried, against the theoretical worry that a float-level disagreement in the
+  in-circle test splits the cavity in two. Across 720 builds spanning six
+  geometry families it changed not one result, so it is not in the code. A guard
+  that has never been shown to guard anything is a claim, not a safeguard.
+
+One case remains inexact, and is stated rather than hidden. On near-collinear
+geometry the mesh can still come back a single sliver short — a triangle two
+millimetres wide at the very edge of the hull. Measured over 120 sets per family
+at three positions, the shortfall never exceeded **0.003 m²** and was always a
+shortfall, never an overlap. The tests assert that bound and the direction, so
+the difference between a negligible sliver and a hole stays visible.
+
+An earlier version of this section reported that real UTM coordinates caused 57
+of 200 surveys to lose area. That figure was wrong: the measuring code summed the
+hull area from raw coordinates of about 2.6 million, where the shoelace formula
+cancels away most of its significant digits. The check was less accurate than the
+code it was judging. It now centres the points first, and the honest UTM finding
+is the one recorded above.
 
 ## Data safety
 
