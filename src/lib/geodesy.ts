@@ -1066,10 +1066,19 @@ export interface LevelingResultRow {
   remarks: string;
 }
 
+/**
+ * Reduce a levelling run, booking both the height-of-instrument route and the
+ * rise-and-fall route so the two can be checked against each other.
+ *
+ * There was a third parameter here, `method: 'hi' | 'rise_fall'`, which no line
+ * of the body ever read: asking for 'rise_fall' returned the HI reduction. It
+ * has been removed rather than left advertising a choice it did not honour.
+ * Both routes are computed for every run regardless, which is the point -- they
+ * are each other's check.
+ */
 export function computeDifferentialLeveling(
   initialRL: number,
-  rows: LevelingRow[],
-  method: 'hi' | 'rise_fall' = 'hi'
+  rows: LevelingRow[]
 ) {
   const result: LevelingResultRow[] = [];
   let currentRL = initialRL;
@@ -1105,7 +1114,25 @@ export function computeDifferentialLeveling(
       return;
     }
 
+    // A row with neither an intermediate nor a foresight has no sighting to
+    // reduce. Reading the missing value as zero booked a rise equal to the
+    // whole previous reading -- a 1.500 m backsight became a 1.500 m climb to a
+    // station nobody sighted -- so such a row now carries the level forward and
+    // says that it does, rather than inventing one.
+    const sighted = r.is != null || r.fs != null;
     const currentSight = r.is != null ? r.is : (r.fs != null ? r.fs : 0);
+
+    if (!sighted) {
+      result.push({
+        stn: r.stn || `STN-${idx + 1}`,
+        bs: r.bs,
+        is: r.is,
+        fs: r.fs,
+        rl: currentRL,
+        remarks: r.remarks || 'No sight booked - level not determined here'
+      });
+      return;
+    }
 
     // Rise / Fall calculation
     const diff = prevSight - currentSight;
@@ -1149,10 +1176,17 @@ export function computeDifferentialLeveling(
     });
   });
 
+  // The three arithmetic checks of a levelling sheet. The first and third are
+  // both consequences of the height-of-instrument reduction, so they agree with
+  // each other in cases where the booking is nonetheless unsound; the rise and
+  // fall route is the independent one, and it was computed, displayed on the
+  // sheet, and then left out of the verdict. A run whose rise/fall route was
+  // 1.500 m adrift from the other two was reported as checked.
   const check1 = sumBS - sumFS;
   const check2 = sumRise - sumFall;
   const lastRL = result[result.length - 1]?.rl || initialRL;
   const check3 = lastRL - initialRL;
+  const TOL = 0.001;
 
   return {
     rows: result,
@@ -1162,8 +1196,12 @@ export function computeDifferentialLeveling(
     sumFall,
     initialRL,
     lastRL,
-    checkPassed: Math.abs(check1 - check3) < 0.001,
-    diffCheck: check1 - check3
+    checkPassed: Math.abs(check1 - check3) < TOL && Math.abs(check2 - check3) < TOL,
+    diffCheck: check1 - check3,
+    riseFallDiff: check2 - check3,
+    checkBS_FS: check1,
+    checkRiseFall: check2,
+    checkRL: check3
   };
 }
 

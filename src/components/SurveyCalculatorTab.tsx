@@ -1083,9 +1083,21 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
                   <div>&Sigma;Rise - &Sigma;Fall = {(levelingResult.sumRise - levelingResult.sumFall).toFixed(3)} m</div>
                   <div>Last RL - First RL = {(levelingResult.lastRL - levelingResult.initialRL).toFixed(3)} m</div>
                 </div>
-                <div className="pt-2 text-emerald-400 font-bold">
-                  &check; Mathematical Check Verified (Error: {levelingResult.diffCheck.toFixed(4)} m)
-                </div>
+                {levelingResult.checkPassed ? (
+                  <div className="pt-2 text-emerald-400 font-bold">
+                    &check; Mathematical Check Verified (Error: {levelingResult.diffCheck.toFixed(4)} m)
+                  </div>
+                ) : (
+                  <div className="pt-2 text-rose-400 font-bold space-y-1">
+                    <div>&times; Arithmetic check FAILED &mdash; this sheet does not close.</div>
+                    <div className="font-normal text-rose-300/90">
+                      &Sigma;BS &minus; &Sigma;FS is {levelingResult.diffCheck.toFixed(4)} m from the
+                      change in RL, and the rise/fall route is{' '}
+                      {levelingResult.riseFallDiff.toFixed(4)} m from it. The levels above are not
+                      verified; re-check the booking before using them.
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

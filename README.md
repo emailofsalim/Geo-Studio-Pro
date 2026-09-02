@@ -227,6 +227,25 @@ at least the offset distance from the original boundary — and a belt that
 collapses the parcel to a point is refused too. The screen says which refusal
 happened instead of showing an area.
 
+**The levelling sheet no longer certifies a check it did not perform.** The
+results panel printed a green "✓ Mathematical Check Verified" unconditionally:
+`checkPassed` was computed, passed to a toast that disappears, and never
+consulted by the banner. Worse, the verdict compared only ΣBS − ΣFS against the
+change in RL — both consequences of the same height-of-instrument reduction, so
+they agree in cases where the booking is unsound. The rise-and-fall route, the
+one independent check and the one printed beside them, was left out. A station
+booked with both an intermediate sight and a foresight shows ΣBS − ΣFS = 0.100
+and ΣRise − ΣFall = 0.300 on the same sheet, and was reported as verified. All
+three routes are now checked, the banner states failure and names the route that
+is adrift, and each check is returned so a failure can be located.
+
+Two smaller things went with it. A row carrying no sight at all read the missing
+value as zero and booked a rise equal to the whole previous reading — a 1.500 m
+backsight became a 1.500 m climb to a station nobody sighted; such a row now
+carries the level forward and says the level is not determined. And the
+`method: 'hi' | 'rise_fall'` parameter, which no line of the function ever read,
+has been removed rather than left advertising a choice it did not honour.
+
 **Partial:** Bluetooth RTK (link and GATT plumbing; no NTRIP client, no RTCM decoding) ·
 pit modelling (bench and wall geometry are calculated, but there is no 3D pit shell or
 ramp design) · point
