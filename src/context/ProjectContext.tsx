@@ -7,6 +7,7 @@ import { GeoProject, ProjectCategory, ProjectStatus, ProjectModuleStats, Project
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { downloadBlob } from '../lib/zip';
+import { statsFor } from '../lib/projectStats';
 import { ProjectService } from '../services/ProjectService';
 import {
   storageService,
@@ -211,15 +212,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Compute live module stats for a project
   const getProjectStats = useCallback((id: string): ProjectModuleStats => {
     if (activeProjectId === id && activeProjectData) {
-      return {
-        waypointsCount: activeProjectData.waypoints?.length || 0,
-        layersCount: activeProjectData.layers?.length || 0,
-        parcelsCount: activeProjectData.parcels?.length || 0,
-        boreholesCount: activeProjectData.boreholes?.length || 0,
-        photosCount: activeProjectData.photos?.length || 0,
-        geofencesCount: activeProjectData.geofences?.length || 0,
-        calculationsCount: activeProjectData.calculations?.length || 0
-      };
+      return statsFor(activeProjectData);
     }
 
     const p = projects.find(item => item.id === id);
