@@ -357,6 +357,25 @@ in the borehole tab: *never substitutes a default; a fabricated depth or
 elevation in a collar export reads as a real observation to whoever opens the
 file.* It simply had not been applied to the export builders.
 
+## The export zone is never assumed
+
+The CRS layer already refuses an unreadable zone rather than substituting one,
+and says why it was written that way: it replaced a service-layer version that
+parsed the zone with `parseInt(...) || 45`. That substitution had survived in
+the export service, in six places — the preview generator for five formats, and
+round-trip verification.
+
+A project in Zone 43 whose zone string could not be read was previewed and
+verified against Zone 45, which puts the same eastings and northings several
+hundred kilometres away. The preview is the last thing anyone looks at before
+exporting, so it is the worst place for a plausible wrong answer.
+
+Three further paths defaulted a missing zone to `'45N'` outright, including
+`exportData`, which is the export itself rather than a preview. The zone is now
+required of the caller in each, and an unreadable one is reported: the preview
+returns a notice, and round-trip verification returns a failed result rather
+than throwing at the modal awaiting it.
+
 ## The working cutoff rule survives
 
 A cutoff grade decides what counts as ore, so it is a setting, not a scratch
