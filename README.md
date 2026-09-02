@@ -357,6 +357,29 @@ in the borehole tab: *never substitutes a default; a fabricated depth or
 elevation in a collar export reads as a real observation to whoever opens the
 file.* It simply had not been applied to the export builders.
 
+## A standard value never passes for an observation
+
+The atmospheric readings drive the EDM ppm correction, a scale correction
+applied to every measured distance. `isLive` on the environmental report
+described the *fetch*, not the numbers: a response that arrived without a
+pressure still set it, and the correction was computed from the 1013.25 hPa
+sea-level standard while the screen showed a green **Live Free API** badge.
+
+The magnitude is not academic on the ground this application is aimed at:
+
+| Site | Substituted-pressure error | Over a 2 km sight |
+| --- | --- | --- |
+| Bauxite plateau, ~700 m | 32 ppm | **65 mm** |
+| Hill site, ~1200 m | 49 ppm | **98 mm** |
+| High pit, ~3000 m | 78 ppm | **156 mm** |
+
+The report now carries `substitutedFields`, naming every reading that fell back
+to a standard value, and the view shows them beside the live badge. Visibility
+is always listed, because it is not among the fields requested from the service
+and has always been the standard clear-air figure. A test pins the ppm
+magnitude so nobody later reads this as a rounding detail and restores a silent
+default.
+
 ## The export zone is never assumed
 
 The CRS layer already refuses an unreadable zone rather than substituting one,
