@@ -76,7 +76,7 @@ describe('average end area', () => {
 describe('DTM grid volume', () => {
   /** A regular grid of n x n points at the given spacing, all at height z. */
   const grid = (n: number, spacing: number, z: number | ((i: number, j: number) => number)) => {
-    const pts = [];
+    const pts: { x: number; y: number; z: number }[] = [];
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < n; j++) {
         pts.push({ x: i * spacing, y: j * spacing, z: typeof z === 'number' ? z : z(i, j) });
