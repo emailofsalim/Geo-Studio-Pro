@@ -246,6 +246,26 @@ carries the level forward and says the level is not determined. And the
 `method: 'hi' | 'rise_fall'` parameter, which no line of the function ever read,
 has been removed rather than left advertising a choice it did not honour.
 
+**Three-point resection refuses observations it cannot solve, instead of
+returning a confident wrong position.** Two faults, both silent:
+
+Fed the angles a theodolite reads from *outside* the control triangle — a
+common enough setup, and one the formula as written here does not cover — it
+returned positions wrong by 288 m to 2167 m across the cases tested, with
+nothing to say it had left its domain. Three angles measured round one point
+close on 360°; those observations close on 90° to 205°, so the setup is
+recognisable before it is trusted. Observations that miss 360° by more than a
+degree are now refused with that explanation. The tolerance is deliberately
+loose — genuine misclosure round a point is a matter of seconds — so sloppy but
+honest work is not turned away, and the misclosure of an accepted set is
+reported on screen rather than assumed to be zero.
+
+On the danger circle, the circle through the three control points, the figure is
+indeterminate: every position on it fits the observations. The guard for this
+tested only for a vanishing sum of weights, but the weights blow up there rather
+than cancelling, so the case went straight through and the screen announced
+"Resection point determined: E=NaN, N=NaN". It now refuses.
+
 **Partial:** Bluetooth RTK (link and GATT plumbing; no NTRIP client, no RTCM decoding) ·
 pit modelling (bench and wall geometry are calculated, but there is no 3D pit shell or
 ramp design) · point

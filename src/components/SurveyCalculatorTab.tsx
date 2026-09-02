@@ -1840,6 +1840,16 @@ export const SurveyCalculatorTab: React.FC<SurveyCalculatorTabProps> = ({
                 <span className="text-[11px] text-white/70 block">PB: {resectionResult.distB.toFixed(1)}m</span>
                 <span className="text-[11px] text-white/70 block">PC: {resectionResult.distC.toFixed(1)}m</span>
               </div>
+              <div className="sm:col-span-3 p-3 bg-[#141414] rounded-xl border border-white/5">
+                <span className="text-[10px] text-white/40 block uppercase font-sans">
+                  Angular misclosure
+                </span>
+                <span className="text-[11px] text-white/70">
+                  The three observed angles close on 360&deg; to{' '}
+                  {resectionResult.misclosureDeg.toFixed(4)}&deg;. They are stated rather than
+                  assumed, because the position is only as good as that closure.
+                </span>
+              </div>
             </div>
           )}
         </div>

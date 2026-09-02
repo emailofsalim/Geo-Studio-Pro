@@ -1357,6 +1357,31 @@ export function solveTienstraResection(
   betaDeg: number,  // Angle observed between C and A at P (subtends CA)
   gammaDeg: number  // Angle observed between A and B at P (subtends AB)
 ) {
+  // Three angles measured round a single point close on 360 degrees. That is a
+  // property of the observations, not of this formula, and it is the one cheap
+  // check available on whether the figure is the one being solved.
+  //
+  // It matters because Tienstra as written here assumes the instrument stands
+  // inside the control triangle. Fed the angles a theodolite reads from OUTSIDE
+  // it -- a common enough setup -- the formula returned a confident position
+  // wrong by 288 m to 2167 m across the cases tested, with nothing to say it
+  // had left its domain. Those observations close on 90 to 205 degrees, not
+  // 360, so they are recognisable before they are trusted.
+  //
+  // The tolerance is deliberately loose. Genuine misclosure round a point is a
+  // matter of seconds, so a whole degree is already far outside observational
+  // error, while the exterior cases miss by tens or hundreds of degrees. A
+  // sloppy but honest set of observations is not turned away.
+  const misclosure = alphaDeg + betaDeg + gammaDeg - 360;
+  if (!Number.isFinite(misclosure) || Math.abs(misclosure) > 1) {
+    throw new Error(
+      `The three angles sum to ${(alphaDeg + betaDeg + gammaDeg).toFixed(4)}\u00b0, not 360\u00b0 ` +
+      `(out by ${misclosure.toFixed(4)}\u00b0). Angles observed round a point must close on 360\u00b0. ` +
+      `Check the booking, and note that this solver assumes the instrument stands inside the ` +
+      `triangle formed by the three control points.`
+    );
+  }
+
   const alpha = alphaDeg * Math.PI / 180;
   const beta = betaDeg * Math.PI / 180;
   const gamma = gammaDeg * Math.PI / 180;
@@ -1377,16 +1402,28 @@ export function solveTienstraResection(
   const wC = 1 / (cot(angleC) - cot(gamma));
 
   const wSum = wA + wB + wC;
-  if (Math.abs(wSum) < 1e-9) {
+  // On the danger circle -- the circle through the three control points -- the
+  // figure is indeterminate: every position on that circle fits the
+  // observations equally. The weights blow up there rather than cancelling, so
+  // testing only for a vanishing sum let the case through and the caller was
+  // handed E=NaN, N=NaN and told the point had been "determined".
+  if (
+    !Number.isFinite(wA) || !Number.isFinite(wB) || !Number.isFinite(wC) ||
+    !Number.isFinite(wSum) || Math.abs(wSum) < 1e-9
+  ) {
     throw new Error('Point lies on the danger circle (indeterminate resection)');
   }
 
   const pE = (wA * A.E + wB * B.E + wC * C.E) / wSum;
   const pN = (wA * A.N + wB * B.N + wC * C.N) / wSum;
+  if (!Number.isFinite(pE) || !Number.isFinite(pN)) {
+    throw new Error('Point lies on the danger circle (indeterminate resection)');
+  }
 
   return {
     E: pE,
     N: pN,
+    misclosureDeg: misclosure,
     distA: Math.hypot(pE - A.E, pN - A.N),
     distB: Math.hypot(pE - B.E, pN - B.N),
     distC: Math.hypot(pE - C.E, pN - C.N)
