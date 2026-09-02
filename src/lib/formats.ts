@@ -1604,15 +1604,26 @@ export function parseShapefile(
       recShapeType === 3 || recShapeType === 13 || recShapeType === 23 ||
       recShapeType === 5 || recShapeType === 15 || recShapeType === 25
     ) {
-      const numParts = view.getInt32(offset + 40, true);
-      const numPoints = view.getInt32(offset + 44, true);
+      // Record content begins at offset + 8, and an ESRI PolyLine/Polygon
+      // record is: shape type (4) + bounding box (4 doubles = 32) + numParts
+      // (4) + numPoints (4) + parts + points. So numParts sits at
+      // offset + 8 + 36 = offset + 44, not offset + 40.
+      //
+      // Read four bytes short, numParts came from the last word of the box's
+      // Ymax double -- 1094967418 for a parcel on UTM 44N ground -- and the
+      // parts loop ran off the end of the buffer. Every polygon and polyline
+      // shapefile threw, was swallowed by the caller's catch, and the import
+      // silently reported the file as unrecognised. Only the point branch,
+      // whose offsets were already right, ever worked.
+      const numParts = view.getInt32(offset + 44, true);
+      const numPoints = view.getInt32(offset + 48, true);
       const parts: number[] = [];
 
       for (let p = 0; p < numParts; p++) {
-        parts.push(view.getInt32(offset + 48 + p * 4, true));
+        parts.push(view.getInt32(offset + 52 + p * 4, true));
       }
 
-      const ptsOffset = offset + 48 + numParts * 4;
+      const ptsOffset = offset + 52 + numParts * 4;
       const allPoints: { a: number; b: number }[] = [];
 
       for (let ptIdx = 0; ptIdx < numPoints; ptIdx++) {

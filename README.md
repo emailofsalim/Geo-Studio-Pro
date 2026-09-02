@@ -114,7 +114,7 @@ writers to five decimals, about 1.1 m, fails eight of those tests.
 | GPX | Yes | Yes | Waypoints, routes, tracks |
 | WKT | Yes | Yes | Including MULTI\* variants |
 | XLSX | Yes | Yes | Shared strings, inline strings, sparse cells |
-| Shapefile | Yes | — | SHP + DBF, multi-part geometry |
+| Shapefile | Yes | — | SHP + DBF; points, polylines and polygons. The `.prj` is not read — see below |
 | DXF | Partial | Yes | Points, lines and polylines; arcs, circles, splines and text are counted and reported, not imported |
 | PDF | Yes | — | Rendered as a digitising background, multi-page |
 | World file | Yes | — | .tfw / .jgw / .pgw / .wld raster georeference |
@@ -282,6 +282,28 @@ so it finds edges that properly cross but not ones that merely touch — a verte
 lying exactly on another edge is not reported. That is a false negative rather
 than a false alarm, and it is left as-is because loosening the test is the
 change most likely to bring the false alarms back.
+
+**The shapefile reader could not read a polygon until now.** An ESRI
+PolyLine/Polygon record is shape type (4 bytes) + bounding box (four doubles)
++ numParts + numPoints, and record content begins at offset + 8, so numParts
+sits at offset + 44. The reader took it from offset + 40 — four bytes short,
+which is the last word of the box's Ymax double. For a parcel on UTM 44N ground
+that read **1 094 967 418 parts**, the loop ran off the end of the buffer, and
+the throw was swallowed by the caller's `catch`: a polygon shapefile simply
+imported as "unrecognised". Only the point branch, whose offsets were already
+right, ever worked — while the format table claimed "multi-part geometry".
+It is now read against the published record layout, and `shapefileReader.test.ts`
+builds spec-correct files rather than testing the reader against itself.
+
+**What the shapefile reader still does not do:** it accepts a `.prj` and does not
+read it. Whether coordinates are geographic or projected is inferred from their
+magnitude — beyond ±180 or ±90 they are treated as eastings and northings —
+decided per feature from its first vertex. That is right for the common case and
+wrong for a local grid whose coordinates are small, where features near the
+origin would be read as degrees and features further out as metres, in the same
+layer. The `.prj` is the file's own statement of its coordinate system and
+should be what decides; until it is, this is stated here rather than implied to
+work.
 
 **Partial:** Bluetooth RTK (link and GATT plumbing; no NTRIP client, no RTCM decoding) ·
 pit modelling (bench and wall geometry are calculated, but there is no 3D pit shell or
