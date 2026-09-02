@@ -232,6 +232,63 @@ the surface if they fall outside the spot heights. That is correct, and it carri
 the same risk as any stray point: a mis-keyed breakline coordinate stretches the
 hull across ground nobody surveyed, and adds volume.
 
+## What the triangulation is checked against
+
+A triangulation covers the convex hull of its points exactly once. A gap, an
+overlap or an inverted triangle all show up as a mismatch against an area
+computed from the hull alone, which is why `tinProperties.test.ts` checks that
+rather than checking triangles against themselves.
+
+That check found a bug in the triangulation that had nothing to do with
+breaklines. Bowyer-Watson starts from a super-triangle enclosing every point and
+discards whatever still touches it at the end; the enclosing triangle was sized
+at 100× the survey's own width, which is not enough. Three nearly collinear
+points have an enormous circumcircle, and when a super-triangle vertex fell
+inside it, a real triangle at the edge of the hull counted as touching the border
+and was thrown away. Nothing reported it. The surface was simply missing a piece,
+and every volume taken from it was short by that much.
+
+Measured over 120 point sets per case: 5 in 120 random scatters lost up to 13 m²,
+11 in 120 dense ones up to 28 m², and **every** near-collinear set lost area.
+That last family is not a corner case — a road corridor, a bench crest and a
+drain string are all near-collinear, and they are most of what a survey contains.
+
+Two things fix it, and a third looked like it did:
+
+- **Enlarging the super-triangle**, which is the substantive fix. The size is a
+  trade, not a maximum: too small discards hull triangles, too large lets the
+  super-triangle's own coordinates swamp the precision of the in-circle test,
+  which then admits triangles that *overlap* — a worse failure, because
+  overlapping triangles double-count volume rather than dropping it. Sweeping the
+  span showed 1e7 overlapping by 4,480 m² and 1e8 by 3,840 m² on sets that 1e6
+  gets exactly right. 1e6 was the only value clean across all six geometry
+  families tested.
+- **Triangulating in normalised coordinates.** Delaunay is invariant under
+  translation and scaling, so the mesh is built centred on the origin and the
+  measurements are taken from the original coordinates. On well-spread scatters
+  this changes nothing. It earns its place on near-collinear geometry at real UTM
+  positions: triangulating those at their true coordinates overlapped on 60 of
+  120 sets, the worst double-counting 22,719 m² — an error larger than the pit.
+- **Restricting the cavity to the region connected to the new point** was also
+  tried, against the theoretical worry that a float-level disagreement in the
+  in-circle test splits the cavity in two. Across 720 builds spanning six
+  geometry families it changed not one result, so it is not in the code. A guard
+  that has never been shown to guard anything is a claim, not a safeguard.
+
+One case remains inexact, and is stated rather than hidden. On near-collinear
+geometry the mesh can still come back a single sliver short — a triangle two
+millimetres wide at the very edge of the hull. Measured over 120 sets per family
+at three positions, the shortfall never exceeded **0.003 m²** and was always a
+shortfall, never an overlap. The tests assert that bound and the direction, so
+the difference between a negligible sliver and a hole stays visible.
+
+An earlier version of this section reported that real UTM coordinates caused 57
+of 200 surveys to lose area. That figure was wrong: the measuring code summed the
+hull area from raw coordinates of about 2.6 million, where the shoelace formula
+cancels away most of its significant digits. The check was less accurate than the
+code it was judging. It now centres the points first, and the honest UTM finding
+is the one recorded above.
+
 ## Data safety
 
 Projects are isolated: data, layers and coordinate systems are keyed per project.
