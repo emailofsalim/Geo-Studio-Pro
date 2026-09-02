@@ -47,7 +47,7 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { GeoFeature } from '../types';
-import { polygonAreaPerimeter, formatAreaAllUnits, utmToLonLat, lonLatToUtm } from '../lib/geodesy';
+import { polygonAreaPerimeter, formatAreaAllUnits, utmToLonLat, lonLatToUtm, affineFit } from '../lib/geodesy';
 import {
   kmlBuild,
   dxfBuild,
@@ -358,52 +358,17 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
   }, []);
 
   // Compute 2D Affine Transformation Matrix from GCPs
+  // The fit itself lives in geodesy.ts so it can be tested, and so it reports
+  // the redundancy of the solve alongside the RMSE. Three control points fit a
+  // six-parameter affine exactly: the RMSE is then 0 whatever the points say,
+  // and a mis-identified sheet corner is absorbed into the transform in
+  // silence. Three is also the minimum this accepts, so it is the count
+  // someone placing the fewest allowed will land on.
   const affineMatrix = useMemo(() => {
-    if (gcps.length < 3) return null;
-    const n = gcps.length;
-    let sumX = 0, sumY = 0, sumE = 0, sumN = 0;
-    let sumXX = 0, sumYY = 0, sumXY = 0;
-    let sumXE = 0, sumYE = 0, sumXN = 0, sumYN = 0;
-
-    for (const g of gcps) {
-      sumX += g.pixelX;
-      sumY += g.pixelY;
-      sumE += g.utmE;
-      sumN += g.utmN;
-      sumXX += g.pixelX * g.pixelX;
-      sumYY += g.pixelY * g.pixelY;
-      sumXY += g.pixelX * g.pixelY;
-      sumXE += g.pixelX * g.utmE;
-      sumYE += g.pixelY * g.utmE;
-      sumXN += g.pixelX * g.utmN;
-      sumYN += g.pixelY * g.utmN;
-    }
-
-    const det = n * (sumXX * sumYY - sumXY * sumXY) - sumX * (sumX * sumYY - sumY * sumXY) + sumY * (sumX * sumXY - sumY * sumXX);
-    if (Math.abs(det) < 1e-9) return null;
-
-    const solve3x3 = (r1: number, r2: number, r3: number) => {
-      const d1 = r1 * (sumYY * n - sumY * sumY) - sumXY * (r2 * n - sumY * r3) + sumX * (r2 * sumY - sumYY * r3);
-      const d2 = sumXX * (r2 * n - sumY * r3) - r1 * (sumXY * n - sumX * sumY) + sumX * (sumXY * r3 - sumX * r2);
-      const d3 = sumXX * (sumYY * r3 - r2 * sumY) - sumXY * (sumXY * r3 - r1 * sumY) + sumX * (sumXY * r2 - sumYY * r1);
-      return [d1 / det, d2 / det, d3 / det];
-    };
-
-    const [a, b, tx] = solve3x3(sumXE, sumYE, sumE);
-    const [c, d, ty] = solve3x3(sumXN, sumYN, sumN);
-
-    // Calculate Root Mean Square Error (RMSE) in meters
-    let errSqSum = 0;
-    gcps.forEach(g => {
-      const predE = a * g.pixelX + b * g.pixelY + tx;
-      const predN = c * g.pixelX + d * g.pixelY + ty;
-      const diffE = predE - g.utmE;
-      const diffN = predN - g.utmN;
-      errSqSum += diffE * diffE + diffN * diffN;
-    });
-    const rmse = Math.sqrt(errSqSum / n);
-
-    return { a, b, c, d, tx, ty, rmse };
+    const fit = affineFit(
+      gcps.map(g => ({ pixelX: g.pixelX, pixelY: g.pixelY, E: g.utmE, N: g.utmN }))
+    );
+    return fit && { a: fit.a, b: fit.b, c: fit.c, d: fit.d, tx: fit.tx, ty: fit.ty, rmse: fit.rmse, redundancy: fit.redundancy };
   }, [gcps]);
 
   // Convert Pixel -> UTM using Affine Matrix or Fallback Scale
@@ -1806,9 +1771,23 @@ export const BhunakshaDigitizerTab: React.FC<BhunakshaDigitizerTabProps> = ({
               {toolMode === 'navigate' && 'Drag map with mouse to pan.'}
             </span>
             {affineMatrix ? (
-              <span className="font-mono text-[#c9a063] bg-[#c9a063]/10 px-2 py-0.5 rounded border border-[#c9a063]/30">
-                Helmert Georef RMSE: {affineMatrix.rmse.toFixed(3)} m (UTM Zone {workingZone})
-              </span>
+              // An RMSE of 0.000 at three points is not a good georeference, it
+              // is an undetermined one: the fit passes through every point by
+              // construction. Showing the figure without that caveat invites it
+              // to be read as accuracy.
+              affineMatrix.redundancy.residualsAreMeaningful ? (
+                <span className="font-mono text-[#c9a063] bg-[#c9a063]/10 px-2 py-0.5 rounded border border-[#c9a063]/30">
+                  Georef RMSE: {affineMatrix.rmse.toFixed(3)} m over {affineMatrix.redundancy.n} points (UTM Zone {workingZone})
+                </span>
+              ) : (
+                <span
+                  role="status"
+                  title={affineMatrix.redundancy.caution ?? undefined}
+                  className="font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30"
+                >
+                  Georef fitted on {affineMatrix.redundancy.n} points — residual cannot show an error (UTM Zone {workingZone})
+                </span>
+              )
             ) : scaleCalib.metersPerPixel ? (
               <span className="font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
                 Linear Calibrated: {scaleCalib.metersPerPixel.toFixed(4)} m/px

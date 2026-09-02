@@ -304,7 +304,11 @@ export const CoordinateConverterTab: React.FC<CoordinateConverterTabProps> = ({
         }
       });
       setHelmertConverted(conv);
-      toast.showSuccess(`Helmert transformation solved (Scale=${res.scale.toFixed(6)}, Rot=${res.rotDeg.toFixed(4)}°, Residual RMS=${res.rms.toFixed(4)}m)`);
+      toast.showSuccess(
+        res.redundancy.residualsAreMeaningful
+          ? `Helmert transformation solved (Scale=${res.scale.toFixed(6)}, Rot=${res.rotDeg.toFixed(4)}°, Residual RMS=${res.rms.toFixed(4)}m)`
+          : `Helmert transformation solved (Scale=${res.scale.toFixed(6)}, Rot=${res.rotDeg.toFixed(4)}°). ${res.redundancy.caution}`
+      );
     } catch (err: any) {
       toast.showError(`Helmert fit error: ${err.message}`);
     }
@@ -736,7 +740,21 @@ export const CoordinateConverterTab: React.FC<CoordinateConverterTabProps> = ({
             <p className="font-bold text-[#c9a063]">
               Helmert Fit: Scale: {helmertModel.scale.toFixed(8)}, Rotation: {helmertModel.rotDeg.toFixed(4)}°, Shift: ({helmertModel.tx.toFixed(2)}m, {helmertModel.ty.toFixed(2)}m)
             </p>
-            <p className="text-white/60">RMS Residual: ±{helmertModel.rms.toFixed(3)} m (Max: {helmertModel.maxRes.toFixed(3)} m)</p>
+            {/*
+              With the minimum two control points the fit is exactly determined,
+              so this reads 0.000 however wrong the points are — the error goes
+              into the scale instead. Saying so beats printing a figure that
+              looks like accuracy.
+            */}
+            {helmertModel.redundancy.residualsAreMeaningful ? (
+              <p className="text-white/60">
+                RMS Residual: ±{helmertModel.rms.toFixed(3)} m (Max: {helmertModel.maxRes.toFixed(3)} m) over {helmertModel.redundancy.n} points
+              </p>
+            ) : (
+              <p role="status" className="text-amber-400">
+                {helmertModel.redundancy.caution}
+              </p>
+            )}
           </div>
         )}
       </div>
