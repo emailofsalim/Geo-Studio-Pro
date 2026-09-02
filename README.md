@@ -394,10 +394,19 @@ hundred kilometres away. The preview is the last thing anyone looks at before
 exporting, so it is the worst place for a plausible wrong answer.
 
 Three further paths defaulted a missing zone to `'45N'` outright, including
-`exportData`, which is the export itself rather than a preview. The zone is now
-required of the caller in each, and an unreadable one is reported: the preview
-returns a notice, and round-trip verification returns a failed result rather
-than throwing at the modal awaiting it.
+`exportData`. The zone is now required of the caller in each, and an unreadable
+one is reported: the preview returns a notice, and round-trip verification
+returns a failed result rather than throwing at the modal awaiting it.
+
+**The same substitution was also in the path that actually runs.**
+`parseUtmZoneStr` — the parse behind `detectAndParseGeospatialFile` and
+`executeUniversalExport`, which are the import and export the application really
+uses — returned Zone 45 for anything it could not read, and clamped an
+out-of-range zone number onto 45 as well, which reads as a deliberate choice
+rather than a rejected input. It now refuses. Every form it used to accept
+still parses identically, a bare `45` included; only unreadable input behaves
+differently. Both call sites already surface errors to the user, so the refusal
+is visible where the wrong zone was not.
 
 ## The working cutoff rule survives
 

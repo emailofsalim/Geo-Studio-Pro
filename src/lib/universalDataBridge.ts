@@ -34,6 +34,7 @@ import {
   parseGeoTiffRaster
 } from './formats';
 import { lonLatToUtm, utmToLonLat, polygonAreaPerimeter } from './geodesy';
+import { zoneParams } from './crsIdentity';
 import { downloadBlob, makeZip, readZip } from './zip';
 
 export type ExportFormatId =
@@ -351,16 +352,23 @@ export interface DetectedImportResult {
 }
 
 /**
- * Extract UTM Zone number and hemisphere from zone string like '45N', '43S'
+ * Extract UTM Zone number and hemisphere from a zone string like '45N', '43S'.
+ *
+ * Refuses anything it cannot read, rather than returning Zone 45.
+ *
+ * This is the parse the live import and export paths use, so the substitution
+ * it used to make was not cosmetic: an unreadable zone silently placed the
+ * whole dataset in Zone 45. The same eastings and northings then describe
+ * ground hundreds of kilometres from where they were surveyed, in a file that
+ * carries no sign anything was assumed. Both call sites already surface the
+ * error to the user, so a refusal is visible where a wrong zone was not.
+ *
+ * The accepted forms are unchanged -- '45', '45N', '45 N', '45n', '07N' all
+ * still read as before, and a bare number still means the northern hemisphere.
  */
 export function parseUtmZoneStr(zoneStr: string): { zone: number; south: boolean } {
-  const match = String(zoneStr || '45N').match(/^(\d{1,2})\s*([NSns]?)$/);
-  if (match) {
-    const num = parseInt(match[1], 10);
-    const south = (match[2] || 'N').toUpperCase() === 'S';
-    return { zone: isNaN(num) || num < 1 || num > 60 ? 45 : num, south };
-  }
-  return { zone: 45, south: false };
+  const { zNum, isSouth } = zoneParams(zoneStr);
+  return { zone: zNum, south: isSouth };
 }
 
 /**
@@ -369,7 +377,7 @@ export function parseUtmZoneStr(zoneStr: string): { zone: number; south: boolean
  */
 export async function detectAndParseGeospatialFile(
   file: File,
-  workingZoneStr: string = '45N'
+  workingZoneStr: string
 ): Promise<DetectedImportResult> {
   const fileName = file.name.toLowerCase();
   const { zone, south } = parseUtmZoneStr(workingZoneStr);
@@ -1032,7 +1040,7 @@ export async function executeUniversalExport(options: UniversalExportOptions): P
     format,
     fileName: baseInputName,
     features = [],
-    workingZoneStr = '45N',
+    workingZoneStr,
     coordSystem = 'wgs84',
     include3dZ = true,
     layerName = 'BhuNex_Export',
