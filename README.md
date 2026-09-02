@@ -97,6 +97,15 @@ that promise a refusal or a partial read are asserted in `formatRefusals.test.ts
 against real file headers, because the alternative to refusing these files is not
 an error — it is plausible, meaningless output.
 
+The formats claiming both read and write are covered by `formatRoundTrip.test.ts`,
+which writes a feature and reads it back. That is the test that matters for a
+writer: a one-way check cannot see a coordinate losing precision in the text
+form, a ring closing or opening, or a vertex quietly dropped. Agreement is
+required to 1e-7 degrees, about 11 mm of latitude, and the writers are separately
+checked to emit enough decimal places — otherwise a writer and reader that round
+the same way would agree with each other while both being wrong. Rounding the
+writers to five decimals, about 1.1 m, fails eight of those tests.
+
 | Format | Read | Write | Notes |
 | --- | --- | --- | --- |
 | CSV / TXT | Yes | Yes | Delimiter detection, quoted fields, BOM handling |
