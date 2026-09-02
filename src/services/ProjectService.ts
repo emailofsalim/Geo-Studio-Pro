@@ -6,6 +6,7 @@ import { GeoProject, ProjectCategory, ProjectDataState } from '../types/project'
 import { storageService, SEED_PROJECTS } from './StorageService';
 import { BhnxProjectPackage } from '../types/canonical';
 import { crsLabelFor, crsIdentityFor } from '../lib/crsIdentity';
+import { statsFor } from '../lib/projectStats';
 
 export class ProjectService {
   /**
@@ -117,14 +118,7 @@ export class ProjectService {
       lastOpenedAt: now,
       status: 'Active',
       isLocalOnly: true,
-      stats: {
-        waypointsCount: params.initialData?.waypoints?.length || 0,
-        layersCount: params.initialData?.layers?.length || 0,
-        parcelsCount: params.initialData?.parcels?.length || 0,
-        boreholesCount: params.initialData?.boreholes?.length || 0,
-        photosCount: params.initialData?.photos?.length || 0,
-        geofencesCount: params.initialData?.geofences?.length || 0
-      }
+      stats: statsFor(params.initialData)
     };
 
     const initialData: ProjectDataState = {

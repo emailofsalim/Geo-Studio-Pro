@@ -6,6 +6,7 @@ import { BhnxProjectPackage, BhnxManifest, CanonicalCRS, CanonicalUnitsConfig } 
 import { GeoProject, ProjectDataState } from '../types/project';
 import { makeZip, readZip, ZipFileEntry } from '../lib/zip';
 import { calculateSha256, verifySha256 } from '../lib/crypto';
+import { statsFor } from '../lib/projectStats';
 import { crsLabelFor, parseZone, DEFAULT_ZONE, crsIdentityFor } from '../lib/crsIdentity';
 
 /** EPSG code for a stored working zone; falls back to the default zone's code only when the project never declared one. */
@@ -708,15 +709,7 @@ export class StorageService {
           const proj: GeoProject = projReq.result;
           if (proj) {
             proj.updatedAt = Date.now();
-            proj.stats = {
-              waypointsCount: sanitizedData.waypoints.length,
-              layersCount: sanitizedData.layers.length,
-              parcelsCount: sanitizedData.parcels.length,
-              boreholesCount: sanitizedData.boreholes.length,
-              photosCount: sanitizedData.photos.length,
-              geofencesCount: sanitizedData.geofences.length,
-              calculationsCount: (sanitizedData.calculations || []).length
-            };
+            proj.stats = statsFor(sanitizedData);
             projStore.put(proj);
           }
         };
@@ -810,15 +803,7 @@ export class StorageService {
           const proj: GeoProject = projReq.result;
           if (proj) {
             proj.updatedAt = Date.now();
-            proj.stats = {
-              waypointsCount: checkpoint.data.waypoints?.length || 0,
-              layersCount: checkpoint.data.layers?.length || 0,
-              parcelsCount: checkpoint.data.parcels?.length || 0,
-              boreholesCount: checkpoint.data.boreholes?.length || 0,
-              photosCount: checkpoint.data.photos?.length || 0,
-              geofencesCount: checkpoint.data.geofences?.length || 0,
-              calculationsCount: checkpoint.data.calculations?.length || 0
-            };
+            proj.stats = statsFor(checkpoint.data);
             projStore.put(proj);
           }
         };
@@ -1153,15 +1138,7 @@ export class StorageService {
       updatedAt: Date.now(),
       lastOpenedAt: Date.now(),
       status: 'Active',
-      stats: {
-        waypointsCount: data.waypoints?.length || 0,
-        layersCount: data.layers?.length || 0,
-        parcelsCount: data.parcels?.length || 0,
-        boreholesCount: data.boreholes?.length || 0,
-        photosCount: data.photos?.length || 0,
-        geofencesCount: data.geofences?.length || 0,
-        calculationsCount: data.calculations?.length || 0
-      }
+      stats: statsFor(data)
     };
 
     return {

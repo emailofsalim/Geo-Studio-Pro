@@ -7,6 +7,7 @@ import { GeoProject, ProjectCategory, ProjectStatus, ProjectModuleStats, Project
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { downloadBlob } from '../lib/zip';
+import { statsFor } from '../lib/projectStats';
 import { ProjectService } from '../services/ProjectService';
 import {
   storageService,
@@ -211,15 +212,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Compute live module stats for a project
   const getProjectStats = useCallback((id: string): ProjectModuleStats => {
     if (activeProjectId === id && activeProjectData) {
-      return {
-        waypointsCount: activeProjectData.waypoints?.length || 0,
-        layersCount: activeProjectData.layers?.length || 0,
-        parcelsCount: activeProjectData.parcels?.length || 0,
-        boreholesCount: activeProjectData.boreholes?.length || 0,
-        photosCount: activeProjectData.photos?.length || 0,
-        geofencesCount: activeProjectData.geofences?.length || 0,
-        calculationsCount: activeProjectData.calculations?.length || 0
-      };
+      return statsFor(activeProjectData);
     }
 
     const p = projects.find(item => item.id === id);
@@ -235,6 +228,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [activeProjectId, activeProjectData, projects]);
 
   // Performs authoritative transactional flush to IndexedDB
+  /** True once a checkpoint write has failed, so the warning is not repeated per edit. */
+  const checkpointFailedRef = useRef(false);
+
   const performSave = useCallback(async (projectId: string, dataToSave: ProjectDataState) => {
     try {
       setSaveStatus('SAVING');
@@ -289,7 +285,26 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         timeString: new Date().toLocaleTimeString(),
         dirtyModules: moduleName ? [moduleName] : ['general'],
         data: next
-      }).catch(() => {});
+      })
+        .then(() => {
+          // Protection is back; a later failure is worth reporting again.
+          checkpointFailedRef.current = false;
+        })
+        .catch((err: any) => {
+          // The checkpoint is the crash safety net, not the save. Losing it
+          // costs no committed work -- performSave reports its own failures --
+          // but it does mean an unexpected close would drop changes made since
+          // the last flush, and until now that happened in complete silence.
+          //
+          // Reported once rather than per write: this runs on every edit, and a
+          // message that fires continuously is trained away before it matters.
+          if (checkpointFailedRef.current) return;
+          checkpointFailedRef.current = true;
+          toast.showError(
+            `Crash recovery is not being recorded (${err?.message || 'storage write rejected'}). ` +
+              'Saved work is unaffected, but changes made since the last save would be lost if this tab closes unexpectedly.'
+          );
+        });
 
       // 2. Debounced save to authoritative IndexedDB store (1000ms)
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
