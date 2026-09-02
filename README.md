@@ -205,6 +205,28 @@ rotation and 2.5 ppm scale. The test asserts a centimetre bound *and* that the
 residual is not zero, so the approximation stays documented behaviour instead of
 being mistaken for exactness.
 
+**The statutory boundary offset takes its side from the dropdown, not from the
+digitising order.** The Boundary Offset screen used to compute its belt inline,
+deriving the offset direction from the ring's winding by assumption. A lease
+digitised clockwise therefore had its 7.5 m inward safety barrier placed
+*outside* the lease, and the screen reported 13 225 m² of net exploitable area
+where the true figure was 7 225 — the wrong way round for a barrier that exists
+to be left standing. The same inline code clamped runaway mitre corners in one
+direction only, so a sharp corner on an inward offset ran 375 m out on a 7.5 m
+belt. The geometry now lives in `offsetPolygonEN` in `geodesy.ts`, shared with
+the lat/lon `boundaryOffset`, and is covered by `boundaryOffset.test.ts`.
+
+**An offset that has eaten the parcel is refused rather than measured.** Past
+half the width of a block, an inward belt crosses itself edge for edge and comes
+out the other side — as a *simple* polygon with the ring's original orientation
+intact, so neither a self-intersection test nor a signed area notices. A 100 m
+block asked for a 90 m barrier returned a tidy 6 400 m² of "net exploitable
+mining area" where nothing is left, and the figure *grew* as the barrier
+widened. The offset is now held to its own definition — every vertex must stand
+at least the offset distance from the original boundary — and a belt that
+collapses the parcel to a point is refused too. The screen says which refusal
+happened instead of showing an area.
+
 **Partial:** Bluetooth RTK (link and GATT plumbing; no NTRIP client, no RTCM decoding) ·
 pit modelling (bench and wall geometry are calculated, but there is no 3D pit shell or
 ramp design) · point

@@ -576,18 +576,38 @@ export function ringsOverlap(A: { x: number; y: number }[], B: { x: number; y: n
 }
 
 // ---------------- Miter-Clamped Boundary Offsetting ----------------
-export function boundaryOffset(ll: LatLon[], dist: number, outward: boolean, zone: number, south: boolean): LatLon[] | null {
-  const v = ll.map(p => {
-    const u = lonLatToUtm(p.lon, p.lat, zone, south);
-    return { x: u.E, y: u.N };
-  });
+/**
+ * Offset a closed polygon given in projected metres (UTM easting/northing).
+ *
+ * `dist` is a magnitude and `outward` chooses the side. The direction is taken
+ * from the ring's own signed area rather than assumed, so a boundary digitised
+ * clockwise offsets the same way as one digitised counter-clockwise -- the
+ * surveyor's digitising order is not a statement about which side the barrier
+ * goes on.
+ *
+ * A sharp outer corner is bevelled rather than mitred, because the mitre point
+ * of a narrow corner runs away to many times the offset distance. Returns null
+ * for a distance that is not a positive number, for a ring of fewer than three
+ * distinct points, and for an offset that has consumed the parcel -- whether it
+ * folds through itself or turns inside out. An inward belt that has eaten the
+ * parcel is not a belt, and reporting an area for it would be reporting a
+ * fiction. A negative distance is refused rather than read as the opposite
+ * side, because the side is `outward`'s to state, not a minus sign's.
+ */
+export function offsetPolygonEN(
+  pts: { E: number; N: number }[],
+  dist: number,
+  outward: boolean
+): { E: number; N: number }[] | null {
+  if (!Number.isFinite(dist) || dist <= 0) return null;
+  const v = pts.map(p => ({ x: p.E, y: p.N }));
   if (v.length > 1) {
     const a = v[0], b = v[v.length - 1];
     if (Math.hypot(a.x - b.x, a.y - b.y) < 1e-6) v.pop();
   }
   const n = v.length;
   if (n < 3) return null;
-  
+
   let sArea = 0;
   for (let i = 0; i < n; i++) {
     const a = v[i], b = v[(i + 1) % n];
@@ -597,18 +617,18 @@ export function boundaryOffset(ll: LatLon[], dist: number, outward: boolean, zon
   const s = (outward ? 1 : -1) * (ccw ? 1 : -1);
   const MAX = 2.0;
   const out: { x: number; y: number }[] = [];
-  
+
   for (let i = 0; i < n; i++) {
     const p0 = v[(i - 1 + n) % n], p1 = v[i], p2 = v[(i + 1) % n];
     let a = { x: p1.x - p0.x, y: p1.y - p0.y }, b = { x: p2.x - p1.x, y: p2.y - p1.y };
     const la = Math.hypot(a.x, a.y) || 1, lb = Math.hypot(b.x, b.y) || 1;
     a = { x: a.x / la, y: a.y / la };
     b = { x: b.x / lb, y: b.y / lb };
-    
+
     const na = { x: a.y, y: -a.x }, nb = { x: b.y, y: -b.x };
     let mx = na.x + nb.x, my = na.y + nb.y;
     const ml = Math.hypot(mx, my);
-    
+
     if (ml < 1e-6) {
       out.push({ x: p1.x + s * na.x * dist, y: p1.y + s * na.y * dist });
       out.push({ x: p1.x + s * nb.x * dist, y: p1.y + s * nb.y * dist });
@@ -619,7 +639,7 @@ export function boundaryOffset(ll: LatLon[], dist: number, outward: boolean, zon
     const miter = dist / Math.max(Math.abs(cosHalf), 1e-6);
     const cross = a.x * b.y - a.y * b.x;
     const isOuter = cross * s > 0;
-    
+
     if (isOuter && miter > MAX * dist) {
       out.push({ x: p1.x + s * na.x * dist, y: p1.y + s * na.y * dist });
       out.push({ x: p1.x + s * nb.x * dist, y: p1.y + s * nb.y * dist });
@@ -627,10 +647,57 @@ export function boundaryOffset(ll: LatLon[], dist: number, outward: boolean, zon
       out.push({ x: p1.x + s * mx * miter, y: p1.y + s * my * miter });
     }
   }
-  
+
   if (out.length < 3 || selfIntersects(out)) return null;
-  const llo = out.map(u => {
-    const g = utmToLonLat(u.x, u.y, zone, south);
+
+  // Hold the result to the definition of an offset: every vertex must stand at
+  // least `dist` from the original boundary. Once an inward belt is wider than
+  // the parcel is narrow, each edge crosses the one opposite and the result
+  // comes out the other side -- and it does so as a *simple* polygon with the
+  // ring's original orientation intact, so neither selfIntersects nor a signed
+  // area can see it. What gives it away is that the survivors sit closer to
+  // the boundary than the belt they claim to be. Without this check a 100 m
+  // block asked for a 90 m inward barrier returns a tidy 6400 m2 of "net
+  // exploitable area" where the honest answer is that nothing is left, and the
+  // reported figure grows as the barrier widens.
+  const tol = 1e-6 * Math.max(1, dist);
+  for (const q of out) {
+    let near = Infinity;
+    for (let i = 0; i < n; i++) {
+      const a = v[i], b = v[(i + 1) % n];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((q.x - a.x) * dx + (q.y - a.y) * dy) / len2));
+      const d = Math.hypot(q.x - (a.x + t * dx), q.y - (a.y + t * dy));
+      if (d < near) near = d;
+    }
+    if (near < dist - tol) return null;
+  }
+
+  // Collapse vertices that have met, and refuse what is left if it is no
+  // longer a polygon. At exactly half the width of a parcel an inward belt
+  // brings every corner to the same point: four coincident vertices enclosing
+  // nothing, which passes the distance check because each one really is `dist`
+  // from the boundary. It is still not a belt, and exporting it would put a
+  // degenerate ring into a KML or DXF.
+  const ring: { x: number; y: number }[] = [];
+  for (const q of out) {
+    if (!ring.some(r => Math.hypot(r.x - q.x, r.y - q.y) <= tol)) ring.push(q);
+  }
+  if (ring.length < 3) return null;
+
+  return ring.map(u => ({ E: u.x, N: u.y }));
+}
+
+export function boundaryOffset(ll: LatLon[], dist: number, outward: boolean, zone: number, south: boolean): LatLon[] | null {
+  const en = ll.map(p => {
+    const u = lonLatToUtm(p.lon, p.lat, zone, south);
+    return { E: u.E, N: u.N };
+  });
+  const off = offsetPolygonEN(en, dist, outward);
+  if (!off) return null;
+  const llo = off.map(u => {
+    const g = utmToLonLat(u.E, u.N, zone, south);
     return { lon: g.lon, lat: g.lat };
   });
   llo.push({ lon: llo[0].lon, lat: llo[0].lat });
