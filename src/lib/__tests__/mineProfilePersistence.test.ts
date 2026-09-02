@@ -125,21 +125,24 @@ describe('restoreMineProfile', () => {
   });
 });
 
+// These pin the shipped presets, which carry the Indian Bureau of Mines
+// thresholds the old MiningService encoded. If a preset changes, these change
+// with it -- that is the point of asserting the text in full.
 describe('cutoffRuleText', () => {
   it('states the shipped bauxite rule in full', () => {
     expect(cutoffRuleText(BORE_PRESETS.bauxite))
-      .toBe('Al2O3 ≥ 30 AND SiO2 ≤ 7 AND TAA not blank/0');
+      .toBe('Al2O3 ≥ 40 AND SiO2 ≤ 5 AND TAA not blank/0');
   });
 
   it('includes a minimum thickness when one is set', () => {
     expect(cutoffRuleText(BORE_PRESETS.coal))
-      .toBe('GCV ≥ 3000 AND Ash ≤ 34, minimum thickness 0.5 m');
+      .toBe('GCV ≥ 3000 AND Ash ≤ 35, minimum thickness 0.5 m');
   });
 
   it('marks a threshold that is not set rather than printing undefined', () => {
     const p: MineProfile = JSON.parse(JSON.stringify(BORE_PRESETS.iron));
     p.rule.conds[0].v = null;
-    expect(cutoffRuleText(p)).toBe('Fe ≥ (not set)');
+    expect(cutoffRuleText(p)).toBe('Fe ≥ (not set) AND SiO2 ≤ 10');
   });
 
   it('distinguishes two rules that differ only in a threshold', () => {
@@ -147,7 +150,7 @@ describe('cutoffRuleText', () => {
     // same in both, so the name alone cannot tell them apart.
     const a: MineProfile = JSON.parse(JSON.stringify(BORE_PRESETS.bauxite));
     const b: MineProfile = JSON.parse(JSON.stringify(BORE_PRESETS.bauxite));
-    b.rule.conds[0].v = 40;
+    b.rule.conds[0].v = 35;
     expect(a.name).toBe(b.name);
     expect(cutoffRuleText(a)).not.toBe(cutoffRuleText(b));
   });

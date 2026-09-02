@@ -603,8 +603,8 @@ is visible where the wrong zone was not.
 
 A cutoff grade decides what counts as ore, so it is a setting, not a scratch
 value. It used to live in component state in a tab that is mounted only while
-it is the active tab, so setting Al₂O₃ ≥ 40 for a contract, glancing at another
-screen and coming back silently restored the published ≥ 30 — and every
+it is the active tab, so tightening Al₂O₃ to ≥ 45 for a contract, glancing at
+another screen and coming back silently restored the shipped preset — and every
 interval between the two flipped from barren to ore with nothing on screen to
 say the rule had changed.
 
@@ -614,6 +614,50 @@ reason shown, rather than quietly becoming the preset. In particular a
 threshold that has gone missing is refused, because comparing every assay
 against `undefined` returns false for all of them and reads a whole deposit as
 barren while the screen still shows the commodity name.
+
+**The shipped presets carry the Indian Bureau of Mines figures.** Bauxite,
+iron, limestone and coal now use the thresholds the application was built
+around and that the old `MiningService` encoded — Al₂O₃ ≥ 40 with SiO₂ ≤ 5,
+Fe ≥ 45 with SiO₂ ≤ 10, CaO ≥ 42 with SiO₂ ≤ 12, and Ash ≤ 35. The looser
+numbers that had drifted into the presets (Al₂O₃ ≥ 30, SiO₂ ≤ 7, Fe ≥ 55,
+CaO ≥ 44, Ash ≤ 34) called material ore that IBM would not, and in iron's case
+called material barren that IBM would not: 45–55 % Fe was being written off.
+Two of these tighten and one loosens, so the change moves intervals in both
+directions, and `oreCutoffs.test.ts` pins each threshold at its boundary.
+
+Conditions the IBM cutoff does not mention are kept rather than dropped —
+bauxite's TAA presence check, coal's GCV floor, limestone's MgO ceiling —
+because adopting a published cutoff is not a reason to discard a constraint the
+profile already carried. A preset remains a starting point, not a ruling: the
+rule is editable per project, and the rule actually applied is shown on screen
+beside the classification.
+
+## Dead code removed rather than left to be mistaken for live
+
+Deleted: five borehole export handlers (Surpac, ore-QA CSV, KML, DXF and
+shapefile) that were defined and never wired to a control; `boreCardHTML` and
+`cadCardHTML`, two HTML card builders with no callers; `ExportService.validate`
+and `ExportService.exportData`, neither of which anything called; an unused
+`parseUtmZoneStr` import; and sixteen unused imports in the borehole tab, five
+of them orphaned by the deletions and eleven already dead beforehand. About 370
+lines.
+
+This matters beyond tidiness. PR #6 in this repository fixed a Zone 45
+substitution in a copy nothing could reach while the live path kept the bug, and
+the fix looked complete. Unreachable code that mirrors a live path is a standing
+invitation to repeat that.
+
+`ExportService.exportData` was a second wrapper around `executeUniversalExport`;
+removing it leaves the single export entry point the architecture calls for.
+Surpac, KML, DXF and shapefile output all remain available through the Universal
+Export, which is where the borehole screen's description now points — it
+previously advertised exports that screen no longer offered.
+
+One deletion was replaced rather than dropped. The borehole screen built its
+cutoff summary line inline with `${c.v || ''}`, which prints a threshold of 0,
+or one that is not set, as blank — so "Al₂O₃ ≥ " read like a rule when it was
+not — and dropped the upper bound of a `between`. That inline copy is gone and
+the screen now uses `cutoffRuleText`, which was already tested and states both.
 
 ## Data safety
 
