@@ -156,7 +156,7 @@ Stated honestly, because a planned capability presented as an existing one is a 
 **Working:** Vincenty distance and bearing · UTM forward/inverse · MGRS · Plus Codes ·
 Indian Grid zones · Bursa-Wolf datum transforms · Helmert fit · Bowditch traverse
 adjustment · differential levelling · circular curves · resection · grid-to-ground
-correction · end-area and DTM grid volumes · Delaunay TIN surfaces from surveyed
+correction · Delaunay TIN surfaces from surveyed
 points, with plan and 3D surface area, volume to a stated datum, surface-to-surface
 comparison and marching-triangle contours linked into polylines and sent to GIS
 Studio as line features · constrained Delaunay, so a crest, toe, road edge or
@@ -166,6 +166,23 @@ borehole logging with grades · cadastral digitising with GCP georeferencing and
 residuals · GNSS averaging · bench and overall slope geometry · drill pattern
 layout · blast charge and powder factor · stockpile volumes from either measured
 cone/frustum dimensions or a surveyed pickup · block reserves and stripping ratio.
+
+**Implemented but not reachable:** the average-end-area and DTM grid volume
+methods. Both compute correctly and are covered by `earthworkVolumes.test.ts`,
+but nothing in the application imports either — no screen offers them. They were
+listed under *Working* until this was checked, which is the defect this list
+exists to prevent, so they have been moved out of it rather than left to read as
+an available feature.
+
+Two things to know before wiring the end-area method to a screen, both pinned by
+tests. Its sections are signed, so **fill comes back as a negative volume**
+rather than a positive quantity of material to place. And a section that runs
+from cut to fill is assigned wholly to one side by the sign of its two ends
+combined: a span going +10 m² to −10 m² reports zero cut and zero fill, when it
+truly holds 50 m³ of each. The *net* volume is right, which is what the method is
+for; the split is not, and the split is what gets priced. The DTM grid method has
+neither problem — it negates before accumulating, so its fill is positive, and it
+classifies each point on its own.
 
 The survey mathematics is checked against values it did not produce:
 `surveyMath.test.ts` uses Vincenty's own 1975 worked example (Flinders Peak to
