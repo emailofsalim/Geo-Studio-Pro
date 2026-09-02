@@ -83,7 +83,19 @@ export interface FullEnvironmentalReport {
   elevationM: number;
   fetchedAt: string;
   source: 'Live Open-Meteo & NOAA SWPC' | 'Offline Geodetic Standard Fallback';
+  /** True when the fetch succeeded. Not a promise that every value was observed. */
   isLive: boolean;
+  /**
+   * Readings the service did not return, which fell back to a standard value.
+   *
+   * `isLive` describes the fetch; this describes the numbers. A response that
+   * arrives without a pressure still sets `isLive`, and the EDM correction is
+   * then computed from the 1013.25 hPa sea-level standard. On the bauxite
+   * plateaus this application is aimed at, around 700 m, that is a 32 ppm
+   * error -- 65 mm over a two-kilometre sight -- and at 1200 m nearer 98 mm.
+   * Well outside control tolerance, and invisible behind a "Live" badge.
+   */
+  substitutedFields: string[];
   atmosphere: SurveyAtmosphericData;
   edmCorrection: EdmCorrectionResult;
   spaceWeather: SpaceWeatherTelemetry;
@@ -446,6 +458,7 @@ export async function fetchLiveEnvironmentalReport(
 
   let atmoData: SurveyAtmosphericData | null = null;
   let isLive = false;
+  const substituted: string[] = ['visibility'];
   let hourlyObj: any = undefined;
 
   try {
@@ -461,11 +474,21 @@ export async function fetchLiveEnvironmentalReport(
       const json = await res.json();
       const c = json.current;
       if (c) {
-        const tempC = c.temperature_2m ?? 20;
-        const press = c.surface_pressure ?? 1013.25;
-        const rh = c.relative_humidity_2m ?? 50;
-        const windKmh = c.wind_speed_10m ?? 8;
-        const windDir = c.wind_direction_10m ?? 0;
+        // Records anything the response did not carry, so a standard value
+        // can never pass for an observation.
+        const observed = <T,>(v: T | null | undefined, fallback: T, label: string): T => {
+          if (v == null || (typeof v === 'number' && !Number.isFinite(v))) {
+            substituted.push(label);
+            return fallback;
+          }
+          return v;
+        };
+
+        const tempC = observed(c.temperature_2m, 20, 'temperature');
+        const press = observed(c.surface_pressure, 1013.25, 'surface pressure');
+        const rh = observed(c.relative_humidity_2m, 50, 'relative humidity');
+        const windKmh = observed(c.wind_speed_10m, 8, 'wind speed');
+        const windDir = observed(c.wind_direction_10m, 0, 'wind direction');
         const wCode = c.weather_code ?? 0;
 
         atmoData = {
@@ -481,10 +504,12 @@ export async function fetchLiveEnvironmentalReport(
           windGustsKmh: Math.round((c.wind_gusts_10m ?? windKmh * 1.3) * 10) / 10,
           windDirectionDeg: Math.round(windDir),
           windCardinal: degreesToCardinal(windDir),
-          cloudCoverPercent: Math.round(c.cloud_cover ?? 10),
+          cloudCoverPercent: Math.round(observed(c.cloud_cover, 10, 'cloud cover')),
+          // Not among the fields requested, so this is always the standard
+          // clear-air figure rather than an observation.
           visibilityMeters: 10000,
-          uvIndex: Math.round((c.uv_index ?? 3) * 10) / 10,
-          solarIrradianceWm2: Math.round(c.direct_normal_irradiance ?? 450),
+          uvIndex: Math.round(observed(c.uv_index, 3, 'UV index') * 10) / 10,
+          solarIrradianceWm2: Math.round(observed(c.direct_normal_irradiance, 450, 'solar irradiance')),
           weatherCode: wCode,
           weatherDescription: interpretWmoCode(wCode),
           isDay: c.is_day === 1,
@@ -587,6 +612,7 @@ export async function fetchLiveEnvironmentalReport(
     fetchedAt: new Date().toLocaleTimeString(),
     source: isLive ? 'Live Open-Meteo & NOAA SWPC' : 'Offline Geodetic Standard Fallback',
     isLive,
+    substitutedFields: substituted,
     atmosphere: atmoData,
     edmCorrection,
     spaceWeather,

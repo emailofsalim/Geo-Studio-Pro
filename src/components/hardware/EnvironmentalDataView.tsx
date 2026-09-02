@@ -145,6 +145,20 @@ export const EnvironmentalDataView: React.FC<EnvironmentalDataViewProps> = ({
                   Offline Standard Model
                 </span>
               )}
+              {/*
+                A live fetch can still arrive without some readings. Naming them
+                matters most for pressure and temperature, which drive the EDM
+                ppm correction: at 700 m the sea-level standard is 32 ppm out,
+                which is 65 mm over a two-kilometre sight.
+              */}
+              {report && report.substitutedFields.length > 0 && (
+                <span
+                  role="status"
+                  className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                >
+                  Standard value used for {report.substitutedFields.join(', ')}
+                </span>
+              )}
             </div>
             <p className={`text-xs ${textSecondary} mt-0.5`}>
               {report?.location?.displayName || `Lat: ${customLat.toFixed(4)}°, Lon: ${customLon.toFixed(4)}°, Alt: ${customAlt}m`}
