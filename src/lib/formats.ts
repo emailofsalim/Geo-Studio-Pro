@@ -1,4 +1,5 @@
 import { GeoFeature, GeoPoint, PhotoLandmark } from '../types';
+import { parsePrj } from './crsIdentity';
 import { lonLatToUtm, utmToLonLat } from './geodesy';
 import { makeZip, ZipFileEntry, readZip } from './zip';
 
@@ -1563,6 +1564,18 @@ export function parseShapefile(
   const fileCode = view.getInt32(0, false); // 9994
   const shapeType = view.getInt32(32, true);
 
+  // The file's own statement of its coordinate system. Read once, and applied
+  // to every feature, because a shapefile has one CRS -- it is declared in a
+  // separate file for the whole layer, not per record.
+  const prj = parsePrj(prjText);
+
+  // Only used when there is no readable .prj. A geographic coordinate cannot
+  // exceed 180 degrees of longitude or 90 of latitude, so a coordinate that
+  // does proves the layer is projected. The converse does not hold: a local
+  // grid near its origin looks exactly like degrees, which is why this is a
+  // fallback and is reported as inferred rather than read.
+  let beyondGeographic = false;
+
   const dbfRecords = dbfBytes ? parseDBF(dbfBytes) : [];
   let offset = 100;
   let recIdx = 0;
@@ -1590,11 +1603,11 @@ export function parseShapefile(
     if (recShapeType === 1 || recShapeType === 11 || recShapeType === 21) {
       const x = view.getFloat64(offset + 12, true);
       const y = view.getFloat64(offset + 20, true);
-      const isUTM = Math.abs(x) > 180 || Math.abs(y) > 90;
+      if (Math.abs(x) > 180 || Math.abs(y) > 90) beyondGeographic = true;
       feats.push({
         name: featName,
         geom: 'point',
-        kind: isUTM ? 'en' : 'll',
+        kind: 'en',
         pts: [{ a: x, b: y }],
         props
       });
@@ -1633,14 +1646,16 @@ export function parseShapefile(
       }
 
       const isPolygon = recShapeType === 5 || recShapeType === 15 || recShapeType === 25;
-      const isUTM = allPoints.length > 0 && (Math.abs(allPoints[0].a) > 180 || Math.abs(allPoints[0].b) > 90);
+      for (const q of allPoints) {
+        if (Math.abs(q.a) > 180 || Math.abs(q.b) > 90) { beyondGeographic = true; break; }
+      }
 
       // Handle multi-part as separate or merged rings
       if (parts.length <= 1) {
         feats.push({
           name: featName,
           geom: isPolygon ? 'polygon' : 'line',
-          kind: isUTM ? 'en' : 'll',
+          kind: 'en',
           pts: allPoints,
           props
         });
@@ -1653,7 +1668,7 @@ export function parseShapefile(
             feats.push({
               name: `${featName}_part${p + 1}`,
               geom: isPolygon ? 'polygon' : 'line',
-              kind: isUTM ? 'en' : 'll',
+              kind: 'en',
               pts: partPts,
               props: { ...props, part: p + 1 }
             });
@@ -1665,6 +1680,19 @@ export function parseShapefile(
     offset += 8 + recLenBytes;
     recIdx++;
   }
+
+  // One CRS for the layer, decided once. The .prj is the file's own statement
+  // and wins outright; the magnitude fallback is only consulted when there is
+  // none, and it can only ever prove "projected", never "geographic".
+  //
+  // This used to be decided per feature -- for polygons, from the first vertex
+  // alone -- so a local grid spanning its origin could come back with some
+  // features read as metres and others as degrees, in one layer.
+  const projected =
+    prj.kind === 'projected' ? true :
+    prj.kind === 'geographic' ? false :
+    beyondGeographic;
+  for (const f of feats) f.kind = projected ? 'en' : 'll';
 
   return feats;
 }

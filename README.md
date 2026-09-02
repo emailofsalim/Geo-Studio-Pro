@@ -114,7 +114,7 @@ writers to five decimals, about 1.1 m, fails eight of those tests.
 | GPX | Yes | Yes | Waypoints, routes, tracks |
 | WKT | Yes | Yes | Including MULTI\* variants |
 | XLSX | Yes | Yes | Shared strings, inline strings, sparse cells |
-| Shapefile | Yes | — | SHP + DBF; points, polylines and polygons. The `.prj` is not read — see below |
+| Shapefile | Yes | — | SHP + DBF + PRJ; points, polylines and polygons |
 | DXF | Partial | Yes | Points, lines and polylines; arcs, circles, splines and text are counted and reported, not imported |
 | PDF | Yes | — | Rendered as a digitising background, multi-page |
 | World file | Yes | — | .tfw / .jgw / .pgw / .wld raster georeference |
@@ -295,15 +295,43 @@ right, ever worked — while the format table claimed "multi-part geometry".
 It is now read against the published record layout, and `shapefileReader.test.ts`
 builds spec-correct files rather than testing the reader against itself.
 
-**What the shapefile reader still does not do:** it accepts a `.prj` and does not
-read it. Whether coordinates are geographic or projected is inferred from their
-magnitude — beyond ±180 or ±90 they are treated as eastings and northings —
-decided per feature from its first vertex. That is right for the common case and
-wrong for a local grid whose coordinates are small, where features near the
-origin would be read as degrees and features further out as metres, in the same
-layer. The `.prj` is the file's own statement of its coordinate system and
-should be what decides; until it is, this is stated here rather than implied to
-work.
+**The `.prj` now decides the coordinate system, and one layer gets one answer.**
+The reader used to accept a `.prj` and ignore it, inferring geographic against
+projected from coordinate magnitude — *per feature, and for a polygon from its
+first vertex alone*. A local grid spanning its origin could therefore come back
+with the far block read as metres and the near block as degrees, in the same
+layer, putting one of them off the coast of Africa. And a projected file whose
+coordinates happen to be small was read as lat/lon outright.
+
+`parsePrj` reads the file's own statement far enough to answer what matters:
+degrees or metres, and if metres, which UTM zone. Only the outermost keyword
+decides — every `PROJCS` contains a `GEOGCS` describing its own datum, so a
+check for "contains GEOGCS" would call every projected shapefile lat/lon. Three
+sources can name the zone and are taken in order of authority: an EPSG code
+(32601–32660 north, 32701–32760 south) is a citation and wins; the projection
+parameters are the definition itself, with the central meridian giving the zone
+and a false northing of 10 000 000 marking the south; the name comes last,
+because it is a label a person typed. A central meridian that is not on a zone
+boundary yields no zone rather than a rounded guess.
+
+The magnitude test survives only as a fallback when there is no readable `.prj`,
+applied once for the whole layer, and it can only ever prove *projected* — a
+coordinate beyond ±180 or ±90 cannot be degrees, while small coordinates prove
+nothing. That case is reported as inferred, with a warning naming what was
+assumed.
+
+**Zipped shapefiles are now actually read.** The Universal import passed the
+archive's own bytes to the reader as if they were a `.shp`, which parses to
+nothing — so the normal way a shapefile is shipped never got past detection, and
+the branch only ever did anything for a bare `.shp`, without its attributes or
+its CRS. The `.shp`, `.dbf` and `.prj` members are now located inside the
+archive, whatever their case or folder, and handed over together.
+
+**And the import no longer states a coordinate system it never read.** Every
+shapefile was reported as `WGS 84 (EPSG:4326)` with status `EXPLICIT` — the
+strongest confidence the vocabulary has — for a file whose `.prj` had not been
+opened. It now reports what the `.prj` declared and marks it `EXPLICIT`, or says
+what it inferred and marks it `INFERRED`.
 
 **Partial:** Bluetooth RTK (link and GATT plumbing; no NTRIP client, no RTCM decoding) ·
 pit modelling (bench and wall geometry are calculated, but there is no 3D pit shell or

@@ -140,6 +140,61 @@ describe('shapefile reader', () => {
     expect(feats[0].kind).toBe('ll');
   });
 
+  const ESRI_UTM_44N =
+    'PROJCS["WGS_1984_UTM_Zone_44N",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",' +
+    'SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],' +
+    'UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],' +
+    'PARAMETER["False_Easting",500000.0],PARAMETER["False_Northing",0.0],' +
+    'PARAMETER["Central_Meridian",81.0],PARAMETER["Scale_Factor",0.9996],' +
+    'PARAMETER["Latitude_Of_Origin",0.0],UNIT["Meter",1.0]]';
+  const ESRI_GEOGRAPHIC =
+    'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,' +
+    '298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+
+  it('believes the .prj over the size of the numbers', () => {
+    // A local mine grid: every coordinate is small enough to pass for degrees,
+    // and the magnitude test alone reads the whole layer as lat/lon. The .prj
+    // says it is projected, and the .prj is the file's own statement.
+    const local: Ring = [[10, 10], [80, 10], [80, 80], [10, 80], [10, 10]];
+    expect(parseShapefile(buildShp([local], 5))[0].kind,
+      'with no .prj there is nothing to go on but the magnitudes').toBe('ll');
+    expect(parseShapefile(buildShp([local], 5), undefined, ESRI_UTM_44N)[0].kind,
+      'the .prj says projected').toBe('en');
+  });
+
+  it('believes a geographic .prj too', () => {
+    const geo: Ring = [[85.0, 23.5], [85.001, 23.5], [85.001, 23.501], [85.0, 23.5]];
+    expect(parseShapefile(buildShp([geo], 5), undefined, ESRI_GEOGRAPHIC)[0].kind).toBe('ll');
+  });
+
+  it('gives one layer one coordinate system', () => {
+    // The defect this pins. Classification was decided per feature, and for a
+    // polygon from its first vertex alone -- so a local grid spanning its
+    // origin came back with the far block read as metres and the near block as
+    // degrees, in the same layer, placing one of them off the coast of Africa.
+    const near: Ring = [[10, 10], [80, 10], [80, 80], [10, 80], [10, 10]];
+    const far: Ring = [[300, 300], [500, 300], [500, 500], [300, 500], [300, 300]];
+    const kinds = parseShapefile(buildShp([near, far], 5)).map(f => f.kind);
+    expect(kinds).toHaveLength(2);
+    expect(new Set(kinds).size, `one layer, one CRS -- got ${kinds.join(' and ')}`).toBe(1);
+    // With no .prj, one coordinate beyond 180 proves the layer is projected,
+    // and that verdict must cover the near block as well.
+    expect(kinds[0]).toBe('en');
+  });
+
+  it('a coordinate beyond the geographic range proves the layer is projected', () => {
+    const big: Ring = [[254800, 2605200], [254900, 2605200], [254900, 2605300], [254800, 2605200]];
+    expect(parseShapefile(buildShp([big], 5))[0].kind).toBe('en');
+  });
+
+  it('an unreadable .prj falls back rather than throwing', () => {
+    const big: Ring = [[254800, 2605200], [254900, 2605200], [254900, 2605300], [254800, 2605200]];
+    for (const junk of ['', 'nonsense', '<?xml version="1.0"?>']) {
+      expect(() => parseShapefile(buildShp([big], 5), undefined, junk)).not.toThrow();
+      expect(parseShapefile(buildShp([big], 5), undefined, junk)[0].kind).toBe('en');
+    }
+  });
+
   it('returns nothing for a buffer that is not a shapefile', () => {
     const junk = new Uint8Array(200);
     expect(() => parseShapefile(junk)).not.toThrow();
