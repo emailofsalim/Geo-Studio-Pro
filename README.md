@@ -174,6 +174,20 @@ equatorial arc lengths, and closed-form geometry for areas, curves and
 radiation. Expected values taken from the implementation's own output would only
 prove it still does what it did.
 
+`geodeticSystems.test.ts` covers the coordinate systems the same way — against
+definitions rather than against themselves. The prime meridian starts zone 31,
+the MGRS bands run C to X skipping I and O, the equator on the prime meridian is
+at exactly the semi-major axis and the pole at the semi-minor, and the Indian
+Grid and ECEF conversions round-trip.
+
+**The Bursa-Wolf reverse is approximate, and the tests say so rather than hiding
+it.** Negating the seven parameters does not rotate and rescale the translation
+being undone, so a forward-and-back round trip returns to roughly
+(scale + rotation) × |translation| — about 4 mm for an 833 m shift with a 1.2″
+rotation and 2.5 ppm scale. The test asserts a centimetre bound *and* that the
+residual is not zero, so the approximation stays documented behaviour instead of
+being mistaken for exactness.
+
 **Partial:** Bluetooth RTK (link and GATT plumbing; no NTRIP client, no RTCM decoding) ·
 pit modelling (bench and wall geometry are calculated, but there is no 3D pit shell or
 ramp design) · point
