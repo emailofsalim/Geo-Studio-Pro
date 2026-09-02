@@ -304,6 +304,7 @@ export interface HelmertResult {
   rms: number;
   maxRes: number;
   n: number;
+  redundancy: FitRedundancy;
 }
 
 export function helmertFit(ctrl: ControlPointPair[]): HelmertResult {
@@ -339,7 +340,117 @@ export function helmertFit(ctrl: ControlPointPair[]): HelmertResult {
     if (r > maxr) maxr = r;
   }
   rms = Math.sqrt(rms / n);
-  return { a, b, tx, ty, scale, rotDeg, res, rms, maxRes: maxr, n };
+  return { a, b, tx, ty, scale, rotDeg, res, rms, maxRes: maxr, n, redundancy: fitRedundancy(n, 4) };
+}
+
+/**
+ * Degrees of freedom in a least-squares fit, and whether its residuals can
+ * mean anything.
+ *
+ * Each control point contributes two equations (easting and northing). A fit
+ * solving `params` unknowns therefore has `2n - params` degrees of freedom.
+ * At zero the fit passes exactly through every point and the residuals are
+ * identically zero **whatever the control points say** — there is no spare
+ * observation left to disagree with them.
+ *
+ * That matters because the residual is the only thing telling a surveyor
+ * whether a georeference is any good. Measured on the four-parameter Helmert
+ * fit: two control points, one of them mis-keyed by 50 m, reports an RMS of
+ * 0.000 m and quietly absorbs the error into a 6.25% scale change. The same
+ * error with three points reports 14.4 m. A "perfect" fit at the minimum
+ * point count is not evidence of a good georeference; it is evidence of
+ * having no evidence.
+ */
+export interface FitRedundancy {
+  /** Control points used. */
+  n: number;
+  /** 2n - unknowns. Zero means the residuals cannot detect an error. */
+  degreesOfFreedom: number;
+  /** False when the fit is exactly determined, so residuals are structurally zero. */
+  residualsAreMeaningful: boolean;
+  /** Plain wording for the screen, or null when there is redundancy to report. */
+  caution: string | null;
+}
+
+export function fitRedundancy(n: number, unknowns: number): FitRedundancy {
+  const degreesOfFreedom = 2 * n - unknowns;
+  const meaningful = degreesOfFreedom > 0;
+  const minimum = Math.ceil(unknowns / 2);
+  return {
+    n,
+    degreesOfFreedom,
+    residualsAreMeaningful: meaningful,
+    caution: meaningful
+      ? null
+      : `${n} control points fit this transform exactly, so the residual is 0 by construction ` +
+        `and cannot show an error in them. Add a ${minimum + 1}${minimum + 1 === 3 ? 'rd' : 'th'} ` +
+        `point to make the residual mean something.`
+  };
+}
+
+/**
+ * Six-parameter affine fit from image pixels to ground coordinates.
+ *
+ * Least squares over the normal equations, the same arithmetic the cadastral
+ * digitiser used inline. It lives here so it can be tested, and so the
+ * redundancy of the fit is reported beside its RMSE rather than left to be
+ * inferred from the point count.
+ */
+export interface AffineFitResult {
+  a: number; b: number; tx: number;
+  c: number; d: number; ty: number;
+  /** Root mean square residual, in ground units. */
+  rmse: number;
+  /** Residual per control point, in ground units. */
+  res: number[];
+  redundancy: FitRedundancy;
+}
+
+export function affineFit(
+  pts: { pixelX: number; pixelY: number; E: number; N: number }[]
+): AffineFitResult | null {
+  const n = pts.length;
+  if (n < 3) return null;
+
+  let sumX = 0, sumY = 0, sumE = 0, sumN = 0;
+  let sumXX = 0, sumYY = 0, sumXY = 0;
+  let sumXE = 0, sumYE = 0, sumXN = 0, sumYN = 0;
+  for (const g of pts) {
+    sumX += g.pixelX; sumY += g.pixelY; sumE += g.E; sumN += g.N;
+    sumXX += g.pixelX * g.pixelX;
+    sumYY += g.pixelY * g.pixelY;
+    sumXY += g.pixelX * g.pixelY;
+    sumXE += g.pixelX * g.E; sumYE += g.pixelY * g.E;
+    sumXN += g.pixelX * g.N; sumYN += g.pixelY * g.N;
+  }
+
+  const det =
+    n * (sumXX * sumYY - sumXY * sumXY) -
+    sumX * (sumX * sumYY - sumY * sumXY) +
+    sumY * (sumX * sumXY - sumY * sumXX);
+  if (Math.abs(det) < 1e-9) return null;
+
+  const solve3x3 = (r1: number, r2: number, r3: number) => {
+    const d1 = r1 * (sumYY * n - sumY * sumY) - sumXY * (r2 * n - sumY * r3) + sumX * (r2 * sumY - sumYY * r3);
+    const d2 = sumXX * (r2 * n - sumY * r3) - r1 * (sumXY * n - sumX * sumY) + sumX * (sumXY * r3 - sumX * r2);
+    const d3 = sumXX * (sumYY * r3 - r2 * sumY) - sumXY * (sumXY * r3 - r1 * sumY) + sumX * (sumXY * r2 - sumYY * r1);
+    return [d1 / det, d2 / det, d3 / det];
+  };
+
+  const [a, b, tx] = solve3x3(sumXE, sumYE, sumE);
+  const [c, d, ty] = solve3x3(sumXN, sumYN, sumN);
+
+  const res: number[] = [];
+  let errSqSum = 0;
+  for (const g of pts) {
+    const dE = a * g.pixelX + b * g.pixelY + tx - g.E;
+    const dN = c * g.pixelX + d * g.pixelY + ty - g.N;
+    const r = Math.hypot(dE, dN);
+    res.push(r);
+    errSqSum += dE * dE + dN * dN;
+  }
+
+  return { a, b, tx, c, d, ty, rmse: Math.sqrt(errSqSum / n), res, redundancy: fitRedundancy(n, 6) };
 }
 
 export function helmertApply(p: { a: number; b: number; tx: number; ty: number }, x: number, y: number) {

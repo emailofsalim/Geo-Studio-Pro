@@ -366,6 +366,38 @@ in the borehole tab: *never substitutes a default; a fabricated depth or
 elevation in a collar export reads as a real observation to whoever opens the
 file.* It simply had not been applied to the export builders.
 
+## A residual of zero is not evidence of a good fit
+
+The residual is the only thing telling a surveyor whether a georeference is any
+good. At the minimum number of control points, it cannot do that job: the fit
+passes exactly through every point by construction, so the residual is zero
+however wrong the points are.
+
+Both fits here accepted exactly that minimum. The four-parameter Helmert fit
+takes two control points; the cadastral digitiser's six-parameter affine takes
+three — and three is what someone placing the fewest allowed will use.
+
+Measured, on the Helmert fit with two points one of which is mis-keyed by 50 m:
+
+| | RMS reported | Scale solved |
+| --- | --- | --- |
+| Two clean points | 0.000 m | 1.000000 |
+| Two points, one 50 m wrong | **0.000 m** | **1.062500** |
+| Three points, same error | 14.434 m | — |
+
+The error does not vanish at two points. It is absorbed into a 6.25% scale
+change, and every coordinate read off that transform is wrong in proportion to
+its distance from the origin, while the screen reports a perfect fit.
+
+Both fits now report their redundancy — `2n − unknowns` — beside the residual.
+Where it is zero the figure is replaced rather than annotated, because a
+`0.000 m` shown next to a caveat still reads as accuracy: the digitiser says
+*"Georef fitted on 3 points — residual cannot show an error"*, and the
+converter says how many more points would make the residual mean something.
+
+The digitiser's affine solve also moved out of a component `useMemo` into
+`geodesy.ts`, so it can be tested at all. The arithmetic is unchanged.
+
 ## A standard value never passes for an observation
 
 The atmospheric readings drive the EDM ppm correction, a scale correction
@@ -453,6 +485,21 @@ survey file that never landed, features "transferred" to a layer that was never
 created. The projects screen and the project dashboard were built but never mounted,
 so no project could be opened at all and that silent-discard path was the only one
 there was.
+
+That check was added at the application level, for import and "send to GIS". The
+**tools** that write project data were not covered, and they are reachable with no
+project open: GNSS Field Survey, GIS Map Studio and Geofence Sentinel all appear in
+the sidebar from a cold start. GNSS Field Survey offered *Save Current Fix to
+Registry* and *Start Recording*, showed a waypoint count, and said nothing about
+needing a project — while every write no-opped. The tools kept their own local
+state, so a saved fix appeared in the list, counted in the header, and was gone on
+reload. Nothing failed, and nothing said so.
+
+Those three now show the same panel the dashboard has always shown, naming what the
+tool would be doing with a project. The panel is extracted rather than copied, so
+there is one implementation instead of four. Tools that only compute — the
+coordinate converter, the survey calculator — are deliberately not gated: they write
+nothing, so they lose nothing.
 
 ## Provenance
 
