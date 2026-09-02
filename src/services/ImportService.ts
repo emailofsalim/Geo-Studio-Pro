@@ -5,7 +5,6 @@
 import { CanonicalImportResult, CanonicalCRS } from '../types/canonical';
 import {
   detectAndParseGeospatialFile,
-  parseUtmZoneStr,
   DetectedImportResult,
   computeBoundingBox
 } from '../lib/universalDataBridge';

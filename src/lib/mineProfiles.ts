@@ -1,15 +1,30 @@
 import {
   BoreholeHole,
-  BoreInterval,
   CadastralProfile,
   CutoffCondition,
   CutoffOp,
   MineParam,
   MineProfile
 } from '../types';
-import { lonLatToUtm, utmToLonLat } from './geodesy';
-import { csvEnc, toCSVtext, xmlesc } from './formats';
 
+/**
+ * Shipped cutoff presets.
+ *
+ * Bauxite, iron, limestone and coal carry the thresholds from the Indian Bureau
+ * of Mines guidelines that the old MiningService encoded: Al2O3 >= 40 with
+ * SiO2 <= 5, Fe >= 45 with SiO2 <= 10, CaO >= 42 with SiO2 <= 12, and
+ * Ash <= 35. Those were the figures the application was built around, and the
+ * looser numbers that had drifted into these presets (Al2O3 >= 30, SiO2 <= 7,
+ * Fe >= 55, CaO >= 44, Ash <= 34) called material ore that IBM would not.
+ *
+ * Conditions the IBM cutoff does not mention are kept rather than dropped --
+ * bauxite's TAA presence check, coal's GCV floor and limestone's MgO ceiling --
+ * because using a published cutoff is not a reason to discard a constraint the
+ * profile already carried.
+ *
+ * A preset is a starting point, not a ruling: the rule is editable per project
+ * and what was actually applied is shown on screen beside the classification.
+ */
 export const BORE_PRESETS: Record<string, MineProfile> = {
 
   bauxite: {
@@ -25,8 +40,8 @@ export const BORE_PRESETS: Record<string, MineProfile> = {
       logic: 'AND',
       minThick: 0,
       conds: [
-        { param: 'Al2O3', op: 'ge', v: 30 },
-        { param: 'SiO2', op: 'le', v: 7 },
+        { param: 'Al2O3', op: 'ge', v: 40 },
+        { param: 'SiO2', op: 'le', v: 5 },
         { param: 'TAA', op: 'nz' }
       ]
     }
@@ -45,7 +60,10 @@ export const BORE_PRESETS: Record<string, MineProfile> = {
     rule: {
       logic: 'AND',
       minThick: 0,
-      conds: [{ param: 'Fe', op: 'ge', v: 55 }]
+      conds: [
+        { param: 'Fe', op: 'ge', v: 45 },
+        { param: 'SiO2', op: 'le', v: 10 }
+      ]
     }
   },
   coal: {
@@ -63,7 +81,7 @@ export const BORE_PRESETS: Record<string, MineProfile> = {
       minThick: 0.5,
       conds: [
         { param: 'GCV', op: 'ge', v: 3000 },
-        { param: 'Ash', op: 'le', v: 34 }
+        { param: 'Ash', op: 'le', v: 35 }
       ]
     }
   },
@@ -80,7 +98,8 @@ export const BORE_PRESETS: Record<string, MineProfile> = {
       logic: 'AND',
       minThick: 0,
       conds: [
-        { param: 'CaO', op: 'ge', v: 44 },
+        { param: 'CaO', op: 'ge', v: 42 },
+        { param: 'SiO2', op: 'le', v: 12 },
         { param: 'MgO', op: 'le', v: 3 }
       ]
     }
@@ -508,133 +527,7 @@ export function boreSummary(hole: BoreholeHole, profile: MineProfile) {
   };
 }
 
-export function boreCardHTML(hole: BoreholeHole, profile: MineProfile) {
-  const u = lonLatToUtm(hole.lon, hole.lat, hole.zone, hole.south);
-  const S = boreSummary(hole, profile);
-  const bBg = S.positive ? (profile.pos || '#1B5E20') : (profile.neg || '#b3261e');
-  const bTxt = S.positive ? 'POSITIVE' : 'NEGATIVE';
-  const params = profile.params || [];
 
-  const chip = (bg: string, label: string, val: string) => `
-    <td style="padding:0 5px 5px 0">
-      <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;border-radius:4px;overflow:hidden">
-        <tr>
-          <td style="background:${bg};padding:4px 8px;color:#fff;font-size:8px;font-weight:bold;white-space:nowrap">${label}</td>
-          <td style="background:#DCE4EA;padding:4px 9px;color:#12395C;font-size:10px;font-weight:bold;white-space:nowrap">${val}</td>
-        </tr>
-      </table>
-    </td>`;
-
-  let h = `
-  <div style="font-family:Segoe UI,Calibri,Arial,sans-serif;width:${Math.max(520, 300 + params.length * 60)}px;max-width:720px;color:#1B2A38;background:#fff">
-    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">
-      <tr>
-        <td style="background:#12395C;padding:8px 11px">
-          <div style="color:#fff;font-size:15px;font-weight:bold">BOREHOLE ${xmlesc(hole.id)}</div>
-          <div style="color:#9FC3DC;font-size:8px;margin-top:1px">${xmlesc(hole.project || profile.name || '')}</div>
-        </td>
-        <td style="background:${bBg};padding:8px 11px;text-align:right;white-space:nowrap">
-          <span style="color:#fff;font-size:10px;font-weight:bold;letter-spacing:1px">${bTxt}</span>
-        </td>
-      </tr>
-    </table>
-    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;background:#DDE4EA;border-bottom:2px solid #12395C">
-      <tr>
-        <td style="padding:4px 9px;border-right:1px solid #fff"><div style="font-size:7px;color:#4A6274">EASTING (m)</div><div style="font-size:10px;color:#12395C;font-weight:bold">${u.E.toFixed(3)}</div></td>
-        <td style="padding:4px 9px;border-right:1px solid #fff"><div style="font-size:7px;color:#4A6274">NORTHING (m)</div><div style="font-size:10px;color:#12395C;font-weight:bold">${u.N.toFixed(3)}</div></td>
-        <td style="padding:4px 9px;border-right:1px solid #fff"><div style="font-size:7px;color:#4A6274">COLLAR RL</div><div style="font-size:10px;color:#12395C;font-weight:bold">${hole.rl != null ? hole.rl.toFixed(2) + ' m' : '-'}</div></td>
-        <td style="padding:4px 9px;"><div style="font-size:7px;color:#4A6274">END OF HOLE</div><div style="font-size:10px;color:#12395C;font-weight:bold">${hole.eoh != null ? hole.eoh.toFixed(2) + ' m' : '-'}</div></td>
-      </tr>
-    </table>
-    <table cellpadding="0" cellspacing="0" border="0" style="margin-top:7px">
-      <tr>
-        ${chip('#A1795A', 'OVERBURDEN', S.ob.toFixed(2) + ' m')}
-        ${chip(bBg, 'ORE', S.oreThk.toFixed(2) + ' m')}
-        ${chip('#78909C', 'INTERBURDEN', S.ib.toFixed(2) + ' m')}
-        ${chip('#37474F', 'SEAMS', String(S.seams))}
-      </tr>
-      <tr>
-        ${params.map(p => {
-          const v = S.wmeans[p.key];
-          return chip('#2E7D32', `WT.${String(p.key).toUpperCase()}`, v != null ? v.toFixed(2) + (p.unit ? ` ${p.unit}` : '') : '-');
-        }).join('')}
-      </tr>
-      <tr>
-        ${chip('#5D4037', 'STRIP RATIO', S.strip != null ? S.strip.toFixed(2) + ' : 1' : '-')}
-        ${chip('#6A1B9A', 'LON / LAT', `${hole.lon.toFixed(5)}, ${hole.lat.toFixed(5)}`)}
-      </tr>
-    </table>
-    <div style="margin-top:11px;font-size:10px;font-weight:bold;color:#12395C;border-bottom:2px solid #12395C;padding-bottom:3px">COMPOSITE CORE LOG</div>
-    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:3px;border-collapse:collapse">
-      <tr>
-        <td style="background:#12395C;color:#fff;font-size:8px;font-weight:bold;padding:5px 6px;text-align:left">FROM - TO m</td>
-        <td style="background:#12395C;color:#fff;font-size:8px;font-weight:bold;padding:5px 6px;text-align:left">LITHOLOGY</td>
-        <td style="background:#12395C;color:#fff;font-size:8px;font-weight:bold;padding:5px 6px;text-align:right">THK</td>
-        ${params.map(p => `<td style="background:#12395C;color:#fff;font-size:8px;font-weight:bold;padding:5px 6px;text-align:right">${xmlesc(p.key.toUpperCase() + (p.unit ? ' ' + p.unit : ''))}</td>`).join('')}
-        <td style="background:#12395C;color:#fff;font-size:8px;font-weight:bold;padding:5px 6px;text-align:left">ORE LOGIC</td>
-      </tr>`;
-
-  hole.intervals.forEach(iv => {
-    const thk = ((iv.to - iv.from) || 0).toFixed(2);
-    const rail = iv.isOre ? bBg : '#E7EDF1';
-    const bg = '#F3F7FA';
-    h += `
-      <tr>
-        <td style="border-left:4px solid ${rail};border-bottom:1px solid #CBD5DC;padding:5px 6px;font-size:9px;text-align:right;background:${bg}">
-          <b style="color:#12395C">${iv.from.toFixed(2)}</b> - ${iv.to.toFixed(2)}
-        </td>
-        <td style="border-bottom:1px solid #CBD5DC;padding:5px 6px;font-size:9px;color:#33485A;background:${bg}">${xmlesc(iv.lith || '-')}</td>
-        <td style="border-bottom:1px solid #CBD5DC;padding:5px 6px;font-size:9px;text-align:right;background:${bg}">${thk}</td>
-        ${params.map(p => `<td style="border-bottom:1px solid #CBD5DC;padding:5px 6px;font-size:9px;text-align:right;background:${bg}">${iv.vals[p.key] != null ? (iv.vals[p.key] as number).toFixed(2) : '-'}</td>`).join('')}
-        <td style="border-bottom:1px solid #CBD5DC;padding:5px 6px;font-size:8px;color:${iv.isOre ? '#1B5E20' : '#617584'};background:${bg}">${xmlesc(iv.logic)}</td>
-      </tr>`;
-  });
-
-  h += `
-    </table>
-    <div style="margin-top:8px;padding-top:5px;border-top:1px solid #C3CDD4;font-size:7px;color:#617584;line-height:11px">
-      Cutoff: ${xmlesc(cutoffRuleText(profile))}<br>
-      Profile: ${xmlesc(profile.name)} | BhuNex Studio | UTM ${hole.zone}${hole.south ? 'S' : 'N'} / WGS84
-    </div>
-  </div>`;
-
-  return h;
-}
-
-export function cadCardHTML(plotNo: string, rec: Record<string, any> | undefined, areaHa: number, profile: CadastralProfile) {
-  const accent = profile.accent || '#EA580C';
-  const areaTxt = profile.areaUnit === 'acre' ? `${(areaHa * 2.4710538147).toFixed(4)} acre` : `${areaHa.toFixed(4)} ha`;
-  let h = `
-  <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;width:460px;color:#1F2937">
-    <div style="background:${accent};color:#fff;padding:8px 12px;border-radius:4px 4px 0 0">
-      <div style="font-size:18px;font-weight:700">Plot ${xmlesc(plotNo)}</div>
-      <div style="font-size:10px">${xmlesc((rec && (rec.Lease || rec.Project)) || profile.name)}</div>
-    </div>
-    <div style="background:#F3F4F6;padding:6px 10px;font-weight:700;color:#111827;border-top:2px solid ${accent};font-size:11px">Land Record Details</div>
-    <table style="width:100%;border-collapse:collapse;font-size:11px">
-      <tr>
-        <td style="padding:5px 8px;border-bottom:1px solid #E5E7EB;font-weight:600;color:#4B5563;width:44%">Plot No</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #E5E7EB"><b>${xmlesc(plotNo)}</b></td>
-      </tr>`;
-
-  (profile.fields || []).forEach((f, i) => {
-    const v = (rec && rec[f.key] != null && String(rec[f.key]).trim() !== '') ? rec[f.key] : '-';
-    h += `
-      <tr style="${i % 2 ? 'background:#F9FAFB' : ''}">
-        <td style="padding:5px 8px;border-bottom:1px solid #E5E7EB;font-weight:600;color:#4B5563">${xmlesc(f.label)}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #E5E7EB">${xmlesc(v)}</td>
-      </tr>`;
-  });
-
-  h += `
-      <tr>
-        <td style="padding:5px 8px;border-bottom:1px solid #E5E7EB;font-weight:600;color:#4B5563">Computed Area</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #E5E7EB"><b>${areaTxt}</b> (${(areaHa * 10000).toFixed(1)} m²)</td>
-      </tr>
-    </table>
-  </div>`;
-  return h;
-}
 
 export const MINE_PROFILES = BORE_PRESETS;
 export const DEFAULT_PROFILES = BORE_PRESETS;

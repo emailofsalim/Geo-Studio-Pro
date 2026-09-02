@@ -2,34 +2,16 @@
 // BhuNex Studio — Universal Export Service (Phase 6 Architecture)
 // ============================================================================
 
-import { CanonicalExportResult, CanonicalCRS } from '../types/canonical';
-import {
-  executeUniversalExport,
-  ExportFormatId,
-  SUPPORTED_EXPORT_FORMATS,
-  UniversalExportOptions
-} from '../lib/universalDataBridge';
+import { ExportFormatId } from '../lib/universalDataBridge';
 
-import { GeoFeature, GisLayer, SurveyWaypoint, CadastralParcel, PhotoLandmark } from '../types';
-import { stripBOM, toCSVtext, kmlBuild, geoJsonBuild, dxfBuild, gpxBuild, wktBuild } from '../lib/formats';
+import { GeoFeature } from '../types';
+import { toCSVtext, kmlBuild, geoJsonBuild, dxfBuild, gpxBuild, wktBuild } from '../lib/formats';
 // Statically imported: formats.ts is already in the main graph via eighteen
 // other modules, so the previous dynamic imports split nothing and only
 // produced a bundler warning.
 import { geoJsonParse, kmlParse, gpxParse, wktParse, dxfParse } from '../lib/formats';
-import { canonicalCrsFor, zoneParams } from '../lib/crsIdentity';
+import { zoneParams } from '../lib/crsIdentity';
 
-export interface ExportValidationResult {
-  canExport: boolean;
-  featureCount: number;
-  formatId: ExportFormatId;
-  formatName: string;
-  extension: string;
-  mimeType: string;
-  crsName: string;
-  units: string;
-  warnings: string[];
-  errors: string[];
-}
 
 export interface RoundTripResult {
   format: ExportFormatId;
@@ -43,46 +25,6 @@ export interface RoundTripResult {
 }
 
 export class ExportService {
-  /**
-   * Pipeline Stage 1: Validate dataset and options before generation
-   */
-  static validate(
-    features: GeoFeature[],
-    format: ExportFormatId,
-    options: {
-      workingZone: string;
-      exportCRS?: CanonicalCRS;
-    }
-  ): ExportValidationResult {
-    const meta = SUPPORTED_EXPORT_FORMATS.find(f => f.id === format) || SUPPORTED_EXPORT_FORMATS[0];
-    const warnings: string[] = [];
-    const errors: string[] = [];
-
-    if (!features || features.length === 0) {
-      warnings.push('Selected dataset has 0 features. Exporting an empty file or template header.');
-    }
-
-    const invalidPoints = features.filter(f => !f.pts || f.pts.length === 0 || f.pts.some(p => isNaN(p.a) || isNaN(p.b)));
-    if (invalidPoints.length > 0) {
-      warnings.push(`${invalidPoints.length} feature(s) have incomplete or NaN coordinates and will be skipped.`);
-    }
-
-    const zone = options.workingZone;
-    const crs = options.exportCRS || canonicalCrsFor(zone);
-
-    return {
-      canExport: errors.length === 0,
-      featureCount: features.length,
-      formatId: format,
-      formatName: meta.name,
-      extension: meta.extension,
-      mimeType: meta.mimeType,
-      crsName: crs.name,
-      units: crs.linearUnit || 'm',
-      warnings,
-      errors
-    };
-  }
 
   /**
    * Pipeline Stage 2: Generate live preview snippet of the export output
@@ -156,55 +98,6 @@ export class ExportService {
     }
   }
 
-  /**
-   * Pipeline Stage 3 & 4: Execute universal export, verify byte output, and trigger browser download
-   */
-  static async exportData(
-    features: GeoFeature[],
-    format: ExportFormatId,
-    baseFilename: string,
-    options: {
-      exportCRS?: CanonicalCRS;
-      workingZone: string;
-      coordSystem?: 'wgs84' | 'utm';
-      include3dZ?: boolean;
-      allLayers?: GisLayer[];
-      waypoints?: SurveyWaypoint[];
-      parcels?: CadastralParcel[];
-      landmarks?: PhotoLandmark[];
-    }
-  ): Promise<CanonicalExportResult> {
-    const zone = options.workingZone;
-    const crs = options.exportCRS || canonicalCrsFor(zone);
-
-    const bridgeResult = await executeUniversalExport({
-      format,
-      fileName: baseFilename,
-      features,
-      allLayers: options.allLayers,
-      waypoints: options.waypoints,
-      parcels: options.parcels,
-      landmarks: options.landmarks,
-      workingZoneStr: zone,
-      coordSystem: options.coordSystem || 'wgs84',
-      include3dZ: options.include3dZ ?? true
-    });
-
-    if (!bridgeResult.success) {
-      throw new Error(`Export failed for format ${format}`);
-    }
-
-    const meta = SUPPORTED_EXPORT_FORMATS.find(f => f.id === format);
-
-    return {
-      success: true,
-      format: format.toUpperCase(),
-      filename: bridgeResult.fileName,
-      mimeType: meta?.mimeType || 'application/octet-stream',
-      byteSize: bridgeResult.byteCount,
-      exportCRS: crs
-    };
-  }
 
   /**
    * Pipeline Stage 5: Round-Trip Verification Test

@@ -197,3 +197,105 @@ export const SOUTHERN_ZONES: ZoneOption[] = buildHemisphere(true);
 
 /** Every selectable zone, north then south. */
 export const ALL_ZONES: ZoneOption[] = [...NORTHERN_ZONES, ...SOUTHERN_ZONES];
+
+// ---------------------------------------------------------------------------
+// Shapefile .prj (OGC WKT) identity
+// ---------------------------------------------------------------------------
+
+export interface PrjIdentity {
+  /**
+   * What the file says its coordinates are. `null` when the text states
+   * neither, which is not the same as "geographic" and must not be treated
+   * as it.
+   */
+  kind: 'projected' | 'geographic' | null;
+  /** The name the file gave, for display and for saying what was read. */
+  name: string | null;
+  /** UTM zone 1-60 when the definition names or implies one. */
+  utmZone: number | null;
+  south: boolean | null;
+  /** EPSG code when the definition carries one. */
+  epsg: number | null;
+}
+
+const EMPTY_PRJ: PrjIdentity = { kind: null, name: null, utmZone: null, south: null, epsg: null };
+
+/**
+ * Reads a shapefile's `.prj` — the file's own statement of its coordinate
+ * system — far enough to answer the question that decides how its coordinates
+ * are interpreted: are they degrees or metres on a grid, and if a grid, which
+ * UTM zone.
+ *
+ * Only the outermost keyword decides projected against geographic. A PROJCS
+ * contains a GEOGCS describing its own datum, so a definition that merely
+ * *contains* "GEOGCS" is not geographic, and testing for that would read every
+ * projected file as lat/lon.
+ *
+ * Three sources can name the zone, and they are taken in order of authority:
+ * an EPSG code (32601-32660 north, 32701-32760 south) is a citation and wins;
+ * the projection parameters are the definition itself and come next, with the
+ * central meridian giving the zone and a false northing of 10 000 000 marking
+ * the southern hemisphere; the name comes last, because it is a label a person
+ * typed and is the part most likely to be stale.
+ *
+ * Anything it cannot establish comes back null rather than guessed. A caller
+ * that gets null must say it inferred what it did next, not claim the file
+ * told it.
+ */
+export function parsePrj(prjText: string | null | undefined): PrjIdentity {
+  if (typeof prjText !== 'string') return { ...EMPTY_PRJ };
+  const text = prjText.replace(/^﻿/, '').trim();
+  if (!text) return { ...EMPTY_PRJ };
+
+  const head = text.match(/^([A-Za-z]+)\s*\[/);
+  const keyword = head ? head[1].toUpperCase() : '';
+  let kind: PrjIdentity['kind'] = null;
+  if (keyword === 'PROJCS' || keyword === 'PROJCRS') kind = 'projected';
+  else if (keyword === 'GEOGCS' || keyword === 'GEOGCRS' || keyword === 'GEODCRS') kind = 'geographic';
+
+  const nameMatch = text.match(/^[A-Za-z]+\s*\[\s*"([^"]*)"/);
+  const name = nameMatch ? nameMatch[1] : null;
+
+  // EPSG code: the last authority in the string is the outermost one.
+  let epsg: number | null = null;
+  const auth = [...text.matchAll(/(?:AUTHORITY|ID)\s*\[\s*"EPSG"\s*,\s*"?(\d+)"?\s*\]/gi)];
+  if (auth.length) {
+    const n = parseInt(auth[auth.length - 1][1], 10);
+    if (Number.isFinite(n)) epsg = n;
+  }
+
+  let utmZone: number | null = null;
+  let south: boolean | null = null;
+
+  // 1. From the EPSG code, which cites a published definition.
+  if (epsg !== null) {
+    if (epsg >= 32601 && epsg <= 32660) { utmZone = epsg - 32600; south = false; }
+    else if (epsg >= 32701 && epsg <= 32760) { utmZone = epsg - 32700; south = true; }
+    else if (epsg === 4326 || epsg === 4269 || epsg === 4267) { if (!kind) kind = 'geographic'; }
+  }
+
+  // 2. From the projection parameters, which are the definition itself.
+  if (utmZone === null) {
+    const cm = text.match(/PARAMETER\s*\[\s*"[Cc]entral[_ ][Mm]eridian"\s*,\s*(-?[\d.]+)/);
+    if (cm) {
+      const z = Math.round((parseFloat(cm[1]) + 183) / 6);
+      if (z >= 1 && z <= 60 && Math.abs(6 * z - 183 - parseFloat(cm[1])) < 1e-6) utmZone = z;
+    }
+  }
+  if (south === null) {
+    const fn = text.match(/PARAMETER\s*\[\s*"[Ff]alse[_ ][Nn]orthing"\s*,\s*(-?[\d.]+)/);
+    if (fn) south = parseFloat(fn[1]) > 0;
+  }
+
+  // 3. From the name, which is a label rather than a definition.
+  if (utmZone === null || south === null) {
+    const m = text.match(/UTM[\s_]*(?:zone[\s_]*)?(\d{1,2})\s*([NnSs])?/);
+    if (m) {
+      const z = parseInt(m[1], 10);
+      if (utmZone === null && z >= 1 && z <= 60) utmZone = z;
+      if (south === null && m[2]) south = m[2].toUpperCase() === 'S';
+    }
+  }
+
+  return { kind, name, utmZone, south, epsg };
+}

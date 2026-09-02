@@ -61,13 +61,8 @@ describe('round-trip verification does not substitute a zone', () => {
   });
 });
 
-describe('validation does not substitute a zone', () => {
-  it('surfaces an unreadable zone instead of describing Zone 45', () => {
-    expect(() => ExportService.validate(pts(), 'geojson', { workingZone: 'bogus' })).toThrow(/not a valid/i);
-  });
-
-  it('describes the CRS the caller actually asked for', () => {
-    const r = ExportService.validate(pts(), 'geojson', { workingZone: '43S' });
-    expect(JSON.stringify(r)).toContain('Zone 43S');
-  });
-});
+// The two tests that stood here covered ExportService.validate, which was
+// deleted as unreachable. The guarantee they made -- that an unreadable zone is
+// surfaced rather than silently replaced with Zone 45 -- is still asserted
+// above against generatePreviewSnippet and verifyRoundTrip, which are the two
+// methods anything actually calls.

@@ -4,31 +4,19 @@ import {
   Upload,
   Download,
   FileSpreadsheet,
-  Layers,
-  Sparkles,
   Sliders,
   CheckCircle2,
   Table,
-  FolderArchive,
   Plus,
-  Trash2,
-  Check,
-  Search,
-  Eye,
-  Settings,
-  Flame,
-  FileCode,
-  ShieldCheck
+  Trash2
 } from 'lucide-react';
-import { parseCSV, stripBOM, toCSVtext, csvEnc, kmlBuild, dxfBuild, buildExcelZip, buildShapefileZip } from '../lib/formats';
-import { downloadBlob, makeZip } from '../lib/zip';
+import { parseCSV, stripBOM, toCSVtext, csvEnc } from '../lib/formats';
+import { downloadBlob } from '../lib/zip';
 import { BoreRow, GeoFeature, MineProfile, BoreholeHole } from '../types';
 import {
   BORE_PRESETS,
   boreClassifyInterval,
   boreSummary,
-  boreCardHTML,
-  boreOpSym,
   restoreMineProfile,
   cutoffRuleText
 } from '../lib/mineProfiles';
@@ -307,146 +295,6 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
     downloadBlob(csvEnc(csv), `borehole_template_${activeProfile.name.toLowerCase().replace(/\s+/g, '_')}.csv`, 'text/csv');
   };
 
-  // Export Surpac ZIP
-  const handleExportSurpac = async () => {
-    const collarCols = ['Hole_ID', 'Y_Northing', 'X_Easting', 'Z_Collar_RL', 'Max_Depth'];
-    const lithCols = ['Hole_ID', 'Depth_From', 'Depth_To', 'Lithology'];
-    const assayCols = ['Hole_ID', 'Depth_From', 'Depth_To', 'Sample_ID', activeProfile.params[0]?.key || 'G1', activeProfile.params[1]?.key || 'G2'];
-
-    const collarRows = holes.map(h => {
-      const u = lonLatToUtm(h.lon, h.lat, zNum, isSouth);
-      return [h.id, u.N.toFixed(3), u.E.toFixed(3), depth(h.rl), depth(h.eoh)];
-    });
-
-    const lithRows: string[][] = [];
-    const assayRows: string[][] = [];
-
-    holes.forEach(h => {
-      h.intervals.forEach((iv, i) => {
-        lithRows.push([h.id, iv.from.toFixed(2), iv.to.toFixed(2), iv.lith ?? '']);
-        const k1 = activeProfile.params[0]?.key;
-        const k2 = activeProfile.params[1]?.key;
-        const g1 = k1 && iv.vals[k1] != null ? String(iv.vals[k1]) : '';
-        const g2 = k2 && iv.vals[k2] != null ? String(iv.vals[k2]) : '';
-        assayRows.push([h.id, iv.from.toFixed(2), iv.to.toFixed(2), `${h.id}_S${i + 1}`, g1, g2]);
-      });
-    });
-
-    const collarCsv = toCSVtext(collarCols, collarRows);
-    const lithCsv = toCSVtext(lithCols, lithRows);
-    const assayCsv = toCSVtext(assayCols, assayRows);
-
-    const zipData = makeZip([
-      { name: 'surpac_collar.csv', data: csvEnc(collarCsv) },
-      { name: 'surpac_lithology.csv', data: csvEnc(lithCsv) },
-      { name: 'surpac_assay.csv', data: csvEnc(assayCsv) }
-    ]);
-
-    downloadBlob(zipData, `${activeProfile.name}_Surpac_Database.zip`, 'application/zip');
-  };
-
-  // Export Ore QA Compliance Report CSV
-  const handleExportOreQA = () => {
-    const cols = ['Hole_ID', 'Easting', 'Northing', 'Collar_RL', 'Total_Depth', 'Overburden_m', 'Ore_Thickness_m', 'Interburden_m', 'Strip_Ratio', 'Status', activeProfile.params[0]?.key || 'G1_Avg'];
-    const rows = holes.map(h => {
-      const u = lonLatToUtm(h.lon, h.lat, zNum, isSouth);
-      const s = boreSummary(h, activeProfile);
-      const g1Mean = s.wmeans[activeProfile.params[0]?.key];
-      return [
-        h.id,
-        u.E.toFixed(2),
-        u.N.toFixed(2),
-        (h.rl || 500).toFixed(2),
-        depth(h.eoh),
-        s.ob.toFixed(2),
-        s.oreThk.toFixed(2),
-        s.ib.toFixed(2),
-        s.strip != null ? s.strip.toFixed(2) : 'N/A',
-        s.positive ? 'POSITIVE_ORE' : 'NEGATIVE',
-        g1Mean != null ? g1Mean.toFixed(2) : '-'
-      ];
-    });
-
-    // The cutoff rule is what turned each hole into POSITIVE_ORE or NEGATIVE, so
-    // it travels with the report. Without it two files that look identical can
-    // rest on entirely different criteria, and the reader has no way to tell:
-    // the profile name stays "Bauxite" whatever the thresholds were edited to.
-    const cols2 = [...cols, 'Cutoff_Rule'];
-    const rule = cutoffRuleText(activeProfile);
-    const rows2 = rows.map(r => [...r, rule]);
-
-    const csv = toCSVtext(cols2, rows2);
-    downloadBlob(csvEnc(csv), `Ore_QA_Compliance_Report_${activeProfile.name}.csv`, 'text/csv');
-  };
-
-  // Export Full KMZ / KML
-  const handleExportKML = () => {
-    const feats: GeoFeature[] = holes.map(h => {
-      const u = lonLatToUtm(h.lon, h.lat, zNum, isSouth);
-      const s = boreSummary(h, activeProfile);
-      return {
-        name: `Borehole ${h.id} (${s.positive ? 'ORE' : 'WASTE'})`,
-        geom: 'point',
-        kind: 'en',
-        pts: [{ a: u.E, b: u.N }],
-        props: {
-          Hole_ID: h.id,
-          Status: s.positive ? 'Positive Ore' : 'Barren / Waste',
-          Ore_Thickness: `${s.oreThk.toFixed(2)} m`,
-          Overburden: `${s.ob.toFixed(2)} m`,
-          Strip_Ratio: s.strip != null ? `${s.strip.toFixed(2)} : 1` : '-',
-          EOH_Depth: h.eoh != null ? `${h.eoh.toFixed(2)} m` : ''
-        }
-      };
-    });
-
-    const kml = kmlBuild(feats, `${activeProfile.name}_Borehole_Map`, true, zNum, isSouth);
-    downloadBlob(new TextEncoder().encode(kml), `${activeProfile.name}_Boreholes.kml`, 'application/vnd.google-earth.kml+xml');
-  };
-
-  // Export DXF
-  const handleExportDXF = () => {
-    const feats: GeoFeature[] = holes.map(h => {
-      const u = lonLatToUtm(h.lon, h.lat, zNum, isSouth);
-      const s = boreSummary(h, activeProfile);
-      return {
-        name: h.id,
-        geom: 'point',
-        kind: 'en',
-        pts: [{ a: u.E, b: u.N }],
-        props: { layer: s.positive ? 'BH_ORE' : 'BH_WASTE' }
-      };
-    });
-
-    const res = dxfBuild(feats, 'utm', zNum, isSouth, true);
-    downloadBlob(new TextEncoder().encode(res.dxf), `${activeProfile.name}_Borehole_Collars.dxf`, 'application/dxf');
-  };
-
-  // Export ESRI Shapefile Bundle (.zip)
-  const handleExportShapefile = () => {
-    const feats: GeoFeature[] = holes.map(h => {
-      const u = lonLatToUtm(h.lon, h.lat, zNum, isSouth);
-      const s = boreSummary(h, activeProfile);
-      return {
-        name: h.id,
-        geom: 'point',
-        kind: 'en',
-        pts: [{ a: u.E, b: u.N }],
-        props: {
-          Hole_ID: h.id,
-          Status: s.positive ? 'ORE' : 'WASTE',
-          EOH_Depth: h.eoh != null ? Number(h.eoh.toFixed(2)) : null,
-          Ore_Thk: Number(s.oreThk.toFixed(2)),
-          OB_m: Number(s.ob.toFixed(2)),
-          Strip_Ratio: s.strip != null ? Number(s.strip.toFixed(2)) : 0
-        }
-      };
-    });
-
-    const zipBytes = buildShapefileZip(feats, `${activeProfile.name}_Boreholes`, zNum, isSouth);
-    downloadBlob(zipBytes, `${activeProfile.name}_Boreholes_shp.zip`, 'application/zip');
-  };
-
   // Map Features
   const mapFeatures: GeoFeature[] = useMemo(() => {
     return holes.map(h => {
@@ -486,7 +334,9 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
               Borehole Exploration, Cutoff & Core-Log Engine
             </h3>
             <p className="text-xs text-white/40 mt-1 max-w-2xl">
-              Evaluate multi-condition cutoffs, calculate strip ratios, export GEOVIA Surpac collar/lith/assay databases, and generate core logs.
+              Evaluate multi-condition cutoffs against the active rule and calculate strip
+              ratios. Surpac, KML, DXF and shapefile output is produced by the Universal
+              Export, which is the one export path in the application.
             </p>
           </div>
 
@@ -527,8 +377,7 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
             <label className="text-[10px] text-white/50 block mb-1 uppercase font-mono">Active Cutoff Rule Summary</label>
             <div className="px-3 py-2 bg-[#141414] border border-white/10 rounded-xl text-xs text-white/70 truncate flex items-center justify-between">
               <span className="truncate">
-                {activeProfile.rule.conds.map(c => `${c.param} ${boreOpSym(c.op)} ${c.v || ''}`).join(` ${activeProfile.rule.logic} `)}
-                {activeProfile.rule.minThick > 0 ? ` (Min ${activeProfile.rule.minThick}m)` : ''}
+                {cutoffRuleText(activeProfile)}
               </span>
               <button onClick={() => setShowRuleModal(true)} className="text-[#c9a063] hover:underline text-[11px] font-bold ml-2">
                 Configure

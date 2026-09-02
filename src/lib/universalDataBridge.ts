@@ -35,7 +35,7 @@ import {
   parseGeoTiffRaster
 } from './formats';
 import { lonLatToUtm, utmToLonLat, polygonAreaPerimeter } from './geodesy';
-import { zoneParams } from './crsIdentity';
+import { zoneParams, parsePrj } from './crsIdentity';
 import { downloadBlob, makeZip, readZip } from './zip';
 
 export type ExportFormatId =
@@ -549,8 +549,52 @@ export async function detectAndParseGeospatialFile(
         // Check for Shapefile ZIP
         if (fileName.endsWith('.zip') || fileName.endsWith('.shp')) {
           try {
-            const parsed = await parseShapefile(u8);
+            // A shapefile is a set of companion files. The .shp carries the
+            // geometry, the .dbf the attributes and the .prj the coordinate
+            // system, so they have to be found inside the archive and handed
+            // over together. Passing the archive's own bytes as if they were a
+            // .shp -- which is what happened here -- parses to nothing, so this
+            // branch only ever did anything for a bare .shp upload, and then
+            // without its attributes or its CRS.
+            let shpBytes: Uint8Array | undefined;
+            let dbfBytes: Uint8Array | undefined;
+            let prjText: string | undefined;
+            const shpEntry = Object.keys(zipFiles).find(k => k.toLowerCase().endsWith('.shp'));
+            if (shpEntry) {
+              const base = shpEntry.slice(0, -4).toLowerCase();
+              shpBytes = zipFiles[shpEntry];
+              for (const k of Object.keys(zipFiles)) {
+                const lk = k.toLowerCase();
+                if (lk === `${base}.dbf`) dbfBytes = zipFiles[k];
+                else if (lk === `${base}.prj`) prjText = new TextDecoder('utf-8').decode(zipFiles[k]);
+              }
+            } else if (fileName.endsWith('.shp')) {
+              shpBytes = u8;
+            }
+
+            const parsed = shpBytes ? parseShapefile(shpBytes, dbfBytes, prjText) : [];
             if (parsed && parsed.length > 0) {
+              // Say what was established, not what would be convenient. The
+              // .prj is the file's own statement of its CRS; without one, the
+              // reader infers projected against geographic from the size of the
+              // coordinates and that is an inference, not a declaration. This
+              // used to report "WGS 84 (EPSG:4326)" with status EXPLICIT for
+              // every shapefile, having read no .prj at all.
+              const prj = parsePrj(prjText);
+              const declared =
+                prj.kind === 'projected'
+                  ? (prj.utmZone
+                      ? `${prj.name || 'Projected'} (UTM zone ${prj.utmZone}${prj.south ? 'S' : 'N'}${prj.epsg ? `, EPSG:${prj.epsg}` : ''})`
+                      : `${prj.name || 'Projected coordinate system'}${prj.epsg ? ` (EPSG:${prj.epsg})` : ''}`)
+                  : prj.kind === 'geographic'
+                    ? `${prj.name || 'Geographic coordinate system'}${prj.epsg ? ` (EPSG:${prj.epsg})` : ''}`
+                    : null;
+              const inferredProjected = parsed.some(f => f.kind === 'en');
+              if (!declared) {
+                warnings.push(
+                  `This shapefile carries no .prj, so its coordinate system was not declared. The coordinates were read as ${inferredProjected ? 'eastings and northings on a projected grid' : 'degrees of latitude and longitude'}, inferred from their magnitude. Confirm the project's coordinate system before relying on any measurement.`
+                );
+              }
               return buildDetectedResult(
                 'shp',
                 'ESRI Shapefile Archive',
@@ -561,9 +605,11 @@ export async function detectAndParseGeospatialFile(
                 'gis',
                 {
                   warnings,
-                  detectedCRS: 'WGS 84 (EPSG:4326)',
-                  crsStatus: 'EXPLICIT',
-                  detectedUnits: 'deg'
+                  detectedCRS: declared || (inferredProjected
+                    ? 'Projected grid, inferred from coordinate magnitude'
+                    : 'Geographic, inferred from coordinate magnitude'),
+                  crsStatus: declared ? 'EXPLICIT' : 'INFERRED',
+                  detectedUnits: (declared ? prj.kind === 'projected' : inferredProjected) ? 'm' : 'deg'
                 }
               );
             }

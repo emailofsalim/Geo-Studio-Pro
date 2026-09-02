@@ -9,7 +9,7 @@ import {
   RotateCw
 } from 'lucide-react';
 import { GeoFeature } from '../types';
-import { polygonAreaPerimeter, formatAreaAllUnits } from '../lib/geodesy';
+import { polygonAreaPerimeter, formatAreaAllUnits, offsetPolygonEN } from '../lib/geodesy';
 import { parseCSV, stripBOM, toCSVtext, csvEnc, kmlBuild, dxfBuild, geoJsonBuild } from '../lib/formats';
 import { downloadBlob } from '../lib/zip';
 import { VectorRadarMap } from './VectorRadarMap';
@@ -49,51 +49,22 @@ export const BoundaryOffsetTab: React.FC<BoundaryOffsetTabProps> = ({
     return pts;
   }, [leasePtsText]);
 
-  // Compute Miter-Clamped Offset Polygon
-  const offsetPolygon = React.useMemo(() => {
-    if (basePolygon.length < 3) return [];
-    const n = basePolygon.length;
-    const sign = offsetDir === 'in' ? -1 : 1;
-    const dist = offsetDist * sign;
-
-    // Edge vectors and normals
-    const edgeNormals: { nx: number; ny: number }[] = [];
-    for (let i = 0; i < n; i++) {
-      const p1 = basePolygon[i];
-      const p2 = basePolygon[(i + 1) % n];
-      const dx = p2.E - p1.E;
-      const dy = p2.N - p1.N;
-      const len = Math.hypot(dx, dy) || 1;
-      // Normal pointing right of edge (assuming CCW is inward/outward)
-      edgeNormals.push({ nx: dy / len, ny: -dx / len });
+  // The statutory belt. The geometry lives in geodesy.ts rather than here, so
+  // that it can be tested and so this screen cannot drift from the lat/lon
+  // boundaryOffset that shares it. The version that used to sit inline took the
+  // offset side from the digitising order, which put the barrier outside the
+  // lease for a boundary drawn clockwise.
+  const offsetResult = React.useMemo(() => {
+    const empty: { E: number; N: number }[] = [];
+    if (basePolygon.length < 3) return { pts: empty, reason: '' };
+    if (!(offsetDist > 0)) {
+      return { pts: empty, reason: 'Enter an offset distance greater than zero. The side is set by the dropdown, so a minus sign here is refused rather than read as the other direction.' };
     }
-
-    const outPts: { E: number; N: number }[] = [];
-
-    for (let i = 0; i < n; i++) {
-      const prevIdx = (i - 1 + n) % n;
-      const n1 = edgeNormals[prevIdx];
-      const n2 = edgeNormals[i];
-
-      // Bisector vector
-      const bx = n1.nx + n2.nx;
-      const by = n1.ny + n2.ny;
-      const blen = Math.hypot(bx, by);
-
-      if (blen < 1e-4) {
-        outPts.push({ E: basePolygon[i].E + n2.nx * dist, N: basePolygon[i].N + n2.ny * dist });
-      } else {
-        const unBx = bx / blen;
-        const unBy = by / blen;
-        const cosHalf = n1.nx * unBx + n1.ny * unBy;
-        // Clamp miter to max 3x distance to prevent degenerate spikes
-        const miterLen = Math.min(3.0 * Math.abs(dist), dist / (cosHalf || 1));
-        outPts.push({ E: basePolygon[i].E + unBx * miterLen, N: basePolygon[i].N + unBy * miterLen });
-      }
-    }
-
-    return outPts;
+    const off = offsetPolygonEN(basePolygon, offsetDist, offsetDir === 'out');
+    if (off) return { pts: off, reason: '' };
+    return { pts: empty, reason: `A ${offsetDist} m ${offsetDir === 'in' ? 'inward' : 'outward'} offset leaves no belt to measure: at this distance it consumes the boundary rather than following it. Usually the distance is wide relative to the parcel, or a narrow neck closes at it. Reduce the distance, or check the boundary for a spike.` };
   }, [basePolygon, offsetDist, offsetDir]);
+  const offsetPolygon = offsetResult.pts;
 
   // Areas
   const baseArea = React.useMemo(() => {
@@ -193,6 +164,7 @@ export const BoundaryOffsetTab: React.FC<BoundaryOffsetTabProps> = ({
               value={offsetDist}
               onChange={e => setOffsetDist(parseFloat(e.target.value) || 0)}
               step="0.5"
+              min="0"
               className="w-full py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono"
             />
           </div>
@@ -222,6 +194,15 @@ export const BoundaryOffsetTab: React.FC<BoundaryOffsetTabProps> = ({
             className="w-full p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-950 font-mono text-xs focus:outline-none"
           />
         </div>
+
+        {offsetResult.reason !== '' && (
+          <div className="p-3 bg-rose-50 dark:bg-rose-950/40 rounded-xl border border-rose-200 dark:border-rose-800/60">
+            <span className="text-[10px] text-rose-500 block font-sans uppercase">No belt produced</span>
+            <span className="text-xs text-rose-700 dark:text-rose-300">
+              {offsetResult.reason} No area is shown, because any figure here would be a fiction.
+            </span>
+          </div>
+        )}
 
         {/* Area Comparison HUD */}
         {baseArea && offsetArea && (
