@@ -114,7 +114,7 @@ writers to five decimals, about 1.1 m, fails eight of those tests.
 | GPX | Yes | Yes | Waypoints, routes, tracks |
 | WKT | Yes | Yes | Including MULTI\* variants |
 | XLSX | Yes | Yes | Shared strings, inline strings, sparse cells |
-| Shapefile | Yes | — | SHP + DBF + PRJ; points, polylines and polygons |
+| Shapefile | Yes | Yes | SHP + SHX + DBF + PRJ; points, polylines and polygons, one file per geometry type |
 | DXF | Partial | Yes | Points, lines and polylines; arcs, circles, splines and text are counted and reported, not imported |
 | PDF | Yes | — | Rendered as a digitising background, multi-page |
 | World file | Yes | — | .tfw / .jgw / .pgw / .wld raster georeference |
@@ -332,6 +332,30 @@ shapefile was reported as `WGS 84 (EPSG:4326)` with status `EXPLICIT` — the
 strongest confidence the vocabulary has — for a file whose `.prj` had not been
 opened. It now reports what the `.prj` declared and marks it `EXPLICIT`, or says
 what it inferred and marks it `INFERRED`.
+
+**Shapefile write was already offered from six screens, and the table said it
+was not.** `buildShapefileZip` is reached from GIS Studio, the Cadastral Mapper,
+Merge & Split, the Format Converter, the landmark export and the Universal
+Export, and the format table recorded shapefile output as unsupported. It is
+now written down, and the writer is covered by a round trip through the
+application's own reader — the test that matters for a writer, and the one that
+would have shown the pair could not agree: the reader could not read a polygon
+at all, so the application was writing valid files it could not open.
+
+The writer itself was sound. Its record layout, its `.prj` for a northern or
+southern zone, its projection of lat/lon input into the stated zone, and its
+`.dbf` attributes all survive the round trip unchanged.
+
+**A mixed layer no longer loses its geometry.** A shapefile holds exactly one
+geometry type. The writer used to take whichever type was in the majority and
+force every other feature into it, silently: a layer of one parcel and two
+boreholes came out as **three points**, the parcel's boundary reduced to its
+first vertex and the other three discarded. A borehole in a layer of parcels
+went the other way, becoming a ring of a single vertex — geometry most GIS
+software will reject. Such a layer is now written as one shapefile per type
+inside the archive, which is what the format requires and what the reader
+already expected. A layer of a single type, the ordinary case, is unchanged:
+one `.shp`, `.shx`, `.dbf` and `.prj` named after the layer.
 
 **Partial:** Bluetooth RTK (link and GATT plumbing; no NTRIP client, no RTCM decoding) ·
 pit modelling (bench and wall geometry are calculated, but there is no 3D pit shell or

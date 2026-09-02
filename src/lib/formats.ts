@@ -1698,16 +1698,20 @@ export function parseShapefile(
 }
 
 /**
- * Builds an ESRI Shapefile Bundle (.zip containing .shp, .shx, .dbf, .prj)
+ * Builds the four members of one shapefile -- .shp, .shx, .dbf and .prj -- for a
+ * set of features that are all the same geometry type.
+ *
+ * A shapefile holds exactly one geometry type; that is the format, not a
+ * limitation of this writer, which is why buildShapefileZip below groups
+ * features before calling this.
  */
-export function buildShapefileZip(
+function buildShapefileMembers(
   features: GeoFeature[],
-  layerName: string = 'bhunex_layer',
-  zone: number = 45,
-  south: boolean = false
-): Uint8Array {
+  safeName: string,
+  zone: number,
+  south: boolean
+): ZipFileEntry[] {
   const enc = new TextEncoder();
-  const safeName = safeFileName(layerName, 'layer');
 
   // Determine geometry type
   const polyCount = features.filter(f => f.geom === 'polygon').length;
@@ -1918,12 +1922,55 @@ export function buildShapefileZip(
   // PRJ WKT definition
   const prjContent = `PROJCS["WGS_1984_UTM_Zone_${zone}${south ? 'S' : 'N'}",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0.0],PARAMETER["central_meridian",${(zone - 1) * 6 - 180 + 3}],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000.0],PARAMETER["false_northing",${south ? 10000000.0 : 0.0}],UNIT["Meter",1.0]]`;
 
-  return makeZip([
+  return [
     { name: `${safeName}.shp`, data: shpFullBytes },
     { name: `${safeName}.shx`, data: shxBytes },
     { name: `${safeName}.dbf`, data: dbfBytes },
     { name: `${safeName}.prj`, data: enc.encode(prjContent) }
-  ]);
+  ];
+}
+
+/**
+ * Builds an ESRI Shapefile bundle (.zip) from a set of features.
+ *
+ * A shapefile holds one geometry type, so a layer carrying more than one is
+ * written as one shapefile per type inside the archive. It used to be written
+ * as a single file whose type was taken from whichever geometry was in the
+ * majority, and every other feature was forced into it: a layer of one parcel
+ * and two boreholes came out as three points, the parcel's boundary reduced to
+ * its first vertex and the other three discarded. Nothing said so. A borehole
+ * in a layer of parcels went the other way, becoming a ring of one vertex.
+ *
+ * A layer of a single geometry type -- which is the ordinary case -- is
+ * unchanged: one .shp, .shx, .dbf and .prj named after the layer.
+ */
+export function buildShapefileZip(
+  features: GeoFeature[],
+  layerName: string = 'bhunex_layer',
+  zone: number = 45,
+  south: boolean = false
+): Uint8Array {
+  const safeName = safeFileName(layerName, 'layer');
+  const groups: { geom: GeoFeature['geom']; suffix: string; feats: GeoFeature[] }[] = [
+    { geom: 'point', suffix: '_points', feats: [] },
+    { geom: 'line', suffix: '_lines', feats: [] },
+    { geom: 'polygon', suffix: '_polygons', feats: [] }
+  ];
+  for (const f of features) {
+    const g = groups.find(x => x.geom === f.geom);
+    // A feature of no recognised geometry is put with the points rather than
+    // dropped; losing it silently is the failure this grouping exists to stop.
+    (g || groups[0]).feats.push(f);
+  }
+  const present = groups.filter(g => g.feats.length > 0);
+  if (present.length === 0) return makeZip(buildShapefileMembers([], safeName, zone, south));
+
+  const entries: ZipFileEntry[] = [];
+  for (const g of present) {
+    const name = present.length === 1 ? safeName : `${safeName}${g.suffix}`;
+    entries.push(...buildShapefileMembers(g.feats, name, zone, south));
+  }
+  return makeZip(entries);
 }
 
 /**
