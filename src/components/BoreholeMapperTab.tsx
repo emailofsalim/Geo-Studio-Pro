@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   MapPin,
   Upload,
@@ -23,7 +23,15 @@ import {
 import { parseCSV, stripBOM, toCSVtext, csvEnc, kmlBuild, dxfBuild, buildExcelZip, buildShapefileZip } from '../lib/formats';
 import { downloadBlob, makeZip } from '../lib/zip';
 import { BoreRow, GeoFeature, MineProfile, BoreholeHole } from '../types';
-import { BORE_PRESETS, boreClassifyInterval, boreSummary, boreCardHTML, boreOpSym } from '../lib/mineProfiles';
+import {
+  BORE_PRESETS,
+  boreClassifyInterval,
+  boreSummary,
+  boreCardHTML,
+  boreOpSym,
+  restoreMineProfile,
+  cutoffRuleText
+} from '../lib/mineProfiles';
 import { lonLatToUtm, utmToLonLat } from '../lib/geodesy';
 import { VectorRadarMap } from './VectorRadarMap';
 
@@ -41,9 +49,45 @@ interface BoreholeMapperTabProps {
   workingZone: string;
 }
 
+/**
+ * Where the working cutoff rule is kept between sessions.
+ *
+ * This tab is mounted only while it is the active tab, so without this the
+ * rule lived exactly as long as the tab did: a surveyor who set their contract
+ * cutoff, glanced at another tab and came back was silently classifying
+ * against the published preset again. On bauxite that is the difference
+ * between Al₂O₃ ≥ 40 and ≥ 30 — every interval in between flips from barren to
+ * ore, with nothing on screen to say the rule had changed.
+ */
+const PROFILE_KEY = 'geo_bore_profile';
+const PROFILE_PRESET_KEY = 'geo_bore_profile_preset';
+
+const readStoredProfile = () => {
+  try {
+    return restoreMineProfile(localStorage.getItem(PROFILE_KEY));
+  } catch {
+    // Storage can be unavailable outright (private mode, blocked site data).
+    // That is not a corrupt rule, so it is not worth a warning.
+    return { profile: null, issue: null };
+  }
+};
+
 export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZone }) => {
-  const [selectedPresetKey, setSelectedPresetKey] = useState<string>('bauxite');
-  const [activeProfile, setActiveProfile] = useState<MineProfile>(BORE_PRESETS.bauxite);
+  // Read once, on mount, so a restore failure is reported rather than silently
+  // becoming the preset.
+  const [restored] = useState(readStoredProfile);
+
+  const [selectedPresetKey, setSelectedPresetKey] = useState<string>(() => {
+    try {
+      const k = localStorage.getItem(PROFILE_PRESET_KEY);
+      if (k && BORE_PRESETS[k]) return k;
+    } catch { /* storage unavailable */ }
+    return 'bauxite';
+  });
+  const [activeProfile, setActiveProfile] = useState<MineProfile>(
+    () => restored.profile ?? JSON.parse(JSON.stringify(BORE_PRESETS.bauxite))
+  );
+  const [restoreIssue, setRestoreIssue] = useState<string | null>(restored.issue);
 
   /**
    * Updates one cutoff condition without touching the preset it came from.
@@ -96,8 +140,23 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
     setSelectedPresetKey(k);
     if (BORE_PRESETS[k]) {
       setActiveProfile(JSON.parse(JSON.stringify(BORE_PRESETS[k])));
+      // Choosing a preset is a deliberate replacement of the rule, so a warning
+      // about the previously stored one no longer applies.
+      setRestoreIssue(null);
     }
   };
+
+  // Keep the working rule across mounts. The tab unmounts on every tab switch,
+  // so this runs on the edit rather than on unmount, which never fires in time.
+  useEffect(() => {
+    try {
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(activeProfile));
+      localStorage.setItem(PROFILE_PRESET_KEY, selectedPresetKey);
+    } catch {
+      // Storage full or blocked. The rule still applies for this session; it
+      // just will not survive, and the next mount falls back to the preset.
+    }
+  }, [activeProfile, selectedPresetKey]);
 
   // Group into Hole structures
   const holes = useMemo<BoreholeHole[]>(() => {
@@ -308,7 +367,15 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
       ];
     });
 
-    const csv = toCSVtext(cols, rows);
+    // The cutoff rule is what turned each hole into POSITIVE_ORE or NEGATIVE, so
+    // it travels with the report. Without it two files that look identical can
+    // rest on entirely different criteria, and the reader has no way to tell:
+    // the profile name stays "Bauxite" whatever the thresholds were edited to.
+    const cols2 = [...cols, 'Cutoff_Rule'];
+    const rule = cutoffRuleText(activeProfile);
+    const rows2 = rows.map(r => [...r, rule]);
+
+    const csv = toCSVtext(cols2, rows2);
     downloadBlob(csvEnc(csv), `Ore_QA_Compliance_Report_${activeProfile.name}.csv`, 'text/csv');
   };
 
@@ -467,6 +534,14 @@ export const BoreholeMapperTab: React.FC<BoreholeMapperTabProps> = ({ workingZon
                 Configure
               </button>
             </div>
+            {restoreIssue && (
+              <div
+                role="alert"
+                className="mt-2 px-3 py-2 rounded-xl bg-[#b3261e]/15 border border-[#b3261e]/40 text-[11px] text-[#ffb4ab] leading-snug"
+              >
+                {restoreIssue}
+              </div>
+            )}
           </div>
 
           <div>

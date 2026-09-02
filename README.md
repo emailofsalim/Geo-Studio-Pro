@@ -289,6 +289,70 @@ cancels away most of its significant digits. The check was less accurate than th
 code it was judging. It now centres the points first, and the honest UTM finding
 is the one recorded above.
 
+## Exports are records, so they carry only what was recorded
+
+A plot register, a Khatian land schedule and an ore QA report each settle
+something: who holds a parcel, how large it is, whether a hole is worth mining.
+A value substituted for one that was never recorded reads as a real observation
+to whoever opens the file, and nothing in the file marks it as invented.
+
+Every one of those builders used to fill its gaps with something plausible.
+Given three holes logged as ore, ore and barren, the **Ore QA/QC Statistical
+Report** produced this:
+
+| Hole | Logged | Reported |
+| --- | --- | --- |
+| BH-01 | ore, 7.20 m | POSITIVE ORE, 32.50 m |
+| BH-02 | ore, 5.80 m | SUB-ECONOMIC, 12.00 m |
+| BH-03 | barren, 3.70 m | POSITIVE ORE, 32.50 m |
+
+Not one figure came from the holes. The collar level was 180.5 m for every
+hole, the depth was `85 + index × 15`, the intercept alternated between 32.5
+and 12.0 according to whether the hole was even or odd in the list, and the
+grade was "58.4% Fe" whatever the commodity. The POSITIVE/SUB-ECONOMIC verdict
+was then decided by comparing the invented intercept against 20, so two holes
+logged identically disagreed and a barren hole was reported as ore.
+
+The cadastral exports did the same to legal facts: a missing owner became
+"Standard Landholder" or "Authenticated Rayat", a missing village "Primary
+Mouza", a missing land class "Agricultural (Dhani-1)", a missing settlement
+status "Final Settled", and a missing area `1000 + index × 250` square metres —
+then reported to four decimal places in hectares and acres and totalled into a
+"Revenue Summary" audit figure. The Khatian schedule also stamped a Parchha
+number, `P-1000 + index`, on every row unconditionally: an invented document
+reference against a real landholder. The summary sheet asserted "IBM /
+Cadastral Validated" on every export, claiming an external validation that
+nothing in this application performs.
+
+All of it now reports what the feature carries and leaves the rest blank. A
+blank cell reads as "not recorded"; a plausible number does not. Figures that
+derive from missing ones — a strip ratio without a depth, hectares without an
+area — are blank too rather than computed from a substitute, the area total
+counts only parcels that have one and says how many do not, and the
+certification claim is gone. The ore verdict now comes from the classification
+the hole was logged with, and is blank when the hole was never classified.
+
+The rule was already written down in this codebase, on the collar-depth helper
+in the borehole tab: *never substitutes a default; a fabricated depth or
+elevation in a collar export reads as a real observation to whoever opens the
+file.* It simply had not been applied to the export builders.
+
+## The working cutoff rule survives
+
+A cutoff grade decides what counts as ore, so it is a setting, not a scratch
+value. It used to live in component state in a tab that is mounted only while
+it is the active tab, so setting Al₂O₃ ≥ 40 for a contract, glancing at another
+screen and coming back silently restored the published ≥ 30 — and every
+interval between the two flipped from barren to ore with nothing on screen to
+say the rule had changed.
+
+The rule now persists across tab switches and reloads. Reading it back is
+deliberately strict: a saved rule that does not validate is refused and the
+reason shown, rather than quietly becoming the preset. In particular a
+threshold that has gone missing is refused, because comparing every assay
+against `undefined` returns false for all of them and reads a whole deposit as
+barren while the screen still shows the commodity name.
+
 ## Data safety
 
 Projects are isolated: data, layers and coordinate systems are keyed per project.
