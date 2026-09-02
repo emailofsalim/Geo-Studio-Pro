@@ -9,6 +9,7 @@ import {
   featuresToKMZ,
   dxfBuild,
   dxfParse,
+  dxfUnconvertedWarning,
   geoJsonBuild,
   geoJsonParse,
   gpxBuild,
@@ -718,8 +719,17 @@ export async function detectAndParseGeospatialFile(
   ) {
     const feats = dxfParse(trimmed);
     const hasProjectedCoords = feats.some(f => f.pts.some(p => p.a > 100000 && p.b > 100000));
+    // Arcs, circles, splines and text are read and then dropped -- there is no
+    // arc or spline in the feature model. Saying so is the difference between
+    // a partial import the user can act on and one that looks complete: a
+    // cadastral drawing with curved plot boundaries otherwise arrives as a
+    // smaller set of straight lines with nothing to mark the loss.
+    const dxfWarnings = [
+      ...(hasProjectedCoords ? [] : ['DXF drawing coordinates appear to use a local or custom CAD origin.']),
+      ...(dxfUnconvertedWarning(trimmed) ? [dxfUnconvertedWarning(trimmed) as string] : [])
+    ];
     return buildDetectedResult('dxf', 'AutoCAD DXF Vector Drawing', 'CAD', '.dxf', 0.96, feats, 'cad', {
-      warnings: hasProjectedCoords ? [] : ['DXF drawing coordinates appear to use a local or custom CAD origin.'],
+      warnings: dxfWarnings,
       detectedCRS: hasProjectedCoords ? `WGS 84 / UTM Zone ${zone}${south ? 'S' : 'N'}` : 'CRS UNKNOWN (Local CAD Grid)',
       crsStatus: hasProjectedCoords ? 'INFERRED' : 'UNKNOWN',
       detectedUnits: 'm'

@@ -103,7 +103,7 @@ Verified against the implementation, not the UI copy.
 | WKT | Yes | Yes | Including MULTI\* variants |
 | XLSX | Yes | Yes | Shared strings, inline strings, sparse cells |
 | Shapefile | Yes | — | SHP + DBF, multi-part geometry |
-| DXF | Partial | Yes | LINE and LWPOLYLINE only — no arcs, blocks or splines |
+| DXF | Partial | Yes | Points, lines and polylines; arcs, circles, splines and text are counted and reported, not imported |
 | PDF | Yes | — | Rendered as a digitising background, multi-page |
 | World file | Yes | — | .tfw / .jgw / .pgw / .wld raster georeference |
 | GeoTIFF | Header | — | Dimensions, pixel scale, tiepoint, EPSG. Pixel data not read |
@@ -115,6 +115,15 @@ Verified against the implementation, not the UI copy.
 signature as uncompressed LAS. Reading their compressed point records as raw integers
 produces plausible-looking, meaningless coordinates without any error. Refusing the file
 is the honest outcome; decompress to `.las` and import that.
+
+**A DXF import says what it could not bring in.** The reader converts points,
+lines and polylines. It parses arcs, circles, splines and text too, and then
+drops them, because the feature model has no arc or spline to hold them.
+Dropping them is the honest limit of the reader; dropping them in silence is
+not — a cadastral drawing whose plot boundaries are arcs would import as a
+smaller set of straight lines, report how many features arrived, and say
+nothing about the ones that did not. The unconverted entities are now counted
+by type and reported as an import warning.
 
 **GeoTIFF reads the header, not the raster.** It reports the true footprint from
 `ModelPixelScale` and `ModelTiepoint`. A TIFF with no georeferencing tags is reported as
