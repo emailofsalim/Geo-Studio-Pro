@@ -92,7 +92,10 @@ So, throughout:
 
 ## Format support
 
-Verified against the implementation, not the UI copy.
+Verified against the implementation, not the UI copy. The three claims below
+that promise a refusal or a partial read are asserted in `formatRefusals.test.ts`
+against real file headers, because the alternative to refusing these files is not
+an error — it is plausible, meaningless output.
 
 | Format | Read | Write | Notes |
 | --- | --- | --- | --- |
