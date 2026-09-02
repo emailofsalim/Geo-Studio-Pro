@@ -478,6 +478,18 @@ project currently has saved, and names exactly what would be lost when the check
 holds less. It stays silent when the saved counts are unknown, because warning on
 every restore would train the warning away before it mattered.
 
+A crash-recovery checkpoint that fails now says so. The checkpoint is written on
+every edit and its failures used to be swallowed outright, so a user whose
+checkpoints were failing — a full storage quota is the realistic cause — was
+unprotected against a tab crash with no way to know. Committed work was never at
+risk: the save path sets `SAVE_FAILED` and reports the error itself. The notice
+says exactly that, so a checkpoint failure does not read as lost work.
+
+It is reported once, not per edit, and again only if protection comes back and
+fails a second time. The write happens continuously, so a message that repeated
+on every keystroke would be trained away before it mattered — the same reason
+the restore dialog stays silent when the saved counts are unknown.
+
 Every write into project data requires an open project. `updateActiveProjectData`
 returns without doing anything when none is open, so the paths that write through it
 check first and say so. They previously reported success regardless: an imported

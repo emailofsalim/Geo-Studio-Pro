@@ -235,6 +235,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [activeProjectId, activeProjectData, projects]);
 
   // Performs authoritative transactional flush to IndexedDB
+  /** True once a checkpoint write has failed, so the warning is not repeated per edit. */
+  const checkpointFailedRef = useRef(false);
+
   const performSave = useCallback(async (projectId: string, dataToSave: ProjectDataState) => {
     try {
       setSaveStatus('SAVING');
@@ -289,7 +292,26 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         timeString: new Date().toLocaleTimeString(),
         dirtyModules: moduleName ? [moduleName] : ['general'],
         data: next
-      }).catch(() => {});
+      })
+        .then(() => {
+          // Protection is back; a later failure is worth reporting again.
+          checkpointFailedRef.current = false;
+        })
+        .catch((err: any) => {
+          // The checkpoint is the crash safety net, not the save. Losing it
+          // costs no committed work -- performSave reports its own failures --
+          // but it does mean an unexpected close would drop changes made since
+          // the last flush, and until now that happened in complete silence.
+          //
+          // Reported once rather than per write: this runs on every edit, and a
+          // message that fires continuously is trained away before it matters.
+          if (checkpointFailedRef.current) return;
+          checkpointFailedRef.current = true;
+          toast.showError(
+            `Crash recovery is not being recorded (${err?.message || 'storage write rejected'}). ` +
+              'Saved work is unaffected, but changes made since the last save would be lost if this tab closes unexpectedly.'
+          );
+        });
 
       // 2. Debounced save to authoritative IndexedDB store (1000ms)
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
