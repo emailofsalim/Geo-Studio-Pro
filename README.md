@@ -743,6 +743,20 @@ accounts. It raises the cost of abuse. A public deployment with a paid key also
 needs a spend cap set at the provider, and nothing in this repository can
 substitute for one.
 
+**And a failed call now says so.** Both AI surfaces fall back to the in-browser
+geomatics engine when the call to this application's own endpoint fails, and
+both did so silently. That is good behaviour with a bad ending: the user still
+gets an answer, so nothing looks wrong — which is precisely why a deployment
+whose endpoints did not exist went unnoticed. Every answer came from the local
+engine, never from the hosted model, and the interface said nothing. The GIS
+copilot did not even render the model badge it was setting.
+
+A fallback now states which engine answered and why, and distinguishes the
+cases that matter: not deployed (404), rate limited (429), refused (401/403),
+too large (413), or unreachable. Verified by serving the built application with
+no `/api` routes at all — the broken deployment reproduced — and confirming the
+notice appears.
+
 Two smaller changes went with it. The server now binds to loopback unless `HOST`
 says otherwise, so starting it does not publish those endpoints on every
 interface by default. And a request to an unknown `/api/` path returns a JSON

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { describeAiFallback } from '../lib/aiServiceStatus';
 import {
   Sparkles,
   X,
@@ -31,6 +32,13 @@ interface Message {
   content: string;
   timestamp: string;
   source?: string;
+}
+
+/** Carries the HTTP status through the catch so the reason can be reported. */
+class HttpStatusError extends Error {
+  constructor(public status: number) {
+    super(`Assistant service returned ${status}`);
+  }
 }
 
 export const AiGeomaticsModal: React.FC<AiGeomaticsModalProps> = ({
@@ -111,10 +119,15 @@ export const AiGeomaticsModal: React.FC<AiGeomaticsModalProps> = ({
         answerText = data.answer;
         usedSource = data.model || 'Gemini/OpenSource';
       } else {
-        throw new Error('Server returned non-200');
+        throw new HttpStatusError(res.status);
       }
     } catch (fetchErr) {
-      // Local open-source fallback
+      // Local open-source fallback. It answers, which is why this used to look
+      // like nothing had gone wrong -- so say which engine answered and why.
+      setErrorMsg(describeAiFallback(
+        fetchErr instanceof HttpStatusError ? fetchErr.status : null,
+        fetchErr
+      ));
       const localResult = await executeGeomaticsAi(prompt, {
         workingZone,
         activeLayerName: activeTab
