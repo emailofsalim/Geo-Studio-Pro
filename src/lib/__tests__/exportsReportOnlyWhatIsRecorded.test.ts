@@ -131,3 +131,86 @@ describe('Cadastral plot register', () => {
     expect(rows[1].join(',')).toContain('2.0000'); // hectares
   });
 });
+
+describe('QGIS ground control points', () => {
+  beforeEach(() => { written = ''; });
+
+  it('emits no control point for a feature that carries no pixel position', async () => {
+    // The dangerous case. A .points file pairs pixel positions with ground
+    // coordinates so QGIS can warp a scanned map onto the ground. Inventing
+    // the pixel side produces a georeference that is confidently wrong, and
+    // the residual column, always 0.000, claims a perfect fit.
+    await run('qgis_points', [
+      pt('C1', 84.60, 23.54, {}),
+      pt('C2', 84.61, 23.55, {}),
+      pt('C3', 84.62, 23.56, {})
+    ]);
+    const rows = csv();
+    expect(rows[0][0]).toBe('mapX'); // header still written
+    expect(rows.length, 'control points were invented for features with no pixel position').toBe(1);
+  });
+
+  it('emits exactly the control points that were recorded', async () => {
+    await run('qgis_points', [
+      pt('C1', 84.60, 23.54, { pixelX: 412, pixelY: 903 }),
+      pt('C2', 84.61, 23.55, {}),
+      pt('C3', 84.62, 23.56, { pixelX: 1180, pixelY: 244 })
+    ]);
+    const rows = csv();
+    expect(rows.length - 1).toBe(2);
+    expect(rows[1][2]).toBe('412');
+    expect(rows[1][3]).toBe('-903');
+    expect(rows[2][2]).toBe('1180');
+  });
+});
+
+describe('Surpac geological string', () => {
+  beforeEach(() => { written = ''; });
+
+  it('does not walk an unlevelled string downhill', async () => {
+    // The fallback was `100 - pointIndex * 5`, which gave every unlevelled
+    // string a steady 5 m fall per point and read as surveyed relief.
+    written = '';
+    await executeUniversalExport({
+      format: 'surpac', fileName: 't', workingZoneStr: '45N',
+      features: [{
+        kind: 'll', name: 'S1', geom: 'line',
+        pts: [{ a: 84.60, b: 23.54 }, { a: 84.61, b: 23.54 }, { a: 84.62, b: 23.54 }],
+        props: {}
+      } as unknown as GeoFeature]
+    } as never);
+    // Data rows carry a non-zero string id; the header and trailer rows use 0.
+    const zs = text().trim().split(/\r?\n/)
+      .map(l => l.split(','))
+      .filter(c => c.length >= 5 && c[0].trim() !== '0')
+      .map(c => Number(c[3]));
+    const distinct = new Set(zs);
+    expect(distinct.size, `levels varied without being surveyed: ${[...distinct].join(', ')}`).toBe(1);
+  });
+
+  it('does not label an unclassified string as ore', async () => {
+    written = '';
+    await executeUniversalExport({
+      format: 'surpac', fileName: 't', workingZoneStr: '45N',
+      features: [{ kind: 'll', name: '', geom: 'line', pts: [{ a: 84.6, b: 23.5 }], props: {} } as unknown as GeoFeature]
+    } as never);
+    expect(text()).not.toContain('ORE');
+  });
+});
+
+describe('Generic table export', () => {
+  beforeEach(() => { written = ''; });
+
+  it('leaves elevation blank rather than placing a 2D feature at sea level', async () => {
+    await run('csv', [pt('P1', 84.60, 23.54, {})]);
+    const rows = csv();
+    const i = rows[0].indexOf('Elevation_Z');
+    expect(rows[1][i]).toBe('');
+  });
+
+  it('reports an elevation that is recorded', async () => {
+    await run('csv', [pt('P2', 84.60, 23.54, { elevation: 212.5 })]);
+    const rows = csv();
+    expect(rows[1][rows[0].indexOf('Elevation_Z')]).toBe('212.500');
+  });
+});

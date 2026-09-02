@@ -1005,6 +1005,18 @@ function recordedNumber(...candidates: unknown[]): number | null {
   return null;
 }
 
+/**
+ * The elevation term of a LandXML CogoPoint, or nothing.
+ *
+ * A CogoPoint is valid with northing and easting alone, so a point that was
+ * never levelled is written without a third value rather than being placed at
+ * zero — which is a real elevation, and a surveyed one in coastal work.
+ */
+function cogoZ(f: { props?: Record<string, unknown> }): string {
+  const z = recordedNumber(f.props?.elevation, f.props?.Z);
+  return z == null ? '' : ` ${z}`;
+}
+
 /** A recorded number at a fixed precision, or a blank cell. */
 function reportNum(v: number | null, dp = 2): string {
   return v == null ? '' : v.toFixed(dp);
@@ -1140,7 +1152,9 @@ export async function executeUniversalExport(options: UniversalExportOptions): P
             lon = ll.lon;
             lat = ll.lat;
           }
-          const z = f.props?.elevation ?? f.props?.Z ?? 0;
+          // Blank, not 0. Zero is a real elevation, so defaulting to it puts
+          // every 2D feature at mean sea level in whatever reads this back.
+          const z = reportNum(recordedNumber(f.props?.elevation, f.props?.Z), 3);
           rows.push([
             f.name || 'Feature',
             f.geom || 'point',
@@ -1182,7 +1196,9 @@ export async function executeUniversalExport(options: UniversalExportOptions): P
             lon = ll.lon;
             lat = ll.lat;
           }
-          const z = f.props?.elevation ?? f.props?.Z ?? 0;
+          // Blank, not 0. Zero is a real elevation, so defaulting to it puts
+          // every 2D feature at mean sea level in whatever reads this back.
+          const z = reportNum(recordedNumber(f.props?.elevation, f.props?.Z), 3);
           rows.push([
             f.name || 'Feature',
             f.geom || 'point',
@@ -1280,7 +1296,7 @@ export async function executeUniversalExport(options: UniversalExportOptions): P
           f.pts.forEach(pt => {
             let lat = pt.b, lon = pt.a;
             const utm = lonLatToUtm(lon, lat, zone, south);
-            cogoPointsXml += `      <CogoPoint id="${pointId}" name="${f.name || `PT${pointId}`}" desc="${f.props?.code || ''}">${utm.N.toFixed(4)} ${utm.E.toFixed(4)} ${f.props?.elevation || 0}</CogoPoint>\n`;
+            cogoPointsXml += `      <CogoPoint id="${pointId}" name="${f.name || `PT${pointId}`}" desc="${f.props?.code || ''}">${utm.N.toFixed(4)} ${utm.E.toFixed(4)}${cogoZ(f)}</CogoPoint>\n`;
             pointId++;
           });
         } else if (f.geom === 'polygon') {
@@ -1337,8 +1353,14 @@ ${parcelsXml}  </Parcels>
             lon = ll.lon;
             lat = ll.lat;
           }
-          const z = f.props?.elevation ?? f.props?.Z ?? (100 - pIdx * 5);
-          const desc = f.props?.oreType || f.props?.rockType || f.name || 'ORE';
+          // 0.000 is the string format's no-data level. The previous fallback
+          // was `100 - pIdx * 5`, which walked every unlevelled string steadily
+          // downhill and read as surveyed relief in mine planning.
+          const zVal = recordedNumber(f.props?.elevation, f.props?.Z);
+          const z = zVal == null ? 0 : zVal;
+          // An unlabelled string is not ore. Calling it ORE by default asserts
+          // a geological classification nobody made.
+          const desc = recordedText(f.props?.oreType, f.props?.rockType, f.name);
           strLines.push(`${sId}, ${N.toFixed(3)}, ${E.toFixed(3)}, ${Number(z).toFixed(3)}, ${desc}`);
         });
       });
@@ -1376,10 +1398,21 @@ ${parcelsXml}  </Parcels>
     case 'qgis_points': {
       // Build QGIS GCP points file
       let pointsLines: string[] = ['mapX,mapY,pixelX,pixelY,enable,dX,dY,residual'];
-      let gcps = exportFeatures.filter(f => f.geom === 'point' || f.props?.pixelX);
-      if (gcps.length === 0) gcps = exportFeatures.slice(0, 10);
+      // A .points file pairs image pixel positions with ground coordinates so
+      // a scanned map can be georeferenced. Only features that actually carry
+      // a pixel position can do that.
+      //
+      // This used to fall back to the first ten features and lay them out on a
+      // grid — (100, -100), (300, -250), (500, -400) — pairing real ground
+      // coordinates with invented pixel positions. QGIS would warp the raster
+      // onto that fabricated correspondence and every parcel digitised from it
+      // would sit in the wrong place, while the residual column, written as
+      // 0.000, claimed a perfect fit.
+      const gcps = exportFeatures.filter(
+        f => recordedNumber(f.props?.pixelX) != null && recordedNumber(f.props?.pixelY) != null
+      );
 
-      gcps.forEach((f, idx) => {
+      gcps.forEach(f => {
         let E = 0, N = 0;
         if (f.kind === 'll') {
           const utm = lonLatToUtm(f.pts[0].a, f.pts[0].b, zone, south);
@@ -1389,8 +1422,8 @@ ${parcelsXml}  </Parcels>
           E = f.pts[0].a;
           N = f.pts[0].b;
         }
-        const px = f.props?.pixelX ?? (idx * 200 + 100);
-        const py = f.props?.pixelY ?? (idx * 150 + 100);
+        const px = recordedNumber(f.props?.pixelX) as number;
+        const py = recordedNumber(f.props?.pixelY) as number;
         pointsLines.push(`${E.toFixed(4)},${N.toFixed(4)},${px},-${py},1,0.000,0.000,0.000`);
       });
 

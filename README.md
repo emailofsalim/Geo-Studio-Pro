@@ -332,6 +332,26 @@ counts only parcels that have one and says how many do not, and the
 certification claim is gone. The ore verdict now comes from the classification
 the hole was logged with, and is blank when the hole was never classified.
 
+Four more sites in the same builders did the same thing:
+
+- **QGIS ground control points.** A `.points` file pairs image pixel positions
+  with ground coordinates so a scanned map can be georeferenced. When no
+  feature carried a pixel position the builder took the first ten features
+  anyway and laid them out on a grid — (100, −100), (300, −250), (500, −400) —
+  pairing real ground coordinates with invented pixel ones. QGIS warps the
+  raster onto that correspondence, so every parcel digitised from it sits in
+  the wrong place, and the residual column, written as 0.000, claimed a perfect
+  fit. Only recorded control points are written now.
+- **Surpac geological strings.** An unlevelled string was given
+  `100 − pointIndex × 5`, a steady five-metre fall per point that reads as
+  surveyed relief in mine planning. It is now the format's no-data level.
+- **Ore type in those strings.** An unlabelled string defaulted to `ORE`,
+  asserting a geological classification nobody made.
+- **Elevation in the table and LandXML exports.** A feature with no level was
+  written at 0, which is a real elevation and a surveyed one in coastal work.
+  Tables leave it blank; a LandXML CogoPoint is written without its third
+  value, which is valid.
+
 The rule was already written down in this codebase, on the collar-depth helper
 in the borehole tab: *never substitutes a default; a fabricated depth or
 elevation in a collar export reads as a real observation to whoever opens the
