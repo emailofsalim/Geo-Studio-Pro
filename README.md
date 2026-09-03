@@ -711,6 +711,59 @@ or one that is not set, as blank — so "Al₂O₃ ≥ " read like a rule when i
 not — and dropped the upper bound of a `between`. That inline copy is gone and
 the screen now uses `cutoffRuleText`, which was already tested and states both.
 
+## The AI endpoints, and what protects them
+
+**They did not exist in the deployed application.** The frontend calls
+`/api/ai/geomatics-assistant` and `/api/ai/gis-copilot`, but there was no
+`vercel.json` and no `api/` directory, so Vercel built the Vite output and
+served it as a static site. `dist/server.cjs` was built on every deploy and
+never run, and both endpoints returned 404 in production — two shipped features
+that could not work. They are now serverless functions under `api/`, sharing
+their logic with the express server through `src/server/aiService.ts` rather
+than being implemented twice.
+
+**Exposing them without protecting them would have been worse than leaving them
+broken.** They proxy a paid API with a key the server holds, so anyone who can
+reach them can spend the operator's money, and the express server had no auth,
+no rate limiting, no origin policy and no security headers, on a 10 MB body
+limit, bound to `0.0.0.0`. The protections landed in the same change that made
+the endpoints reachable.
+
+What `src/server/requestGuard.ts` does, and — more usefully — what it does not:
+
+| Control | Stops | Does not stop |
+| --- | --- | --- |
+| Origin check | another website driving a visitor's browser to call the endpoints | a scripted client, which can send any `Origin` it likes |
+| Rate limit, per address | casual hammering | a distributed caller; and on serverless the counter is per warm instance, so the real ceiling is the limit times however many are warm |
+| 64 KB body cap | tying the process up with megabyte payloads | anything within the cap |
+| Bearer token (`AI_API_TOKEN`) | anonymous use entirely | nothing, once the token leaks — and a browser page cannot hold one |
+
+**None of this is authentication**, because the application has no user
+accounts. It raises the cost of abuse. A public deployment with a paid key also
+needs a spend cap set at the provider, and nothing in this repository can
+substitute for one.
+
+**And a failed call now says so.** Both AI surfaces fall back to the in-browser
+geomatics engine when the call to this application's own endpoint fails, and
+both did so silently. That is good behaviour with a bad ending: the user still
+gets an answer, so nothing looks wrong — which is precisely why a deployment
+whose endpoints did not exist went unnoticed. Every answer came from the local
+engine, never from the hosted model, and the interface said nothing. The GIS
+copilot did not even render the model badge it was setting.
+
+A fallback now states which engine answered and why, and distinguishes the
+cases that matter: not deployed (404), rate limited (429), refused (401/403),
+too large (413), or unreachable. Verified by serving the built application with
+no `/api` routes at all — the broken deployment reproduced — and confirming the
+notice appears.
+
+Two smaller changes went with it. The server now binds to loopback unless `HOST`
+says otherwise, so starting it does not publish those endpoints on every
+interface by default. And a request to an unknown `/api/` path returns a JSON
+404 rather than falling through to the single-page-application catch-all, which
+had been answering `GET /api/ai/gis-copilot` with the app shell and status 200 —
+found by testing the running server rather than by reading the routes.
+
 ## Data safety
 
 Projects are isolated: data, layers and coordinate systems are keyed per project.

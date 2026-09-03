@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { describeAiFallback } from '../../lib/aiServiceStatus';
 import {
   Sparkles,
   Send,
@@ -26,6 +27,13 @@ interface GisAiCopilotDrawerProps {
   onInsertFeatures: (features: GeoFeature[]) => void;
 }
 
+/** Carries the HTTP status through the catch so the reason can be reported. */
+class CopilotHttpError extends Error {
+  constructor(public status: number) {
+    super(`Copilot service returned ${status}`);
+  }
+}
+
 export const GisAiCopilotDrawer: React.FC<GisAiCopilotDrawerProps> = ({
   isOpen,
   onClose,
@@ -38,6 +46,7 @@ export const GisAiCopilotDrawer: React.FC<GisAiCopilotDrawerProps> = ({
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [modelBadge, setModelBadge] = useState('OpenSource / GeoAI');
+  const [serviceNote, setServiceNote] = useState<string | null>(null);
   const [conversation, setConversation] = useState<{
     role: 'user' | 'assistant';
     text: string;
@@ -93,9 +102,15 @@ export const GisAiCopilotDrawer: React.FC<GisAiCopilotDrawerProps> = ({
           genFeatures = data.generatedFeatures && data.generatedFeatures.length > 0 ? data.generatedFeatures : undefined;
           usedModel = data.model || 'OpenSource-AI';
         } else {
-          throw new Error('Server returned non-200');
+          throw new CopilotHttpError(res.status);
         }
       } catch (srvErr) {
+        // The local fallback answers, so this used to look like nothing had
+        // gone wrong. Say which engine answered and why.
+        setServiceNote(describeAiFallback(
+          srvErr instanceof CopilotHttpError ? srvErr.status : null,
+          srvErr
+        ));
         // Direct client-side open-source inference fallback
         const localRes = await executeGeomaticsAi(textToSend, {
           workingZone,
@@ -234,6 +249,14 @@ export const GisAiCopilotDrawer: React.FC<GisAiCopilotDrawerProps> = ({
       </div>
 
       {/* Input Form */}
+      <div className="px-3 pb-1 text-[10px] text-white/35 font-mono">Engine: {modelBadge}</div>
+
+      {serviceNote && (
+        <div className="mx-3 mb-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-[11px] text-amber-300 leading-relaxed">
+          {serviceNote}
+        </div>
+      )}
+
       <div className="p-3 border-t border-white/10 bg-slate-950/40">
         <form
           onSubmit={e => {
